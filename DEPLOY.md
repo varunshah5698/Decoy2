@@ -45,6 +45,18 @@ The free plan sleeps after idle traffic; the first request after a sleep takes a
 
 `RIVER_BASE_URL` and `RIVER_MODEL` are set in the blueprint. Override them in the dashboard if the provider changes.
 
+### If the AI page says "not configured"
+
+The key is intentionally never committed, so a service created before the variable was entered will start without it. Open the Render dashboard and fix it on the running service:
+
+1. Select the service (for this repository: `decoy2`).
+2. **Environment → Environment Variables → Add Environment Variable**.
+3. Key: `RIVER_API_KEY`. Value: the same value as in `.env.local` (copy the line, never paste it into chat or commit it). Do not prefix it with `VITE_`.
+4. Save. Render restarts the service; if it does not, use **Manual Deploy → Deploy latest commit**.
+5. Check `https://<your-service>.onrender.com/api/health`. It must return `"aiConfigured": true` before the copilot can answer.
+
+For the current deployment that URL is <https://decoy2.onrender.com/api/health>. If it still reports `false`, the variable was added to a different service or environment group, or the value is empty.
+
 ## Option 3 — Netlify
 
 `netlify.toml` builds with Vite, publishes `dist`, rewrites unknown paths to `index.html`, and routes `/api/ai/chat` to the streaming Edge Function in `netlify/edge-functions/ai-chat.js`.

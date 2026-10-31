@@ -115,7 +115,17 @@ const server = createServer((req, res) => {
   const pathname = (req.url || '/').split('?')[0]
 
   if (pathname === '/api/health') {
-    sendJson(res, 200, { ok: true, aiConfigured: Boolean(env.key) })
+    sendJson(
+      res,
+      200,
+      env.key
+        ? { ok: true, aiConfigured: true, model: env.model }
+        : {
+            ok: true,
+            aiConfigured: false,
+            hint: 'Add RIVER_API_KEY as an environment variable on this service, then redeploy.',
+          },
+    )
     return
   }
 
