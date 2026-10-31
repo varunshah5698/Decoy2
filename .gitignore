@@ -10,3 +10,6 @@ dist
 .netlify
 .env*
 ml/.cache
+
+# local verification screenshots
+/*.png
