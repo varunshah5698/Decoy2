@@ -440,9 +440,9 @@ export default function Landing() {
           <div className="container">
             <Reveal>
               <div className="section-head">
-                <span className="mono">04 — Built for every role</span>
+                <span className="mono">04 — Two roles, one signal</span>
                 <h2>
-                  The same signal, at the right <span className="serif-accent">altitude.</span>
+                  The same signal, at two <span className="serif-accent">altitudes.</span>
                 </h2>
               </div>
             </Reveal>
@@ -453,24 +453,16 @@ export default function Landing() {
                   title: 'Triage',
                   em: 'with the why.',
                   copy: 'A prioritised queue where every card explains its inputs, its version check, and what to do next.',
-                  tags: ['Alert center', 'Provenance', 'Network graph', 'What-if'],
+                  tags: ['Alert center', 'Provenance', 'Network graph'],
                   link: '/login?next=%2Fapp%2Falerts',
                 },
                 {
-                  index: 'Manager',
-                  title: 'Decide',
-                  em: 'with the maths.',
-                  copy: 'See the weighted drivers behind the ranking, the exposure of each team, and the effect of a patch window.',
-                  tags: ['Scoring', 'Asset exposure', 'Simulator', 'Statistics'],
+                  index: 'Admin',
+                  title: 'Operate',
+                  em: 'with full control.',
+                  copy: 'Everything analysts see, plus the patch simulator, data intake and exports that change the queue.',
+                  tags: ['Scoring', 'Simulator', 'Data input', 'Exports'],
                   link: '/login?next=%2Fapp%2Fscoring',
-                },
-                {
-                  index: 'Executive',
-                  title: 'See what',
-                  em: 'matters.',
-                  copy: 'A posture score, the few threats that touch business services, and the actions that change them.',
-                  tags: ['Dashboard', 'Posture', 'Trends', 'Reports'],
-                  link: '/login?next=%2Fapp',
                 },
               ].map((role, i) => (
                 <Reveal key={role.index} delay={0.06 * i}>
@@ -624,7 +616,6 @@ export default function Landing() {
               <ul>
                 <li>admin@aegis.demo</li>
                 <li>analyst@aegis.demo</li>
-                <li>viewer@aegis.demo</li>
                 <li style={{ paddingTop: 10, color: 'var(--text-mute)', fontSize: 11.5 }}>
                   Demo data is simulated and labelled. CVEs are real identifiers.
                 </li>
