@@ -9481,6 +9481,16 @@ svg {
   color: var(--text);
 }
 
+.intel-lab .ops-id,
+.cve-lab .ops-id {
+  transition: color 0.18s ease;
+}
+
+.intel-lab .ops-table tbody tr:hover .ops-id,
+.cve-lab .ops-table tbody tr:hover .ops-id {
+  color: var(--teal);
+}
+
 /* CVE signal rails + spectrum motion */
 
 .cve-lab .cve-range-track i {

@@ -320,7 +320,11 @@ export default function Intel() {
           barWidth: '52%',
           animationDelay: (idx: number) => 80 + idx * 42,
           itemStyle: { color: barGradient(TEAL), borderRadius: [0, 0, 0, 0] },
-          emphasis: { itemStyle: { shadowBlur: 16, shadowColor: hexA(TEAL, 0.45) } },
+          emphasis: {
+            focus: 'self',
+            itemStyle: { shadowBlur: 20, shadowColor: hexA(TEAL, 0.55) },
+          },
+          blur: { itemStyle: { opacity: 0.32 } },
         },
         {
           name: 'Simulated / sample',
@@ -329,7 +333,11 @@ export default function Intel() {
           data: TIMELINE.map((bucket) => bucket.simulated),
           animationDelay: (idx: number) => 80 + idx * 42,
           itemStyle: { color: barGradient(SIMULATED), borderRadius: [3, 3, 0, 0] },
-          emphasis: { itemStyle: { shadowBlur: 16, shadowColor: hexA(SIMULATED, 0.45) } },
+          emphasis: {
+            focus: 'self',
+            itemStyle: { shadowBlur: 20, shadowColor: hexA(SIMULATED, 0.55) },
+          },
+          blur: { itemStyle: { opacity: 0.32 } },
           markLine: {
             silent: true,
             symbol: 'none',

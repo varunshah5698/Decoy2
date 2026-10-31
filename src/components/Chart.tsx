@@ -57,6 +57,8 @@ export function Chart({
   const merged = useMemo(() => {
     const t = chartTokens(theme)
     const incomingTooltip = (option.tooltip ?? {}) as Record<string, unknown>
+    const incomingText = (incomingTooltip.textStyle ?? {}) as Record<string, unknown>
+    const incomingPointer = (incomingTooltip.axisPointer ?? {}) as Record<string, unknown>
     return {
       backgroundColor: 'transparent',
       animation: !reduceMotion,
@@ -71,6 +73,7 @@ export function Chart({
         fontFamily: chartFont,
         color: t.text,
       },
+      ...option,
       tooltip: {
         backgroundColor: t.tooltipBg,
         borderColor: t.tooltipBorder,
@@ -78,21 +81,23 @@ export function Chart({
         padding: [10, 12],
         confine: true,
         transitionDuration: 0.18,
+        extraCssText:
+          'box-shadow: 0 18px 44px -16px rgba(0,0,0,.65); border-radius: 8px; backdrop-filter: blur(10px);',
+        ...incomingTooltip,
         axisPointer: {
           lineStyle: { color: t.line, width: 1 },
           crossStyle: { color: t.line, width: 1 },
           shadowStyle: { color: t.dark ? 'rgba(150,168,192,0.07)' : 'rgba(23,30,40,0.05)' },
+          ...incomingPointer,
         },
         textStyle: {
           color: t.tooltipText,
           fontSize: 10.5,
           fontFamily: chartFont,
           lineHeight: 18,
+          ...incomingText,
         },
-        extraCssText: 'box-shadow: 0 16px 40px -14px rgba(0,0,0,.55); border-radius: 8px;',
-        ...incomingTooltip,
       },
-      ...option,
     }
   }, [option, theme, reduceMotion])
 
