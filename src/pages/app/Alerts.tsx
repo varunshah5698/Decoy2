@@ -874,9 +874,9 @@ const plainRange = (cve: Alert['cve']) => {
       ? `after ${range.startExcluding}`
       : null
   const high = range.endIncluding
-    ? `up to ${range.endIncluding} (included)`
+    ? `up to ${range.endIncluding}`
     : range.endExcluding
-      ? `up to ${range.endExcluding} (excluded)`
+      ? `up to but not including ${range.endExcluding}`
       : null
   if (!low && !high) return 'No published range'
   return [low, high].filter(Boolean).join(' ')

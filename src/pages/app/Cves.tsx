@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import { PageHeader, Panel } from '../../components/Panel'
-import { Drawer } from '../../components/Drawer'
+import { Drawer, DrawerHead } from '../../components/Drawer'
 import { StatsPanel } from '../../components/StatsPanel'
 import { EmptyState } from '../../components/EmptyState'
+import { BoardDial, BoardRiskRow, BoardStat, levelColor } from '../../components/BoardDetail'
+import { SeverityBadge } from '../../components/Badges'
 import {
   ArrowRight,
   Bug,
@@ -15,7 +17,7 @@ import {
 } from '../../components/Icons'
 import { DEMO_NOW } from '../../data/seed'
 import { useFilters } from '../../lib/store'
-import { cx, fmtDate, fmtDateTime, fmtPct, timeAgo } from '../../lib/format'
+import { cx, fmtDate, fmtDateTime, fmtPct, fmtScore, timeAgo } from '../../lib/format'
 import { median, quantile } from '../../lib/stats'
 import { LEVEL_COLORS } from '../../lib/colors'
 import { latestLiveFetch, useLiveCves, useLiveFeeds } from '../../lib/liveFeeds'
@@ -136,6 +138,7 @@ export default function Cves() {
   const [bin, setBin] = useState<number | null>(null)
   const [sort, setSort] = useState<SortKey>('cvss')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null)
   const liveCves = useLiveCves()
   const alerts = useLiveAlerts()
   const activeAlerts = useLiveActiveAlerts()
@@ -146,6 +149,7 @@ export default function Cves() {
   const syncAll = useLiveFeeds((s) => s.syncAll)
   const lastFetch = latestLiveFetch(liveMeta)
   const selected = selectedId ? (liveCves.find((c) => c.id === selectedId) ?? null) : null
+  const workspaceCve = workspaceId ? (liveCves.find((c) => c.id === workspaceId) ?? null) : null
   const flows = useCveWorkflow((s) => s.flows)
   const flowCount = Object.keys(flows).length
 
@@ -597,21 +601,252 @@ export default function Cves() {
         />
       </div>
 
-      <Drawer
-        wide
-        open={Boolean(selected)}
-        onClose={() => setSelectedId(null)}
-        label={selected ? `${selected.id} workspace` : 'CVE workspace'}
-      >
+      <Drawer open={Boolean(selected)} onClose={() => setSelectedId(null)} label={selected ? selected.id : 'CVE'} board>
         {selected && (
-          <CveWorkspace
-            key={selected.id}
+          <CveDetail
             cve={selected}
             onClose={() => setSelectedId(null)}
-            onOpenCve={setSelectedId}
+            onOpenWorkspace={() => setWorkspaceId(selected.id)}
+          />
+        )}
+      </Drawer>
+
+      <Drawer
+        wide
+        open={Boolean(workspaceCve)}
+        onClose={() => setWorkspaceId(null)}
+        label={workspaceCve ? `${workspaceCve.id} workspace` : 'CVE workspace'}
+      >
+        {workspaceCve && (
+          <CveWorkspace
+            key={workspaceCve.id}
+            cve={workspaceCve}
+            onClose={() => setWorkspaceId(null)}
+            onOpenCve={setWorkspaceId}
           />
         )}
       </Drawer>
     </div>
+  )
+}
+
+const CWE_NAMES: Record<string, string> = {
+  'CWE-20': 'Improper input validation',
+  'CWE-77': 'Command injection',
+  'CWE-78': 'Operating system command injection',
+  'CWE-89': 'SQL injection',
+  'CWE-94': 'Code injection',
+  'CWE-119': 'Buffer overflow',
+  'CWE-269': 'Improper privilege management',
+  'CWE-287': 'Improper authentication',
+  'CWE-330': 'Weak randomness',
+  'CWE-364': 'Race condition',
+  'CWE-400': 'Resource exhaustion',
+  'CWE-502': 'Unsafe deserialization',
+  'CWE-506': 'Embedded malicious code',
+  'CWE-674': 'Uncontrolled recursion',
+  'CWE-787': 'Out-of-bounds write',
+  'CWE-918': 'Server-side request forgery',
+}
+
+const plainRange = (cve: Cve) => {
+  const { range } = cve
+  const low = range.startIncluding
+    ? `from ${range.startIncluding}`
+    : range.startExcluding
+      ? `after ${range.startExcluding}`
+      : null
+  const high = range.endIncluding
+    ? `up to ${range.endIncluding}`
+    : range.endExcluding
+      ? `up to but not including ${range.endExcluding}`
+      : null
+  if (!low && !high) return 'The vendor has not published a version range.'
+  return `Versions ${[low, high].filter(Boolean).join(' ')} are affected.`
+}
+
+const fixCopy = (cve: Cve) =>
+  /update/i.test(cve.fixVersion) ? `Apply ${cve.fixVersion}` : `Upgrade to ${cve.fixVersion}`
+
+function CveDetail({
+  cve,
+  onClose,
+  onOpenWorkspace,
+}: {
+  cve: Cve
+  onClose: () => void
+  onOpenWorkspace: () => void
+}) {
+  const alerts = useLiveAlerts()
+  const related = alerts
+    .filter((a) => a.cve.id === cve.id)
+    .sort((a, b) => Number(a.suppressed) - Number(b.suppressed) || b.score - a.score)
+  const patch = useLiveFeeds((s) => s.patches[cve.id])
+  const exposure = exposureFor(cve, alertsByCve(alerts))
+  const active = related.filter((a) => !a.suppressed)
+  const matched = active.filter((a) => a.relevance === 'MATCHED')
+  const unverified = active.filter((a) => a.relevance === 'VERSION_UNKNOWN')
+  const cvss = cve.cvss
+  const epss = cve.epss
+  const summary = matched.length
+    ? `${matched.length} system${matched.length === 1 ? ' is' : 's are'} running an affected version.`
+    : unverified.length
+      ? `${unverified.length} system${unverified.length === 1 ? '' : 's'} run ${cve.product}, but the installed version needs checking.`
+      : 'No system in the demo inventory currently matches this CVE.'
+
+  return (
+    <>
+      <DrawerHead
+        overline={`${cve.id} · ${cve.vendor} ${cve.product}`}
+        title={cve.title}
+        onClose={onClose}
+        meta={
+          <span className="inline-flex" style={{ flexWrap: 'wrap', gap: 6 }}>
+            <SeverityBadge level={cve.severity} />
+            {cve.kev && <span className="badge critical">Known exploited</span>}
+            <span className={matched.length > 0 ? 'badge high' : 'badge medium'}>
+              {matched.length > 0 ? `${matched.length} affected ${matched.length === 1 ? 'asset' : 'assets'}` : exposure.label}
+            </span>
+          </span>
+        }
+      />
+      <div className="drawer-body">
+        <div className="drawer-section">
+          <div className="bd-hero bd-hero-cve">
+            <div className="bd-cve-dials">
+              <BoardDial
+                value={cvss ?? 0}
+                max={10}
+                color={cvss == null ? 'var(--bd-muted)' : 'var(--bd-crit)'}
+                display={cvss == null ? '—' : cvss.toFixed(1)}
+                label="Severity"
+                sub="CVSS · 0–10"
+                size={136}
+                stroke={9}
+              />
+              <BoardDial
+                value={(epss ?? 0) * 100}
+                max={100}
+                color="var(--bd-orange)"
+                display={epss == null ? '—' : fmtPct(epss)}
+                label="Exploit chance"
+                sub="next 30 days"
+                size={136}
+                stroke={9}
+              />
+            </div>
+            <div className="bd-hero-copy">
+              <span className="bd-kicker">{cve.kev ? 'Known exploited · act now' : `${cve.severity} severity`}</span>
+              <h3>{cve.title}</h3>
+              <p>{summary}</p>
+              <div className="bd-chips">
+                <span className="bd-chip is-live">{fixCopy(cve)}</span>
+                <span className="bd-chip">Published {fmtDate(cve.published)}</span>
+              </div>
+            </div>
+          </div>
+          <div className="bd-stats" style={{ marginTop: 12 }}>
+            <BoardStat label="Affected assets" value={matched.length} sub="installed version in range" tone="orange" />
+            <BoardStat label="Need a version check" value={unverified.length} sub="software found, version unknown" />
+            <BoardStat
+              label="Known exploited"
+              value={cve.kev ? 'Yes' : 'No'}
+              sub={cve.kev ? 'in the CISA catalog' : 'no confirmed exploitation'}
+              tone={cve.kev ? 'orange' : undefined}
+            />
+          </div>
+        </div>
+
+        <div className="drawer-section">
+          <h3>What happened</h3>
+          <p>{cve.description}</p>
+        </div>
+
+        <div className="drawer-section">
+          <h3>Exposure in your estate</h3>
+          {related.length === 0 ? (
+            <div className="bd-empty">No system in the demo inventory matches this CVE right now.</div>
+          ) : (
+            <div className="bd-risks">
+              {related.map((a) => (
+                <BoardRiskRow
+                  key={a.id}
+                  title={a.asset.name}
+                  badge={<SeverityBadge level={a.level} suppressed={a.suppressed} />}
+                  value={a.suppressed ? 0 : a.score}
+                  display={a.suppressed ? 'Held' : fmtScore(a.score)}
+                  color={a.suppressed ? 'var(--bd-slate)' : levelColor[a.level]}
+                  muted={a.suppressed}
+                  meta={
+                    <>
+                      <span>{a.version === 'unknown' ? 'Version not recorded' : `Installed ${a.version}`}</span>
+                      <span>
+                        {a.suppressed
+                          ? 'Held back by the version check'
+                          : a.relevance === 'MATCHED'
+                            ? 'Version in range'
+                            : 'Waiting for a version check'}
+                      </span>
+                    </>
+                  }
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="drawer-section">
+          <h3>How to fix it</h3>
+          <div className="bd-action">
+            <span className="bd-kicker">Recommended fix</span>
+            <strong>{fixCopy(cve)}</strong>
+            <p>{plainRange(cve)}</p>
+            {cve.kev && cve.kevDue && <span className="bd-due">CISA remediation deadline · {fmtDate(cve.kevDue)}</span>}
+            <button type="button" className="bd-btn" style={{ marginTop: 12 }} onClick={onOpenWorkspace}>
+              Open response workspace <ArrowRight size={12} />
+            </button>
+          </div>
+        </div>
+
+        <div className="drawer-section">
+          <h3>Vulnerability type</h3>
+          <div className="bd-chips">
+            {cve.cwe.map((code) => (
+              <span className="bd-chip" key={code}>
+                {CWE_NAMES[code] ?? 'Classified weakness'}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="drawer-section">
+          <h3>References</h3>
+          <div className="bd-links">
+            {cve.refs.map((r) => (
+              <a key={r.url} href={r.url} target="_blank" rel="noreferrer" className="bd-link">
+                <span>{r.source} record</span>
+                <ExternalLink size={12} />
+              </a>
+            ))}
+          </div>
+        </div>
+
+        <div className="drawer-section">
+          <h3>Where this data comes from</h3>
+          <div className="bd-chips">
+            <span className="bd-chip">NVD {patch?.nvdAt ? `· updated ${timeAgo(patch.nvdAt)}` : '· demo snapshot'}</span>
+            <span className="bd-chip">FIRST EPSS {patch?.epssAt ? `· updated ${timeAgo(patch.epssAt)}` : '· demo snapshot'}</span>
+            <span className="bd-chip">CISA KEV {patch?.kevAt ? `· updated ${timeAgo(patch.kevAt)}` : '· demo snapshot'}</span>
+          </div>
+          <p style={{ marginTop: 10, fontSize: 11, color: 'var(--bd-muted)' }}>
+            The vulnerability record is real. Asset matching uses the demo inventory.
+          </p>
+        </div>
+      </div>
+      <div className="drawer-foot">
+        <span>Published {fmtDate(cve.published)}</span>
+        <span>Last updated {fmtDate(cve.modified)}</span>
+      </div>
+    </>
   )
 }
