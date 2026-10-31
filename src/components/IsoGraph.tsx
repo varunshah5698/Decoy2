@@ -225,6 +225,7 @@ export interface IsoGraphProps {
   hover: string | null
   selected: string
   liveLabel?: string
+  allAlerts?: Alert[]
   onHover: (id: string | null) => void
   onSelect: (id: string) => void
 }
@@ -237,6 +238,7 @@ export function IsoGraph({
   hover,
   selected,
   liveLabel,
+  allAlerts,
   onHover,
   onSelect,
 }: IsoGraphProps) {
@@ -258,7 +260,7 @@ export function IsoGraph({
     return map
   }, [alerts])
 
-  const linkedCveIds = useMemo(() => new Set(alerts.map((alert) => alert.cve.id)), [alerts])
+  const linkedCveIds = useMemo(() => new Set((allAlerts ?? alerts).map((alert) => alert.cve.id)), [alerts, allAlerts])
   const unlinked = useMemo(() => cves.filter((cve) => !linkedCveIds.has(cve.id)), [cves, linkedCveIds])
 
   const assetIds = useMemo(() => new Set(nodes.map((node) => node.asset.id)), [nodes])
@@ -463,6 +465,7 @@ export function IsoGraph({
       onPointerLeave={handleLeave}
     >
       <div className="iso-graph-bg" aria-hidden="true" />
+      <div className="iso-graph-aura" aria-hidden="true" />
       <div className="iso-graph-light" aria-hidden="true" />
       <svg
         className="iso-svg"
@@ -513,7 +516,7 @@ export function IsoGraph({
               fill="none"
               stroke="#3ed2c1"
               strokeWidth={assetLit(node) ? 0.95 : 0.65}
-              opacity={hubFocus ? 0.24 : assetLit(node) ? 0.55 : 0.08}
+              opacity={hubFocus ? 0.3 : assetLit(node) ? 0.62 : 0.1}
               strokeDasharray="1.2 2.6"
               className="iso-spoke-flow"
             />
@@ -525,7 +528,9 @@ export function IsoGraph({
             const color = marker.primary.suppressed ? SUPPRESSED_COLOR : EDGE_COLORS[marker.primary.level]
             const related = markerLit(marker)
             const strong = related && !hubFocus
-            const opacity = marker.primary.suppressed ? (strong ? 0.5 : related ? 0.3 : 0.1) : strong ? 0.95 : related ? 0.52 : 0.18
+            const opacity = marker.primary.suppressed
+              ? (strong ? 0.58 : related ? 0.34 : 0.12)
+              : strong ? 1 : related ? 0.62 : 0.22
             return (
               <g key={`edge-${marker.key}`}>
                 <path
@@ -533,7 +538,7 @@ export function IsoGraph({
                   pathLength={100}
                   fill="none"
                   stroke={color}
-                  strokeWidth={strong ? 1.9 : related ? 1.15 : 0.85}
+                  strokeWidth={strong ? 2.1 : related ? 1.3 : 0.95}
                   opacity={opacity}
                   strokeDasharray={marker.primary.suppressed ? '2 5' : '4 4'}
                   strokeLinecap="round"
@@ -592,7 +597,13 @@ export function IsoGraph({
               <g
                 key={marker.key}
                 transform={`translate(${marker.x.toFixed(1)} ${marker.y.toFixed(1)})`}
-                className={cx('iso-hazard', !lit && 'is-dim', active && 'is-active', !hubFocus && lit && 'is-labelled')}
+                className={cx(
+                  'iso-hazard',
+                  !lit && 'is-dim',
+                  active && 'is-active',
+                  !hubFocus && lit && 'is-labelled',
+                  marker.primary.level === 'CRITICAL' && !marker.primary.suppressed && 'is-critical',
+                )}
                 onMouseEnter={(e) => showTip(e, markerTip(marker), marker.cve.id)}
                 onMouseLeave={hideTip}
                 onClick={() => onSelect(marker.cve.id)}
@@ -683,6 +694,8 @@ export function IsoGraph({
         )}
       </svg>
 
+      <div className="iso-scan" aria-hidden="true" />
+      <div className="iso-frame" aria-hidden="true" />
       <div className="iso-graph-vignette" aria-hidden="true" />
 
       <div className="iso-hud iso-hud-tl" aria-hidden="true">

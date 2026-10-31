@@ -286,7 +286,7 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
 
           <Card
             title="Linked inventory"
-            sub={`${nodeAlerts.length} asset${nodeAlerts.length === 1 ? '' : 's'} carry this record`}
+            sub={`${nodeAlerts.length} asset${nodeAlerts.length === 1 ? ' carries' : 's carry'} this record`}
             action={
               <button className="wb-link" onClick={() => setTab('connections')}>
                 Exposure <ArrowRight size={11} />
@@ -494,7 +494,7 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
                 />
                 <span className="wb-node-main">
                   <strong>{entry.name}</strong>
-                  <span>{entry.department} · {count} paths</span>
+                  <span>{entry.department} · {count} {count === 1 ? 'path' : 'paths'}</span>
                 </span>
                 <span className={cx('wb-node-score', worst?.level.toLowerCase())}>
                   {worst ? fmtScore(worst.score) : '—'}
@@ -515,7 +515,7 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
                 />
                 <span className="wb-node-main">
                   <strong className="mono">{entry.id}</strong>
-                  <span>{entry.vendor} {entry.product} · {count ? `${count} paths` : 'unlinked'}</span>
+                  <span>{entry.vendor} {entry.product} · {count ? `${count} ${count === 1 ? 'path' : 'paths'}` : 'unlinked'}</span>
                 </span>
                 <span className={cx('wb-node-score', worst?.level.toLowerCase())}>
                   {worst ? fmtScore(worst.score) : 'UNLINKED'}

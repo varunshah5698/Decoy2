@@ -1,29 +1,32 @@
 import { useMemo, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { PageHeader, Panel } from '../../components/Panel'
-import { StatsPanel } from '../../components/StatsPanel'
+import { Panel } from '../../components/Panel'
 import { SeverityBadge, RelevanceBadge, SimulatedBadge } from '../../components/Badges'
 import {
   ArrowRight,
   Boxes,
   Bug,
+  Crosshair,
   Database,
+  Gauge,
   Globe2,
   Info,
   LayoutGrid,
   Network,
+  Radar,
   RefreshCw,
   Search,
   Server,
   Shield,
   ShieldAlert,
   Sparkles,
+  Zap,
 } from '../../components/Icons'
 import { IsoGraph } from '../../components/IsoGraph'
 import { NodeWorkbench } from '../../components/NodeWorkbench'
 import { DEMO_NOW } from '../../data/seed'
-import { useCorrelationModel } from '../../lib/correlation'
-import { latestLiveFetch, useLiveFeeds } from '../../lib/liveFeeds'
+import { RISK_ORDER, useCorrelationModel } from '../../lib/correlation'
+import { LIVE_SOURCES, latestLiveFetch, useLiveFeeds } from '../../lib/liveFeeds'
 import { useFilters } from '../../lib/store'
 import { cx, fmtPct, fmtScore, timeAgo } from '../../lib/format'
 import { LEVEL_COLORS, levelColor } from '../../lib/colors'
@@ -37,6 +40,23 @@ const ASSET_ICONS = {
   endpoint: LayoutGrid,
 } as const
 
+type Scope = 'all' | 'active' | 'critical' | 'kev' | 'suppressed'
+
+const SCOPES: { key: Scope; label: string }[] = [
+  { key: 'all', label: 'All paths' },
+  { key: 'active', label: 'Active' },
+  { key: 'critical', label: 'Critical' },
+  { key: 'kev', label: 'KEV' },
+  { key: 'suppressed', label: 'Suppressed' },
+]
+
+const RING = 2 * Math.PI * 46
+
+const relativeTime = (iso: string) => {
+  const label = timeAgo(iso)
+  return label.startsWith('0m') ? 'just now' : label
+}
+
 export default function Graph() {
   const navigate = useNavigate()
   const query = useFilters((s) => s.query)
@@ -44,87 +64,207 @@ export default function Graph() {
   const [hover, setHover] = useState<string | null>(null)
   const [selected, setSelected] = useState<string>('hub')
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
+  const [scope, setScope] = useState<Scope>('all')
 
   const model = useCorrelationModel()
   const syncing = useLiveFeeds((s) => s.syncing)
   const phase = useLiveFeeds((s) => s.phase)
+  const progress = useLiveFeeds((s) => s.progress)
   const liveMeta = useLiveFeeds((s) => s.meta)
   const syncAll = useLiveFeeds((s) => s.syncAll)
   const lastFetch = latestLiveFetch(liveMeta)
+  const pullLabel = lastFetch ? relativeTime(lastFetch) : null
 
   const openNode = (id: string) => {
     setSelected(id)
     setWorkbenchOpen(true)
   }
 
-  const focusedAsset = model.assets.find((asset) => asset.id === selected)
-  const focusedCve = model.cves.find((cve) => cve.id === selected)
+  const activeAlerts = useMemo(() => model.alerts.filter((alert) => !alert.suppressed), [model.alerts])
+
+  const scopeCounts = useMemo(
+    () => ({
+      all: model.alerts.length,
+      active: model.counts.active,
+      critical: model.counts.critical,
+      kev: model.counts.kev,
+      suppressed: model.counts.suppressed,
+    }),
+    [model],
+  )
+
+  const scopedAlerts = useMemo(() => {
+    switch (scope) {
+      case 'active':
+        return activeAlerts
+      case 'critical':
+        return model.alerts.filter((alert) => !alert.suppressed && alert.level === 'CRITICAL')
+      case 'kev':
+        return model.alerts.filter((alert) => alert.cve.kev)
+      case 'suppressed':
+        return model.alerts.filter((alert) => alert.suppressed)
+      default:
+        return model.alerts
+    }
+  }, [activeAlerts, model.alerts, scope])
+
+  const focusId = hover ?? selected
+  const focusedAsset = model.assets.find((asset) => asset.id === focusId)
+  const focusedCve = model.cves.find((cve) => cve.id === focusId)
   const isHub = !focusedAsset && !focusedCve
 
   const focusedAlerts = useMemo(() => {
-    if (isHub) return model.alerts.slice(0, 4)
-    return model.alerts.filter((alert) => alert.asset.id === selected || alert.cve.id === selected)
-  }, [model, selected, isHub])
+    if (isHub) return activeAlerts.slice(0, 4)
+    return model.alerts.filter((alert) => alert.asset.id === focusId || alert.cve.id === focusId)
+  }, [model.alerts, activeAlerts, focusId, isHub])
+
+  const focusedActive = useMemo(
+    () =>
+      focusedAlerts.filter((alert) => !alert.suppressed).sort((a, b) => b.score - a.score),
+    [focusedAlerts],
+  )
 
   const focusedTitle = focusedAsset?.name ?? focusedCve?.id ?? 'AEGIS core'
   const focusedMeta = focusedAsset
-    ? `${focusedAsset.department} · ${focusedAsset.type} · ${focusedAsset.criticality}`
+    ? `${focusedAsset.department} · ${focusedAsset.type} · ${focusedAsset.criticality} criticality`
     : focusedCve
-      ? `${focusedCve.vendor} ${focusedCve.product} · CVSS ${focusedCve.cvss?.toFixed(1) ?? '—'}`
+      ? `${focusedCve.vendor} ${focusedCve.product} · CVSS ${focusedCve.cvss?.toFixed(1) ?? '—'} · ${focusedCve.kev ? 'CISA KEV' : 'not in KEV'}`
       : `${model.assets.length} assets · ${model.cves.length} CVEs · ${model.alerts.length} correlation paths`
 
-  const worst = focusedAsset
-    ? ((model.alertsByAsset.get(focusedAsset.id) ?? []).find((alert) => !alert.suppressed) ?? null)
-    : null
+  const worst = focusedActive[0] ?? null
+  const meanActive = activeAlerts.length
+    ? activeAlerts.reduce((sum, alert) => sum + alert.score, 0) / activeAlerts.length
+    : 0
+  const railScore = worst ? worst.score : meanActive
+  const railLevel = worst?.level ?? activeAlerts[0]?.level ?? 'LOW'
+  const railScoreLabel = worst ? (focusedAsset ? 'worst path' : 'highest linked') : 'mesh mean'
 
   const AssetIcon = focusedAsset ? ASSET_ICONS[focusedAsset.type] : Server
+  const FocusIcon = focusedAsset ? AssetIcon : focusedCve ? Bug : Network
+
   const nodeCount = model.assets.length + model.cves.length + 1
   const density = (
     (2 * model.alerts.length) / nodeCount / (model.assets.length + model.cves.length)
   ).toFixed(4)
 
+  const mix = [...RISK_ORDER].reverse().map((level) => ({
+    level,
+    count: activeAlerts.filter((alert) => alert.level === level).length,
+  }))
+  const mixMax = Math.max(1, ...mix.map((entry) => entry.count))
+
+  const priority = activeAlerts.slice(0, 5)
+  const feedRows = LIVE_SOURCES.map((source) => {
+    const entry = liveMeta[source]
+    return {
+      source,
+      live: entry?.status === 'ok',
+      records: entry?.records,
+      at: entry?.fetchedAt,
+    }
+  })
+
+  const onHeroMove = (e: React.PointerEvent<HTMLElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    e.currentTarget.style.setProperty('--mx', `${e.clientX - rect.left}px`)
+    e.currentTarget.style.setProperty('--my', `${e.clientY - rect.top}px`)
+  }
+
   return (
-    <div className="page">
-      <PageHeader
-        eyebrow="COMPONENT 04 · NETWORK GRAPH"
-        title="The mesh behind every alert"
-        description="A simulated inventory rendered as an isometric exposure mesh. Asset nodes connect to live CVE nodes through version-gated correlation edges, enriched by NVD, CISA KEV and FIRST EPSS. Hover to trace a neighbourhood; tap any node to open its analysis workbench."
-        actions={
-          <>
-            <span className="chip">
-              <Network size={12} /> {model.alerts.length} correlation paths
-            </span>
-            <span className="chip">
-              <ShieldAlert size={12} /> {model.counts.assetsWithHazards} assets with hazards
-            </span>
-            <span className="chip chip-live" title={lastFetch ? `Live pull ${lastFetch}` : 'No live pull yet'}>
-              <i className={cx('chip-live-dot', lastFetch && 'on')} />
-              {syncing
-                ? `syncing ${phase ?? 'feeds'}`
-                : lastFetch
-                  ? `live · ${timeAgo(lastFetch)}`
-                  : 'seed snapshot'}
-            </span>
+    <div className="page graph-page">
+      <section className="graph-hero" onPointerMove={onHeroMove}>
+        <span className="graph-hero-grid" aria-hidden="true" />
+        <span className="graph-hero-aura" aria-hidden="true" />
+        <div className="graph-hero-copy">
+          <span className="graph-eyebrow">
+            <i className="graph-eyebrow-dot" /> Component 04 · Network graph
+          </span>
+          <h1>
+            The mesh behind <span>every alert.</span>
+          </h1>
+          <p>
+            A simulated estate rendered as an isometric exposure mesh. Every asset is wired to live CVE
+            records through version-gated correlation edges, then scored with NVD, CISA KEV and FIRST EPSS.
+            <strong> Tap any node for its full workbench.</strong>
+          </p>
+        </div>
+
+        <div className="graph-hero-deck">
+          <div className="graph-sync">
+            <span className={cx('graph-sync-dot', (lastFetch || syncing) && 'on')} />
+            <div className="graph-sync-copy">
+              <b>{syncing ? `Syncing ${phase ?? 'feeds'}` : lastFetch ? 'Live intelligence' : 'Seed snapshot'}</b>
+              <span>
+                {syncing && progress
+                  ? `NVD record ${progress.done} of ${progress.total}`
+                  : lastFetch
+                    ? `Pulled ${pullLabel} · NVD / KEV / EPSS`
+                    : 'No live pull yet this session'}
+              </span>
+            </div>
             <button
-              className="btn btn-ghost btn-sm"
+              className="graph-sync-btn"
               onClick={() => void syncAll({ force: true })}
               disabled={syncing}
               aria-busy={syncing}
+              aria-label="Sync live feeds"
             >
-              <RefreshCw size={13} className={syncing ? 'spin' : undefined} />
-              {syncing ? 'Syncing' : 'Sync feeds'}
+              <RefreshCw size={14} className={syncing ? 'spin' : undefined} />
             </button>
-          </>
-        }
-      />
+          </div>
 
-      <div className="dash-grid">
+          <div className="graph-hero-stats">
+            <div className="graph-hero-stat">
+              <span>Paths</span>
+              <b>{model.alerts.length}</b>
+              <i>{model.counts.active} active</i>
+            </div>
+            <div className="graph-hero-stat">
+              <span>Exposed assets</span>
+              <b>{model.counts.assetsWithHazards}</b>
+              <i>of {model.assets.length} in estate</i>
+            </div>
+            <div className="graph-hero-stat">
+              <span>KEV-backed</span>
+              <b>{model.counts.kev}</b>
+              <i>actively exploited</i>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="dash-grid graph-deck">
         <Panel
-          className="col-8 mesh-panel"
-          title="Exposure mesh"
-          sub="Inner ring · critical systems     Outer ring · supporting estate"
+          className="col-8 deck-mesh"
+          title={
+            <span className="deck-title">
+              <Radar size={14} /> Exposure mesh
+            </span>
+          }
+          sub="Inner ring · critical systems      Outer ring · supporting estate"
           action={
-            <div className="topbar-search" style={{ maxWidth: 210, height: 30 }}>
+            <span className="deck-beta">
+              <i /> {scopedAlerts.length} of {model.alerts.length} paths
+            </span>
+          }
+          noPad
+        >
+          <div className="deck-bar">
+            <div className="scope-rail" role="tablist" aria-label="Filter correlation paths">
+              {SCOPES.map((entry) => (
+                <button
+                  key={entry.key}
+                  role="tab"
+                  aria-selected={scope === entry.key}
+                  className={cx('scope-chip', scope === entry.key && 'on')}
+                  onClick={() => setScope(entry.key)}
+                >
+                  {entry.label}
+                  <b>{scopeCounts[entry.key]}</b>
+                </button>
+              ))}
+            </div>
+            <div className="deck-search">
               <Search size={12} />
               <input
                 value={query}
@@ -133,285 +273,441 @@ export default function Graph() {
                 aria-label="Find graph node"
               />
             </div>
-          }
-          noPad
-        >
-          <IsoGraph
-            alerts={model.alerts}
-            assets={model.assets}
-            cves={model.cves}
-            query={query}
-            hover={hover}
-            selected={selected}
-            liveLabel={
-              syncing
-                ? `syncing ${phase ?? 'feeds'}`
-                : lastFetch
-                  ? `live · ${timeAgo(lastFetch)}`
-                  : 'seed snapshot'
-            }
-            onHover={setHover}
-            onSelect={openNode}
-          />
+          </div>
+          <div className="deck-canvas">
+            <IsoGraph
+              alerts={scopedAlerts}
+              allAlerts={model.alerts}
+              assets={model.assets}
+              cves={model.cves}
+              query={query}
+              hover={hover}
+              selected={selected}
+              liveLabel={
+                syncing
+                  ? `syncing ${phase ?? 'feeds'}`
+                  : lastFetch
+                    ? `live · ${pullLabel}`
+                    : 'seed snapshot'
+              }
+              onHover={setHover}
+              onSelect={openNode}
+            />
+            {scopedAlerts.length === 0 && (
+              <div className="deck-empty">
+                <Crosshair size={18} />
+                <strong>No paths in this scope</strong>
+                <span>Switch the scope filter to repopulate the mesh.</span>
+                <button className="btn btn-ghost btn-sm" onClick={() => setScope('all')}>
+                  Reset to all paths
+                </button>
+              </div>
+            )}
+          </div>
         </Panel>
 
-        <Panel
-          className="col-4 mesh-inspector"
-          title={focusedTitle}
-          sub={focusedMeta}
-          action={focusedCve ? <span className="badge real">live CVE record</span> : <SimulatedBadge />}
-          bodyClass="panel-body"
-        >
-          <div className="mesh-inspector-body">
-            {focusedAsset && (
-              <>
-                <div className="mesh-ident">
-                  <span className="mesh-ident-icon" style={{ borderColor: worst ? 'rgba(255,95,109,.4)' : 'var(--line)' }}>
-                    <AssetIcon size={22} strokeWidth={1.5} />
-                  </span>
-                  <div>
-                    <span className="mesh-kicker">SIMULATED ASSET</span>
-                    <div className="mesh-ident-name">{focusedAsset.businessFunction}</div>
-                    <div className="mesh-pills">
-                      <span className={`badge ${focusedAsset.criticality.toLowerCase()}`}>{focusedAsset.criticality}</span>
-                      <span className={`badge ${focusedAsset.internetFacing ? 'high' : 'suppressed'}`}>
-                        {focusedAsset.internetFacing ? 'Internet-facing' : 'Internal'}
-                      </span>
-                      <span className="badge suppressed">{focusedAsset.sensitivity} sensitivity</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mesh-facts">
-                  <span><b>{focusedAlerts.length}</b> paths</span>
-                  <span><b>{focusedAsset.software.length}</b> packages</span>
-                  <span><b>{worst ? fmtScore(worst.score) : '—'}</b> worst score</span>
-                </div>
-              </>
-            )}
+        <aside className="col-4 graph-rail">
+          <div className="rail-head">
+            <div className="rail-ident">
+              <span
+                className="rail-icon"
+                style={{ borderColor: `${levelColor(railLevel)}55`, color: levelColor(railLevel) }}
+              >
+                <FocusIcon size={20} strokeWidth={1.6} />
+              </span>
+              <div>
+                <span className="rail-kicker">
+                  {isHub ? 'Correlation core' : focusedAsset ? 'Asset node' : 'CVE node'} ·{' '}
+                  {isHub ? 'AEGIS' : selected}
+                </span>
+                <h2 className="rail-title">{focusedTitle}</h2>
+              </div>
+            </div>
+            <p className="rail-meta">{focusedMeta}</p>
 
-            {focusedCve && (
-              <>
-                <div className="mesh-ident">
-                  <span className="mesh-ident-icon" style={{ borderColor: `${LEVEL_COLORS[focusedCve.severity]}66` }}>
-                    <Bug size={22} strokeWidth={1.5} />
+            <div className="rail-pills">
+              {focusedAsset && (
+                <>
+                  <span className={`badge ${focusedAsset.criticality.toLowerCase()}`}>{focusedAsset.criticality}</span>
+                  <span className={`badge ${focusedAsset.internetFacing ? 'high' : 'suppressed'}`}>
+                    {focusedAsset.internetFacing ? 'Internet-facing' : 'Internal'}
                   </span>
-                  <div>
-                    <span className="mesh-kicker">NVD RECORD · LIVE ENRICHED</span>
-                    <div className="mesh-ident-name">{focusedCve.title}</div>
-                    <div className="mesh-pills">
-                      <SeverityBadge level={focusedCve.severity} />
-                      {focusedCve.kev && <span className="badge critical">CISA KEV</span>}
-                      <span className="badge suppressed">{focusedCve.cwe[0]}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mesh-facts">
-                  <span><b>{focusedCve.cvss?.toFixed(1) ?? '—'}</b> cvss</span>
-                  <span><b>{focusedCve.epss == null ? '—' : fmtPct(focusedCve.epss)}</b> epss</span>
-                  <span><b>{focusedAlerts.length}</b> linked</span>
-                </div>
-              </>
-            )}
+                  <span className="badge suppressed">{focusedAsset.sensitivity} sensitivity</span>
+                </>
+              )}
+              {focusedCve && (
+                <>
+                  <SeverityBadge level={focusedCve.severity} />
+                  {focusedCve.kev && <span className="badge critical">CISA KEV</span>}
+                  <span className="badge suppressed">{focusedCve.cwe[0]}</span>
+                </>
+              )}
+              {isHub && (
+                <>
+                  <span className="badge real">Live enrichment</span>
+                  <span className="badge suppressed">Deterministic seed</span>
+                  <span className="badge simulated">Formula v1.1</span>
+                </>
+              )}
+            </div>
+          </div>
 
-            {isHub && (
-              <>
-                <div className="mesh-ident">
-                  <span className="mesh-ident-icon mesh-ident-core">
-                    <Network size={22} strokeWidth={1.5} />
+          <div className="rail-score">
+            <div className="rail-ring">
+              <svg viewBox="0 0 120 120" role="img" aria-label={`${railScoreLabel} score ${railScore.toFixed(1)}`}>
+                <circle cx="60" cy="60" r="46" className="rail-ring-track" />
+                <circle
+                  cx="60"
+                  cy="60"
+                  r="46"
+                  className="rail-ring-value"
+                  style={
+                    {
+                      stroke: levelColor(railLevel),
+                      strokeDasharray: `${(Math.min(100, railScore) / 100) * RING} ${RING}`,
+                    } as CSSProperties
+                  }
+                />
+              </svg>
+              <div className="rail-ring-mid">
+                <b style={{ color: levelColor(railLevel) }}>{fmtScore(railScore)}</b>
+                <span>{railScoreLabel}</span>
+              </div>
+            </div>
+            <div className="rail-score-side">
+              <span className="rail-kicker">Exposure posture</span>
+              <strong className="rail-level" style={{ color: levelColor(railLevel) }}>
+                {worst?.suppressed ? 'Suppressed' : railLevel}
+              </strong>
+              <p>
+                {isHub
+                  ? `${activeAlerts.length} active paths across ${model.counts.assetsWithHazards} exposed assets.`
+                  : worst
+                    ? `${worst.cve.id} · ${worst.relevance.replace(/_/g, ' ').toLowerCase()}`
+                    : 'No active correlation path for this node.'}
+              </p>
+              <div className="rail-fact-row">
+                {(focusedAsset
+                  ? [
+                      ['paths', String(focusedAlerts.length)],
+                      ['packages', String(focusedAsset.software.length)],
+                      ['hazards', String(focusedActive.length)],
+                    ]
+                  : focusedCve
+                    ? [
+                        ['cvss', focusedCve.cvss?.toFixed(1) ?? '—'],
+                        ['epss', focusedCve.epss == null ? '—' : fmtPct(focusedCve.epss)],
+                        ['linked', String(focusedAlerts.length)],
+                      ]
+                    : [
+                        ['assets', String(model.assets.length)],
+                        ['cves', String(model.cves.length)],
+                        ['unlinked', String(model.counts.unlinked)],
+                      ]
+                ).map(([label, value]) => (
+                  <span key={label}>
+                    <b>{value}</b>
+                    {label}
                   </span>
-                  <div>
-                    <span className="mesh-kicker">CORRELATION CORE</span>
-                    <div className="mesh-ident-name">Version-gated correlation across the simulated estate.</div>
-                    <div className="mesh-pills">
-                      <span className="badge real">Live enrichment</span>
-                      <span className="badge suppressed">Deterministic seed</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mesh-facts">
-                  <span><b>{model.assets.length}</b> assets</span>
-                  <span><b>{model.cves.length}</b> cves</span>
-                  <span><b>{model.alerts.length}</b> paths</span>
-                </div>
-              </>
-            )}
-
-            {focusedAlerts.length > 0 ? (
-              <div className="mesh-alert-stack">
-                <div className="mesh-section-label">
-                  {isHub ? 'Highest-priority paths' : focusedAsset ? 'Connected hazards' : 'Linked paths'}
-                  <span>{focusedAlerts.length}</span>
-                </div>
-                {focusedAlerts.map((alert) => (
-                  <button
-                    key={alert.id}
-                    className="mesh-alert"
-                    onClick={() => navigate(`/app/alerts?alert=${alert.id}`)}
-                    style={{ '--alert-tone': levelColor(alert.level, alert.suppressed) } as CSSProperties}
-                  >
-                    <span className="mesh-alert-rail" />
-                    <span className="mesh-alert-main">
-                      <span className="mesh-alert-top">
-                        <strong>{focusedCve ? alert.asset.name : alert.cve.id}</strong>
-                        <SeverityBadge level={alert.level} suppressed={alert.suppressed} />
-                      </span>
-                      <span className="mesh-alert-sub">
-                        {focusedCve ? alert.cve.product : alert.asset.department} · {alert.relevance.replace(/_/g, ' ')}
-                      </span>
-                    </span>
-                    <span className={`score-cell ${alert.suppressed ? 'suppressed' : alert.level.toLowerCase()}`}>
-                      {fmtScore(alert.score)}
-                    </span>
-                  </button>
                 ))}
               </div>
-            ) : (
-              <div className="mesh-empty">
-                <Info size={14} />
-                <div>
-                  <strong>No inventory hit yet.</strong>
-                  <p>
-                    This CVE has no correlated asset path in the mesh, so it is drawn as an unlinked shard rather than a
-                    hazard attached to a platform.
-                  </p>
-                </div>
-              </div>
-            )}
+            </div>
+          </div>
 
-            <button className="mesh-workbench-cta" onClick={() => setWorkbenchOpen(true)}>
+          <div className="rail-paths">
+            <div className="rail-section">
+              <span>
+                {isHub ? 'Highest-priority paths' : focusedAsset ? 'Connected hazards' : 'Linked paths'}
+              </span>
+              <b>{focusedAlerts.length}</b>
+            </div>
+            {focusedAlerts.length === 0 ? (
+              <div className="rail-empty">
+                <Info size={13} />
+                This CVE has no inventory hit, so it is drawn as an unlinked shard.
+              </div>
+            ) : (
+              focusedAlerts.slice(0, 4).map((alert) => (
+                <button
+                  key={alert.id}
+                  className="rail-path"
+                  onClick={() => navigate(`/app/alerts?alert=${alert.id}`)}
+                  style={{ '--tone': levelColor(alert.level, alert.suppressed) } as CSSProperties}
+                >
+                  <i />
+                  <span className="rail-path-main">
+                    <strong>{focusedCve ? alert.asset.name : alert.cve.id}</strong>
+                    <small>
+                      {focusedCve ? alert.cve.product : alert.asset.department} · {alert.relevance.replace(/_/g, ' ')}
+                    </small>
+                  </span>
+                  <span className={`score-cell ${alert.suppressed ? 'suppressed' : alert.level.toLowerCase()}`}>
+                    {fmtScore(alert.score)}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+
+          <div className="rail-actions">
+            <button className="btn btn-primary btn-sm rail-cta" onClick={() => openNode(focusId)}>
               <Sparkles size={13} />
               {isHub ? 'Open core workbench' : focusedCve ? 'Open CVE workbench' : 'Open asset workbench'}
               <ArrowRight size={11} />
             </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() =>
+                navigate(focusedCve ? '/app/cves' : focusedAsset ? '/app/assets' : '/app/alerts')
+              }
+            >
+              {focusedCve ? 'CVE explorer' : focusedAsset ? 'Asset inventory' : 'Alert center'}
+              <ArrowRight size={11} />
+            </button>
+          </div>
+        </aside>
+      </div>
 
-            {focusedCve && (
-              <button className="mesh-inspect-link" onClick={() => navigate('/app/cves')}>
-                Open CVE explorer <ArrowRight size={12} />
-              </button>
-            )}
-            {focusedAsset && (
-              <button className="mesh-inspect-link" onClick={() => navigate('/app/assets')}>
-                Open asset inventory <ArrowRight size={12} />
-              </button>
-            )}
-            {isHub && (
-              <button className="mesh-inspect-link" onClick={() => navigate('/app/alerts')}>
-                Open alert center <ArrowRight size={12} />
-              </button>
-            )}
+      <div className="dash-grid graph-signals">
+        <Panel
+          className="col-4 signal-panel"
+          title="Risk distribution"
+          sub={`${activeAlerts.length} active paths`}
+          action={<span className="signal-mark">LIVE</span>}
+        >
+          <div className="mix-list">
+            {mix.map((entry) => (
+              <div className="mix-row" key={entry.level}>
+                <span className="mix-label" style={{ color: LEVEL_COLORS[entry.level] }}>
+                  {entry.level}
+                </span>
+                <span className="mix-track">
+                  <i
+                    style={{
+                      width: `${(entry.count / mixMax) * 100}%`,
+                      background: `linear-gradient(90deg, ${LEVEL_COLORS[entry.level]}55, ${LEVEL_COLORS[entry.level]})`,
+                    }}
+                  />
+                </span>
+                <b>{entry.count}</b>
+              </div>
+            ))}
+          </div>
+          <div className="mix-foot">
+            <span>
+              <ShieldAlert size={11} /> {model.counts.suppressed} suppressed by the relevance gate
+            </span>
+            <button className="panel-link" onClick={() => setScope('suppressed')}>
+              inspect <ArrowRight size={10} />
+            </button>
           </div>
         </Panel>
 
         <Panel
-          className="col-12"
-          title="Correlation edges"
-          sub={`${model.counts.active} active · ${model.counts.suppressed} suppressed · ${model.counts.unlinked} CVEs with no inventory hit · ${model.counts.kev} KEV-backed`}
-          action={
-            lastFetch ? (
-              <span className="badge real">live CVE fields</span>
-            ) : (
-              <span className="badge simulated">seed snapshot</span>
-            )
-          }
-          noPad
+          className="col-4 signal-panel"
+          title="Feed health"
+          sub="Browser-cached live pulls"
+          action={<span className={cx('signal-mark', syncing && 'busy')}>{syncing ? 'SYNC' : 'NVD · KEV · EPSS'}</span>}
         >
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>CVE</th>
-                  <th>Asset</th>
-                  <th>Relevance</th>
-                  <th>Level</th>
-                  <th className="right col-sm-hide">CVSS</th>
-                  <th className="right col-sm-hide">EPSS</th>
-                  <th className="right">Score</th>
-                  <th className="right col-sm-hide">Raised</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {model.alerts.map((alert) => (
-                  <tr key={alert.id} className="clickable" onClick={() => openNode(alert.asset.id)}>
-                    <td className="mono">
-                      <span className="edge-dot" style={{ background: levelColor(alert.level, alert.suppressed) }} />
-                      {alert.cve.id}
-                    </td>
-                    <td>
-                      <div className="cell-title">{alert.asset.name}</div>
-                      <div className="cell-sub">{alert.asset.department}</div>
-                    </td>
-                    <td>
-                      <RelevanceBadge relevance={alert.relevance} />
-                    </td>
-                    <td>
-                      <SeverityBadge level={alert.level} suppressed={alert.suppressed} />
-                    </td>
-                    <td className="right mono col-sm-hide">{alert.cve.cvss?.toFixed(1) ?? '—'}</td>
-                    <td className="right mono col-sm-hide">{alert.cve.epss == null ? '—' : fmtPct(alert.cve.epss)}</td>
-                    <td className="right">
-                      <span className={`score-cell ${alert.suppressed ? 'suppressed' : alert.level.toLowerCase()}`}>
-                        {fmtScore(alert.score)}
-                      </span>
-                    </td>
-                    <td className="right mono col-sm-hide">{timeAgo(alert.createdAt, DEMO_NOW)}</td>
-                    <td className="right">
-                      <button
-                        className="panel-link"
-                        onClick={(ev) => {
-                          ev.stopPropagation()
-                          navigate(`/app/alerts?alert=${alert.id}`)
-                        }}
-                      >
-                        {alert.id} <ArrowRight size={11} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="feed-list">
+            {feedRows.map((row) => (
+              <div className="feed-row" key={row.source}>
+                <span className={cx('feed-dot', row.live && 'on')} />
+                <span className="feed-name">{row.source}</span>
+                <span className="feed-state">{row.live ? `${row.records ?? 0} recs` : 'seed fallback'}</span>
+                <span className="feed-time">{row.at ? relativeTime(row.at) : '—'}</span>
+              </div>
+            ))}
           </div>
-          <div className="table-note">
-            <span className="inline-flex">
-              <Info size={11} /> Suppressed hazards remain drawn on the mesh so the relevance gate stays auditable.
+          {syncing && progress && (
+            <div className="feed-progress">
+              <i style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }} />
+            </div>
+          )}
+          <div className="mix-foot">
+            <span>
+              <Info size={11} /> NVD may fall back to seed when blocked by CORS.
             </span>
-            <span className="mono">
-              <ShieldAlert size={10} style={{ display: 'inline', marginRight: 4 }} />
-              {model.counts.suppressed} suppressed edges
-            </span>
+            <button className="panel-link" onClick={() => void syncAll({ force: true })} disabled={syncing}>
+              <RefreshCw size={10} /> sync
+            </button>
           </div>
         </Panel>
 
-        <StatsPanel
-          className="col-12"
-          stats={[
-            { name: 'Graph density', value: density, formula: '2E ÷ V(V−1)', n: nodeCount },
-            {
-              name: 'Mean edges per asset',
-              value: (model.alerts.length / model.assets.length).toFixed(2),
-              formula: `edges ÷ ${model.assets.length} assets`,
-              n: model.assets.length,
-            },
-            {
-              name: 'Unlinked CVEs',
-              value: String(model.counts.unlinked),
-              formula: 'CVEs with no inventory hit',
-              n: model.cves.length,
-            },
-            {
-              name: 'Suppressed edges',
-              value: String(model.counts.suppressed),
-              formula: 'relevance gate applied',
-              n: model.alerts.length,
-            },
-            {
-              name: 'KEV-backed paths',
-              value: String(model.counts.kev),
-              formula: 'active alerts with cve.kev',
-              n: model.alerts.length,
-            },
-          ]}
-        />
+        <Panel
+          className="col-4 signal-panel"
+          title="Priority stack"
+          sub="Top active paths in the window"
+          action={<span className="signal-mark">{priority.length}</span>}
+          bodyClass="signal-body"
+          noPad
+        >
+          <div className="priority-list">
+            {priority.map((alert, index) => (
+              <button
+                key={alert.id}
+                className="priority-row"
+                onClick={() => openNode(alert.asset.id)}
+                style={{ '--tone': levelColor(alert.level, alert.suppressed) } as CSSProperties}
+              >
+                <span className="priority-rank">{String(index + 1).padStart(2, '0')}</span>
+                <span className="priority-main">
+                  <strong>{alert.cve.id}</strong>
+                  <small>
+                    {alert.asset.name} · {alert.asset.department}
+                  </small>
+                </span>
+                <span className={`score-cell ${alert.level.toLowerCase()}`}>{fmtScore(alert.score)}</span>
+              </button>
+            ))}
+          </div>
+          <div className="mix-foot" style={{ padding: '10px 16px 14px' }}>
+            <span>
+              <Zap size={11} /> {model.counts.kev} KEV-backed paths
+            </span>
+            <button className="panel-link" onClick={() => navigate('/app/alerts')}>
+              alert center <ArrowRight size={10} />
+            </button>
+          </div>
+        </Panel>
+      </div>
+
+      <Panel
+        className="col-12 graph-ledger"
+        title="Correlation ledger"
+        sub={`${scopedAlerts.length} of ${model.alerts.length} edges · ${model.counts.active} active · ${model.counts.suppressed} suppressed · ${model.counts.unlinked} unlinked CVEs`}
+        action={
+          <div className="ledger-head-actions">
+            {scope !== 'all' && (
+              <button className="ledger-reset" onClick={() => setScope('all')}>
+                clear scope
+              </button>
+            )}
+            {lastFetch ? (
+              <span className="badge real">live CVE fields</span>
+            ) : (
+              <span className="badge simulated">seed snapshot</span>
+            )}
+          </div>
+        }
+        noPad
+      >
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>CVE</th>
+                <th>Asset</th>
+                <th className="col-sm-hide">Relevance</th>
+                <th className="col-sm-hide">Level</th>
+                <th className="right col-sm-hide">CVSS</th>
+                <th className="right col-sm-hide">EPSS</th>
+                <th className="right">Score</th>
+                <th className="right col-sm-hide">Raised</th>
+                <th className="col-sm-hide" />
+              </tr>
+            </thead>
+            <tbody>
+              {scopedAlerts.map((alert) => (
+                <tr
+                  key={alert.id}
+                  className="clickable ledger-row"
+                  onClick={() => openNode(alert.asset.id)}
+                  style={{ '--row-tone': levelColor(alert.level, alert.suppressed) } as CSSProperties}
+                >
+                  <td className="mono">
+                    <span className="edge-dot" style={{ background: levelColor(alert.level, alert.suppressed) }} />
+                    {alert.cve.id}
+                  </td>
+                  <td>
+                    <div className="cell-title">{alert.asset.name}</div>
+                    <div className="cell-sub">{alert.asset.department}</div>
+                  </td>
+                  <td className="col-sm-hide">
+                    <RelevanceBadge relevance={alert.relevance} />
+                  </td>
+                  <td className="col-sm-hide">
+                    <SeverityBadge level={alert.level} suppressed={alert.suppressed} />
+                  </td>
+                  <td className="right mono col-sm-hide">{alert.cve.cvss?.toFixed(1) ?? '—'}</td>
+                  <td className="right mono col-sm-hide">
+                    {alert.cve.epss == null ? '—' : fmtPct(alert.cve.epss)}
+                  </td>
+                  <td className="right">
+                    <span className={`score-cell ${alert.suppressed ? 'suppressed' : alert.level.toLowerCase()}`}>
+                      {fmtScore(alert.score)}
+                    </span>
+                  </td>
+                  <td className="right mono col-sm-hide">{timeAgo(alert.createdAt, DEMO_NOW)}</td>
+                  <td className="right col-sm-hide">
+                    <button
+                      className="panel-link"
+                      onClick={(ev) => {
+                        ev.stopPropagation()
+                        navigate(`/app/alerts?alert=${alert.id}`)
+                      }}
+                    >
+                      {alert.id} <ArrowRight size={11} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {scopedAlerts.length === 0 && (
+            <div className="ledger-empty">
+              <Info size={13} /> No correlation edges in this scope.
+              <button onClick={() => setScope('all')}>Reset filter</button>
+            </div>
+          )}
+        </div>
+        <div className="table-note">
+          <span className="inline-flex">
+            <Info size={11} /> Suppressed hazards remain drawn on the mesh so the relevance gate stays auditable.
+          </span>
+          <span className="mono">
+            <ShieldAlert size={10} style={{ display: 'inline', marginRight: 4 }} />
+            {model.counts.suppressed} suppressed edges
+          </span>
+        </div>
+      </Panel>
+
+      <div className="graph-telemetry">
+        <div className="telemetry-tile">
+          <span className="telemetry-kicker">
+            <Gauge size={11} /> Graph density
+          </span>
+          <b>{density}</b>
+          <i>2E ÷ V(V−1) · n={nodeCount}</i>
+        </div>
+        <div className="telemetry-tile">
+          <span className="telemetry-kicker">
+            <Network size={11} /> Mean edges per asset
+          </span>
+          <b>{(model.alerts.length / model.assets.length).toFixed(2)}</b>
+          <i>edges ÷ {model.assets.length} assets</i>
+        </div>
+        <div className="telemetry-tile">
+          <span className="telemetry-kicker">
+            <Crosshair size={11} /> Unlinked CVEs
+          </span>
+          <b>{model.counts.unlinked}</b>
+          <i>no inventory hit in the window</i>
+        </div>
+        <div className="telemetry-tile">
+          <span className="telemetry-kicker">
+            <Shield size={11} /> Suppressed edges
+          </span>
+          <b>{model.counts.suppressed}</b>
+          <i>relevance gate applied</i>
+        </div>
+        <div className="telemetry-tile">
+          <span className="telemetry-kicker">
+            <Zap size={11} /> KEV-backed paths
+          </span>
+          <b>{model.counts.kev}</b>
+          <i>active alerts with a KEV listing</i>
+        </div>
       </div>
 
       <NodeWorkbench
