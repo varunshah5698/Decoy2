@@ -50,14 +50,21 @@ export function Chart({
   onEvents?: Record<string, (params: unknown) => void>
 }) {
   const theme = useTheme((s) => s.theme)
+  const reduceMotion = useMemo(
+    () => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    [],
+  )
   const merged = useMemo(() => {
     const t = chartTokens(theme)
     const incomingTooltip = (option.tooltip ?? {}) as Record<string, unknown>
     return {
       backgroundColor: 'transparent',
+      animation: !reduceMotion,
       animationDuration: 900,
-      animationDurationUpdate: 420,
-      animationEasing: 'cubicOut',
+      animationDurationUpdate: 480,
+      animationDelay: (idx: number) => Math.min(idx * 32, 420),
+      animationDelayUpdate: (idx: number) => Math.min(idx * 14, 160),
+      animationEasing: 'quarticOut',
       animationEasingUpdate: 'cubicOut',
       stateAnimation: { duration: 220, easing: 'cubicOut' },
       textStyle: {
@@ -71,6 +78,11 @@ export function Chart({
         padding: [10, 12],
         confine: true,
         transitionDuration: 0.18,
+        axisPointer: {
+          lineStyle: { color: t.line, width: 1 },
+          crossStyle: { color: t.line, width: 1 },
+          shadowStyle: { color: t.dark ? 'rgba(150,168,192,0.07)' : 'rgba(23,30,40,0.05)' },
+        },
         textStyle: {
           color: t.tooltipText,
           fontSize: 10.5,
@@ -82,7 +94,7 @@ export function Chart({
       },
       ...option,
     }
-  }, [option, theme])
+  }, [option, theme, reduceMotion])
 
   return (
     <div className={cx('chart-wrap', className)} style={{ height }}>

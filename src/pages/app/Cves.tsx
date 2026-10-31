@@ -1,18 +1,29 @@
 import { useMemo, useState } from 'react'
-import { Chart, axisStyle } from '../../components/Chart'
 import { PageHeader, Panel } from '../../components/Panel'
 import { Drawer, DrawerHead } from '../../components/Drawer'
 import { StatsPanel } from '../../components/StatsPanel'
-import { SeverityBadge, SourceBadge, SimulatedBadge } from '../../components/Badges'
+import { SeverityBadge, SimulatedBadge } from '../../components/Badges'
 import { EmptyState } from '../../components/EmptyState'
-import { ExternalLink, RefreshCw, Search, ShieldAlert } from '../../components/Icons'
+import {
+  ArrowRight,
+  Bug,
+  Check,
+  ExternalLink,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  X,
+} from '../../components/Icons'
 import { activeAlerts, alerts, DEMO_NOW } from '../../data/seed'
-import { useFilters, useTheme } from '../../lib/store'
-import { fmtDate, fmtDateTime, fmtPct, fmtScore, timeAgo } from '../../lib/format'
+import { useFilters } from '../../lib/store'
+import { cx, fmtDate, fmtDateTime, fmtPct, fmtScore, timeAgo } from '../../lib/format'
 import { median, quantile } from '../../lib/stats'
-import { AMBER, LEVEL_COLORS, TEAL, hexA } from '../../lib/colors'
+import { LEVEL_COLORS } from '../../lib/colors'
 import { latestLiveFetch, useLiveCves, useLiveFeeds } from '../../lib/liveFeeds'
-import type { Cve, RiskLevel } from '../../lib/types'
+import { CveOrbit, CveSpectrum, cvssBin } from './cve/CveVisuals'
+import type { Alert, Cve } from '../../lib/types'
+import './cves.css'
 
 export const rangeLabel = (cve: Cve) => {
   const r = cve.range
@@ -22,12 +33,106 @@ export const rangeLabel = (cve: Cve) => {
   return `${start} → ${end}`
 }
 
+const BANDS = ['ALL', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const
+type Band = (typeof BANDS)[number]
+
+const SORTS = [
+  { key: 'cvss', label: 'CVSS' },
+  { key: 'epss', label: 'EPSS' },
+  { key: 'new', label: 'Newest' },
+] as const
+type SortKey = (typeof SORTS)[number]['key']
+
+const BAND_LABEL: Record<Band, string> = {
+  ALL: 'All severities',
+  CRITICAL: 'Critical',
+  HIGH: 'High',
+  MEDIUM: 'Medium',
+  LOW: 'Low',
+}
+
+const ALERTS_BY_CVE = alerts.reduce<Map<string, Alert[]>>((map, alert) => {
+  const list = map.get(alert.cve.id)
+  if (list) list.push(alert)
+  else map.set(alert.cve.id, [alert])
+  return map
+}, new Map())
+
+type Exposure = {
+  key: 'matched' | 'unverified' | 'reviewed' | 'none'
+  label: string
+  tone: string
+  detail: string
+}
+
+function exposureFor(cve: Cve): Exposure {
+  const related = ALERTS_BY_CVE.get(cve.id) ?? []
+  const live = related.filter((alert) => !alert.suppressed)
+  const matched = live.filter((alert) => alert.relevance === 'MATCHED')
+  if (matched.length > 0) {
+    return {
+      key: 'matched',
+      label: matched.length === 1 ? 'Matched' : `${matched.length} assets`,
+      tone: 'high',
+      detail: matched[0].asset.name + (matched.length > 1 ? ` +${matched.length - 1}` : ''),
+    }
+  }
+  const unknown = live.filter((alert) => alert.relevance === 'VERSION_UNKNOWN')
+  if (unknown.length > 0) {
+    return { key: 'unverified', label: 'Unverified', tone: 'amber', detail: unknown[0].asset.name }
+  }
+  if (related.length > 0) {
+    return {
+      key: 'reviewed',
+      label: 'Reviewed out',
+      tone: 'muted',
+      detail: related.length === 1 ? related[0].asset.name : `${related.length} assets`,
+    }
+  }
+  return { key: 'none', label: 'No exposure', tone: 'muted', detail: 'No asset correlated' }
+}
+
+function primaryRisk(cve: Cve, exposure: Exposure) {
+  if (exposure.key === 'matched' && cve.kev) {
+    return { label: 'Actively exploited', tone: 'critical', detail: `${exposure.detail} · in KEV` }
+  }
+  if (exposure.key === 'matched') {
+    return { label: 'Exposed asset', tone: 'high', detail: exposure.detail }
+  }
+  if (exposure.key === 'unverified') {
+    return { label: 'Version unverified', tone: 'amber', detail: exposure.detail }
+  }
+  if (cve.kev) {
+    return { label: 'Known exploited', tone: 'amber', detail: 'CISA KEV · no asset match' }
+  }
+  if ((cve.epss ?? 0) >= 0.5) {
+    return { label: 'High exploit odds', tone: 'high', detail: `${fmtPct(cve.epss ?? 0)} 30-day EPSS` }
+  }
+  if ((cve.cvss ?? 0) >= 9) {
+    return { label: 'Severe impact', tone: 'critical', detail: 'CVSS ≥ 9 · no exposure' }
+  }
+  return { label: 'Monitor', tone: 'muted', detail: 'No exposure signal' }
+}
+
+const epssColor = (epss: number) =>
+  epss >= 0.9
+    ? 'var(--critical)'
+    : epss >= 0.5
+      ? 'var(--high)'
+      : epss >= 0.1
+        ? 'var(--medium)'
+        : 'var(--low)'
+
+const scoreColor = (cvss: number) =>
+  cvss >= 9 ? 'var(--critical)' : cvss >= 7 ? 'var(--high)' : cvss >= 4 ? 'var(--medium)' : 'var(--low)'
+
 export default function Cves() {
-  const theme = useTheme((s) => s.theme)
   const query = useFilters((s) => s.query)
   const setQuery = useFilters((s) => s.setQuery)
   const [kevOnly, setKevOnly] = useState(false)
-  const [band, setBand] = useState<'ALL' | RiskLevel>('ALL')
+  const [band, setBand] = useState<Band>('ALL')
+  const [bin, setBin] = useState<number | null>(null)
+  const [sort, setSort] = useState<SortKey>('cvss')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const liveCves = useLiveCves()
   const syncing = useLiveFeeds((s) => s.syncing)
@@ -37,82 +142,79 @@ export default function Cves() {
   const lastFetch = latestLiveFetch(liveMeta)
   const selected = selectedId ? (liveCves.find((c) => c.id === selectedId) ?? null) : null
 
-  const filtered = useMemo(() => {
+  const chartEntries = useMemo(
+    () =>
+      liveCves
+        .filter((c) => (kevOnly ? c.kev : true))
+        .filter((c) => (band === 'ALL' ? true : c.severity === band)),
+    [kevOnly, band, liveCves],
+  )
+
+  const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return liveCves
-      .filter((c) => (kevOnly ? c.kev : true))
-      .filter((c) => (band === 'ALL' ? true : c.severity === band))
+    return chartEntries
+      .filter((c) => (bin === null ? true : cvssBin(c) === bin))
       .filter((c) =>
         q ? `${c.id} ${c.title} ${c.vendor} ${c.product} ${c.cwe.join(' ')}`.toLowerCase().includes(q) : true,
       )
-      .sort((a, b) => (b.cvss ?? 0) - (a.cvss ?? 0) || (b.epss ?? 0) - (a.epss ?? 0))
-  }, [kevOnly, band, query, liveCves])
-
-  const scatterOption = useMemo(() => {
-    const ax = axisStyle(theme)
-    return {
-      grid: { left: 40, right: 18, top: 26, bottom: 42 },
-      xAxis: { type: 'value', min: 0, max: 10, name: 'CVSS base score', nameLocation: 'middle', nameGap: 25, ...ax },
-      yAxis: { type: 'value', min: 0, max: 1, name: 'EPSS', nameGap: 30, ...ax, axisLabel: { ...ax.axisLabel, formatter: (v: number) => `${Math.round(v * 100)}%` } },
-      tooltip: {
-        formatter: (p: any) =>
-          `<strong>${p.data[3]}</strong><br/>CVSS ${p.data[0]} · EPSS ${(p.data[1] * 100).toFixed(1)}%<br/>${p.data[4]}`,
-      },
-      series: [
-        {
-          type: 'scatter',
-          data: liveCves.map((c) => [c.cvss ?? 0, c.epss ?? 0, c.kev ? 16 : 9, c.id, c.title]),
-          symbolSize: (v: any) => v[2],
-          itemStyle: {
-            color: (p: any) => (p.data[3] && liveCves.find((c) => c.id === p.data[3])?.kev ? hexA(AMBER, 0.82) : hexA(TEAL, 0.6)),
-            borderColor: 'rgba(5,8,14,0.6)',
-            borderWidth: 1,
-          },
-          emphasis: { scale: 1.3 },
-        },
-      ],
-    }
-  }, [theme, liveCves])
-
-  const histOption = useMemo(() => {
-    const bins = Array.from({ length: 10 }, (_, i) => i)
-    const data = bins.map((b) => liveCves.filter((c) => c.cvss != null && Math.floor(c.cvss) === b).length)
-    const ax = axisStyle(theme)
-    return {
-      grid: { left: 32, right: 12, top: 18, bottom: 26 },
-      xAxis: { type: 'category', data: bins.map((b) => `${b}–${b + 1}`), ...ax, axisLabel: { ...ax.axisLabel, interval: 0, fontSize: 7.5 } },
-      yAxis: { type: 'value', ...ax, minInterval: 1 },
-      tooltip: { trigger: 'axis' },
-      series: [
-        {
-          type: 'bar',
-          barWidth: '64%',
-          data: data.map((v, i) => ({
-            value: v,
-            itemStyle: {
-              color: i >= 9 ? LEVEL_COLORS.CRITICAL : i >= 7 ? LEVEL_COLORS.HIGH : i >= 4 ? LEVEL_COLORS.MEDIUM : LEVEL_COLORS.LOW,
-              borderRadius: [3, 3, 0, 0],
-              opacity: 0.82,
-            },
-          })),
-        },
-      ],
-    }
-  }, [theme, liveCves])
+      .map((c) => {
+        const exposure = exposureFor(c)
+        return { cve: c, exposure, risk: primaryRisk(c, exposure) }
+      })
+      .sort((a, b) => {
+        if (sort === 'new') {
+          return new Date(b.cve.published).getTime() - new Date(a.cve.published).getTime()
+        }
+        if (sort === 'epss') {
+          return (b.cve.epss ?? 0) - (a.cve.epss ?? 0) || (b.cve.cvss ?? 0) - (a.cve.cvss ?? 0)
+        }
+        return (b.cve.cvss ?? 0) - (a.cve.cvss ?? 0) || (b.cve.epss ?? 0) - (a.cve.epss ?? 0)
+      })
+  }, [chartEntries, bin, query, sort])
 
   const kevCount = liveCves.filter((c) => c.kev).length
   const medianEpss = median(liveCves.map((c) => c.epss ?? 0))
+  const peakCvss = Math.max(...liveCves.map((c) => c.cvss ?? 0))
+  const withRanges = liveCves.filter((c) => rangeLabel(c) !== 'not published').length
+  const epssBuckets = Array.from({ length: 14 }, (_, i) =>
+    liveCves.filter((c) => Math.min(13, Math.floor((c.epss ?? 0) * 14)) === i).length,
+  )
+  const epssPeak = Math.max(1, ...epssBuckets)
+
+  const bandScope = kevOnly ? liveCves.filter((c) => c.kev) : liveCves
+  const bandCounts = BANDS.reduce<Record<Band, number>>(
+    (acc, next) => {
+      acc[next] = next === 'ALL' ? bandScope.length : bandScope.filter((c) => c.severity === next).length
+      return acc
+    },
+    { ALL: 0, CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 },
+  )
+
+  const chooseBand = (next: Band) => {
+    setBand(next)
+    setBin(null)
+  }
+
+  const chooseBin = (next: number | null) => {
+    setBin(next)
+    if (next !== null) setBand('ALL')
+  }
 
   return (
-    <div className="page">
+    <div className="page cve-lab">
       <PageHeader
         eyebrow="COMPONENT 07 · CVE EXPLORER"
         title="Real IDs, readable ranges"
-        description="Every CVE below exists in NVD. NVD, CISA KEV and FIRST EPSS are pulled live in your browser and cached locally; the version ranges stay curated so they read the way an engineer needs them."
+        description="Every CVE below exists in NVD. Components 1–15 consume these records; the affected ranges are written the way an engineer needs to read them."
         actions={
-          <div className="inline-flex" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span className="mono" style={{ fontSize: 9, color: lastFetch ? 'var(--teal)' : 'var(--text-mute)' }}>
-              {syncing ? `syncing ${phase ?? ''}` : lastFetch ? `live · pulled ${timeAgo(lastFetch)}` : 'seed snapshot'}
+          <div className="cve-head-tools">
+            <span className={cx('cve-snapshot', lastFetch && 'is-live')}>
+              <i />
+              {syncing
+                ? `syncing ${phase ?? ''}`
+                : lastFetch
+                  ? `live · pulled ${timeAgo(lastFetch)}`
+                  : `snapshot ${DEMO_NOW.toISOString().slice(0, 10)}`}
             </span>
             <button
               className="btn btn-ghost btn-sm"
@@ -130,67 +232,135 @@ export default function Cves() {
         }
       />
 
-      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(5, minmax(0,1fr))' }}>
-        <div className="kpi">
-          <div className="kpi-label">CVEs in demo window</div>
-          <div className="kpi-value">{liveCves.length}</div>
-          <div className="kpi-delta">real public identifiers</div>
+      <div className="cve-signals" role="group" aria-label="CVE corpus summary">
+        <div className="cve-signal tone-teal">
+          <div className="cve-signal-top">
+            <span className="cve-signal-label">CVE corpus</span>
+            <span className="cve-signal-meta">NVD</span>
+          </div>
+          <div className="cve-signal-value">
+            {liveCves.length}
+            <small>ids</small>
+          </div>
+          <div className="cve-signal-note">Real public identifiers</div>
+          <div className="cve-signal-viz">
+            <div className="cve-dotfield" aria-hidden="true">
+              {liveCves.map((c) => (
+                <i
+                  key={c.id}
+                  style={{ background: LEVEL_COLORS[c.severity], boxShadow: `0 0 6px ${LEVEL_COLORS[c.severity]}66` }}
+                />
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="kpi amber-tone">
-          <div className="kpi-label">In CISA KEV</div>
-          <div className="kpi-value">{kevCount}</div>
-          <div className="kpi-delta">known exploited</div>
+
+        <div className="cve-signal tone-amber is-accent is-kev">
+          <div className="cve-signal-top">
+            <span className="cve-signal-label">Known exploited</span>
+            <span className="cve-signal-meta">KEV</span>
+          </div>
+          <div className="cve-signal-value">
+            {kevCount}
+            <small>/ {liveCves.length}</small>
+          </div>
+          <div className="cve-signal-note">CISA KEV listings</div>
+          <div className="cve-signal-viz">
+            <div className="cve-dotfield" aria-hidden="true">
+              {liveCves.map((c) => (
+                <i key={c.id} className={c.kev ? 'on' : undefined} />
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="kpi critical-tone">
-          <div className="kpi-label">Max CVSS</div>
-          <div className="kpi-value">{Math.max(...liveCves.map((c) => c.cvss ?? 0)).toFixed(1)}</div>
-          <div className="kpi-delta">Log4Shell</div>
+
+        <div className="cve-signal tone-critical is-accent">
+          <div className="cve-signal-top">
+            <span className="cve-signal-label">Peak CVSS</span>
+            <span className="cve-signal-meta">MAX</span>
+          </div>
+          <div className="cve-signal-value">{peakCvss.toFixed(1)}</div>
+          <div className="cve-signal-note">Apache Log4Shell</div>
+          <div className="cve-signal-viz">
+            <div className="cve-score-rail" aria-hidden="true">
+              <i style={{ left: `${(peakCvss / 10) * 100}%` }} />
+            </div>
+          </div>
         </div>
-        <div className="kpi teal-tone">
-          <div className="kpi-label">Median EPSS</div>
-          <div className="kpi-value">{fmtPct(medianEpss)}</div>
-          <div className="kpi-delta">30-day exploitation probability</div>
+
+        <div className="cve-signal tone-teal is-accent">
+          <div className="cve-signal-top">
+            <span className="cve-signal-label">Median EPSS</span>
+            <span className="cve-signal-meta">30D</span>
+          </div>
+          <div className="cve-signal-value">{fmtPct(medianEpss)}</div>
+          <div className="cve-signal-note">Exploitation likelihood</div>
+          <div className="cve-signal-viz">
+            <div className="cve-epss-bars" aria-hidden="true">
+              {epssBuckets.map((count, i) => (
+                <i key={i} style={{ height: `${Math.max(8, (count / epssPeak) * 100)}%` }} />
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="kpi high-tone">
-          <div className="kpi-label">With affected ranges</div>
-          <div className="kpi-value">{liveCves.filter((c) => rangeLabel(c) !== 'not published').length}</div>
-          <div className="kpi-delta">CPE-derived boundaries</div>
+
+        <div className="cve-signal tone-low is-accent">
+          <div className="cve-signal-top">
+            <span className="cve-signal-label">CPE ranges</span>
+            <span className="cve-signal-meta">CVE → CPE</span>
+          </div>
+          <div className="cve-signal-value">
+            {withRanges}
+            <small>/ {liveCves.length}</small>
+          </div>
+          <div className="cve-signal-note">Affected ranges published</div>
+          <div className="cve-signal-viz">
+            <div className="cve-range-track" aria-hidden="true">
+              <i style={{ width: `${(withRanges / liveCves.length) * 100}%` }} />
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="dash-grid">
-        <Panel className="col-7" title="Severity vs exploitation likelihood" sub="Amber = CISA KEV listed · bubble size fixed by listing state" noPad>
-          <Chart option={scatterOption} height={312} />
-          <div className="chart-legend">
-            <span className="legend-item">
-              <i style={{ background: AMBER }} /> KEV listed
-            </span>
-            <span className="legend-item">
-              <i style={{ background: TEAL }} /> Not in KEV (yet)
-            </span>
-            <span className="legend-item dim">High CVSS does not imply high EPSS.</span>
-          </div>
-        </Panel>
-        <Panel className="col-5" title="CVSS distribution" sub="18 real CVE records" noPad>
-          <Chart option={histOption} height={312} />
-          <div className="chart-legend" style={{ justifyContent: 'center' }}>
-            <span className="legend-item dim">Binned by integer CVSS base score</span>
-          </div>
-        </Panel>
+      <div className="dash-grid cve-deck">
+        <CveOrbit
+          className="col-7"
+          entries={liveCves}
+          band={band}
+          kevOnly={kevOnly}
+          bin={bin}
+          onPick={(cve) => setSelectedId(cve.id)}
+        />
+        <CveSpectrum className="col-5" entries={chartEntries} activeBin={bin} onBin={chooseBin} />
 
         <Panel
-          className="col-12"
+          className="col-12 cve-register"
           title="CVE register"
-          sub={`${filtered.length} of ${liveCves.length} records · real identifiers, demo context`}
+          sub={`${rows.length} of ${liveCves.length} records · exposure derived from correlated alerts`}
           action={
             <span className={lastFetch ? 'badge real' : 'badge simulated'}>
               {lastFetch ? 'Live pull · cached' : 'Seed snapshot'}
             </span>
           }
           noPad
+          spotlight
         >
-          <div className="filters-bar">
-            <div className="topbar-search" style={{ maxWidth: 310 }}>
+          <div className="ops-tabs" role="tablist" aria-label="Filter CVEs by severity">
+            {BANDS.map((next) => (
+              <button
+                key={next}
+                role="tab"
+                aria-selected={band === next}
+                className={cx('ops-tab', band === next && 'on')}
+                onClick={() => chooseBand(next)}
+              >
+                {BAND_LABEL[next]}
+                <span className="ops-tab-count">{bandCounts[next]}</span>
+              </button>
+            ))}
+          </div>
+          <div className="ops-toolbar">
+            <div className="topbar-search">
               <Search size={13} />
               <input
                 value={query}
@@ -199,14 +369,19 @@ export default function Cves() {
                 aria-label="Search CVEs"
               />
             </div>
-            <div className="seg">
-              {(['ALL', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const).map((b) => (
-                <button key={b} className={band === b ? 'on' : undefined} onClick={() => setBand(b)}>
-                  {b === 'ALL' ? 'All severities' : b}
+            <span className="ops-toolbar-label">Sort</span>
+            <div className="seg" role="group" aria-label="Sort CVE records">
+              {SORTS.map((option) => (
+                <button
+                  key={option.key}
+                  className={sort === option.key ? 'on' : undefined}
+                  aria-pressed={sort === option.key}
+                  onClick={() => setSort(option.key)}
+                >
+                  {option.label}
                 </button>
               ))}
             </div>
-            <div className="filters-spacer" />
             <button
               className="chip"
               onClick={() => setKevOnly((v) => !v)}
@@ -215,57 +390,148 @@ export default function Cves() {
             >
               <ShieldAlert size={12} /> KEV only
             </button>
+            {bin !== null && (
+              <span className="cve-filter-chip">
+                CVSS band {bin}
+                {bin === 9 ? '+' : `–${bin + 1}`}
+                <button type="button" onClick={() => setBin(null)} aria-label="Clear CVSS band filter">
+                  <X size={11} />
+                </button>
+              </span>
+            )}
+            <div className="ops-toolbar-spacer" />
+            <span className="ops-result">
+              {rows.length} of {liveCves.length}
+            </span>
           </div>
-          {filtered.length === 0 ? (
-            <EmptyState title="No CVE matches" hint="Clear the severity band or the search." />
+          {rows.length === 0 ? (
+            <EmptyState title="No CVE matches" hint="Clear the severity band, the KEV filter, or the search." />
           ) : (
-            <div className="table-wrap">
-              <table className="data-table">
+            <div className="ops-table-wrap">
+              <table className="ops-table cve">
                 <thead>
                   <tr>
                     <th>CVE</th>
-                    <th>Product</th>
-                    <th className="right">CVSS</th>
-                    <th>Severity</th>
-                    <th className="right">EPSS</th>
                     <th>Affected range</th>
-                    <th>KEV</th>
-                    <th className="right">Published</th>
+                    <th>Exposure</th>
+                    <th>EPSS</th>
+                    <th>CVSS</th>
+                    <th>Primary risk</th>
+                    <th className="right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((c) => (
-                    <tr key={c.id} className="clickable" onClick={() => setSelectedId(c.id)}>
+                  {rows.map(({ cve: c, exposure, risk }) => (
+                    <tr
+                      key={c.id}
+                      className={selected?.id === c.id ? 'is-selected' : undefined}
+                      onClick={() => setSelectedId(c.id)}
+                    >
+                      <td className="ops-cell-main">
+                        <div className="ops-ident">
+                          <span className={cx('ops-tile', c.severity.toLowerCase())}>
+                            <Bug size={15} strokeWidth={1.7} />
+                          </span>
+                          <div className="ops-ident-copy">
+                            <div className="ops-meta-row">
+                              <span className="ops-id">{c.id}</span>
+                              <span className={cx('ops-pill', c.severity.toLowerCase())}>
+                                <i />
+                                {c.severity}
+                              </span>
+                              {c.kev && <span className="ops-tag amber">KEV</span>}
+                            </div>
+                            <span className="ops-name" title={c.title}>
+                              {c.title}
+                            </span>
+                            <span className="ops-sub">
+                              {c.vendor} {c.product} · published {fmtDate(c.published)}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
                       <td>
-                        <div className="cell-title mono">{c.id}</div>
-                        <div className="cell-sub">{c.title}</div>
-                      </td>
-                      <td className="cell-sub">
-                        {c.vendor} {c.product}
-                      </td>
-                      <td className="right">
-                        <span className="mono" style={{ color: c.cvss && c.cvss >= 9 ? 'var(--critical)' : undefined }}>
-                          {c.cvss?.toFixed(1) ?? '—'}
+                        <span className="ops-code" title={rangeLabel(c)}>
+                          {rangeLabel(c)}
+                        </span>
+                        <span className="ops-sub mono" style={{ marginTop: 4 }}>
+                          fix {c.fixVersion}
                         </span>
                       </td>
                       <td>
-                        <SeverityBadge level={c.severity} />
+                        <span className={cx('ops-pill', exposure.tone)}>
+                          <i />
+                          {exposure.label}
+                        </span>
+                        <span className="ops-sub" style={{ marginTop: 4 }}>
+                          {exposure.detail}
+                        </span>
                       </td>
-                      <td className="right mono">{c.epss == null ? '—' : fmtPct(c.epss)}</td>
-                      <td className="cell-sub mono" style={{ fontSize: 9 }}>
-                        {rangeLabel(c)}
+                      <td>
+                        <div className="ops-metric">
+                          <span className="ops-meter">
+                            <i
+                              style={{
+                                width: `${(c.epss ?? 0) * 100}%`,
+                                background: epssColor(c.epss ?? 0),
+                              }}
+                            />
+                          </span>
+                          <span className="ops-metric-value strong">
+                            {c.epss == null ? '—' : fmtPct(c.epss)}
+                          </span>
+                        </div>
+                        <span className="ops-sub mono" style={{ marginTop: 3 }}>
+                          30-day prob
+                        </span>
                       </td>
-                      <td>{c.kev ? <span className="badge high">KEV</span> : <span className="dim mono">—</span>}</td>
-                      <td className="right mono">{fmtDate(c.published)}</td>
+                      <td>
+                        <div className="ops-score">
+                          <b style={{ color: scoreColor(c.cvss ?? 0) }}>{c.cvss?.toFixed(1) ?? '—'}</b>
+                          <span className="ops-meter">
+                            <i
+                              style={{
+                                width: `${((c.cvss ?? 0) / 10) * 100}%`,
+                                background: scoreColor(c.cvss ?? 0),
+                              }}
+                            />
+                          </span>
+                        </div>
+                        <span className="ops-sub mono" style={{ marginTop: 3 }}>
+                          {c.cwe[0] ?? 'no CWE'}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={cx('ops-pill', risk.tone)}>
+                          <i />
+                          {risk.label}
+                        </span>
+                        <span className="ops-sub" style={{ marginTop: 4 }}>
+                          {risk.detail}
+                        </span>
+                      </td>
+                      <td className="right">
+                        <button
+                          className="ops-action"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setSelectedId(c.id)
+                          }}
+                          aria-label={`Review ${c.id}`}
+                        >
+                          Review <ArrowRight size={11} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
-          <div className="table-note">
+          <div className="ops-table-foot">
             <span className="inline-flex">
-              <ShieldAlert size={11} /> {alerts.length} correlation candidates reference these records; {activeAlerts.length} survive relevance.
+              <ShieldCheck size={11} /> {alerts.length} correlation candidates reference these records;{' '}
+              {activeAlerts.length} survive relevance.
             </span>
             <span className="mono">
               {lastFetch ? `live pull ${fmtDateTime(lastFetch)} · cached in browser` : `snapshot ${DEMO_NOW.toISOString().slice(0, 10)}`}
@@ -274,13 +540,38 @@ export default function Cves() {
         </Panel>
 
         <StatsPanel
-          className="col-12"
+          className="col-12 cve-stats"
           stats={[
-            { name: 'KEV proportion', value: `${((kevCount / liveCves.length) * 100).toFixed(1)}%`, formula: 'KEV-listed ÷ CVEs', n: liveCves.length },
-            { name: 'Median CVSS', value: (median(liveCves.map((c) => c.cvss ?? 0))).toFixed(1), formula: 'median base score', n: liveCves.length },
-            { name: 'p90 EPSS', value: fmtPct(quantile(liveCves.map((c) => c.epss ?? 0), 0.9)), formula: '90th percentile EPSS', n: liveCves.length },
-            { name: 'Mean EPSS', value: fmtPct(liveCves.reduce((a, b) => a + (b.epss ?? 0), 0) / liveCves.length), formula: 'arithmetic mean', n: liveCves.length },
-            { name: 'CVEs with CPE ranges', value: String(liveCves.filter((c) => rangeLabel(c) !== 'not published').length), formula: 'range present in demo CPE data', n: liveCves.length },
+            {
+              name: 'KEV proportion',
+              value: `${((kevCount / liveCves.length) * 100).toFixed(1)}%`,
+              formula: 'KEV-listed ÷ CVEs',
+              n: liveCves.length,
+            },
+            {
+              name: 'Median CVSS',
+              value: median(liveCves.map((c) => c.cvss ?? 0)).toFixed(1),
+              formula: 'median base score',
+              n: liveCves.length,
+            },
+            {
+              name: 'p90 EPSS',
+              value: fmtPct(quantile(liveCves.map((c) => c.epss ?? 0), 0.9)),
+              formula: '90th percentile EPSS',
+              n: liveCves.length,
+            },
+            {
+              name: 'Mean EPSS',
+              value: fmtPct(liveCves.reduce((a, b) => a + (b.epss ?? 0), 0) / liveCves.length),
+              formula: 'arithmetic mean',
+              n: liveCves.length,
+            },
+            {
+              name: 'CVEs with CPE ranges',
+              value: String(liveCves.filter((c) => rangeLabel(c) !== 'not published').length),
+              formula: 'range present in demo CPE data',
+              n: liveCves.length,
+            },
           ]}
         />
       </div>
@@ -295,16 +586,23 @@ export default function Cves() {
 function CveDetail({ cve, onClose }: { cve: Cve; onClose: () => void }) {
   const related = alerts.filter((a) => a.cve.id === cve.id)
   const patch = useLiveFeeds((s) => s.patches[cve.id])
+  const exposure = exposureFor(cve)
+  const risk = primaryRisk(cve, exposure)
   const liveRows = [
     {
       label: 'NVD record',
       at: patch?.nvdAt,
-      detail: patch?.nvdAt ? `CVSS ${cve.cvss?.toFixed(1) ?? '—'} · ${cve.cwe.length} CWE · ${cve.refs.length} refs` : 'seed snapshot',
+      detail: patch?.nvdAt
+        ? `CVSS ${cve.cvss?.toFixed(1) ?? '—'} · ${cve.cwe.length} CWE · ${cve.refs.length} refs`
+        : 'seed snapshot',
     },
     {
       label: 'FIRST EPSS',
       at: patch?.epssAt,
-      detail: patch?.epss == null ? 'seed snapshot' : `EPSS ${fmtPct(patch.epss)} · p${Math.round((patch.epssPercentile ?? 0) * 100)}`,
+      detail:
+        patch?.epss == null
+          ? 'seed snapshot'
+          : `EPSS ${fmtPct(patch.epss)} · p${Math.round((patch.epssPercentile ?? 0) * 100)}`,
     },
     {
       label: 'CISA KEV',
@@ -322,8 +620,14 @@ function CveDetail({ cve, onClose }: { cve: Cve; onClose: () => void }) {
           <span className="inline-flex" style={{ flexWrap: 'wrap', gap: 8 }}>
             <SeverityBadge level={cve.severity} />
             {cve.kev && <span className="badge high">CISA KEV</span>}
-            <span className="badge real">NVD</span>
-            <span className="badge real">FIRST EPSS</span>
+            <span className={cx('ops-pill', risk.tone)}>
+              <i />
+              {risk.label}
+            </span>
+            <span className={cx('ops-pill', exposure.tone)}>
+              <i />
+              {exposure.label}
+            </span>
           </span>
         }
       />
@@ -334,6 +638,26 @@ function CveDetail({ cve, onClose }: { cve: Cve; onClose: () => void }) {
             <span>CVSS {cve.cvss?.toFixed(1) ?? '—'}</span>
             <span>EPSS {cve.epss == null ? '—' : fmtPct(cve.epss)}</span>
             <span>{cve.kev ? 'in KEV' : 'not in KEV'}</span>
+          </div>
+        </div>
+
+        <div className="drawer-section">
+          <h3>Exposure and priority</h3>
+          <div className="action-box">
+            <div className="inline-flex" style={{ flexWrap: 'wrap', gap: 8 }}>
+              <span className={cx('ops-pill', risk.tone)}>
+                <i />
+                {risk.label}
+              </span>
+              <span className={cx('ops-pill', exposure.tone)}>
+                <i />
+                {exposure.label}
+              </span>
+            </div>
+            <p style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 8, lineHeight: 1.6 }}>
+              {risk.detail}. Exposure is derived from the demo inventory through the relevance gate, not from a live
+              scan.
+            </p>
           </div>
         </div>
 
@@ -410,7 +734,7 @@ function CveDetail({ cve, onClose }: { cve: Cve; onClose: () => void }) {
           <div className="provenance-list">
             {liveRows.map((row) => (
               <div className="provenance-row" key={row.label}>
-                <span className={row.at ? 'check' : 'dim'}>{row.at ? '✓' : '·'}</span>
+                <span className={row.at ? 'check' : 'dim'}>{row.at ? <Check size={12} /> : '·'}</span>
                 <span>{row.label}</span>
                 <span className="time">
                   {row.detail}
@@ -430,17 +754,17 @@ function CveDetail({ cve, onClose }: { cve: Cve; onClose: () => void }) {
           <h3>Timestamps</h3>
           <div className="provenance-list">
             <div className="provenance-row">
-              <span className="check">✓</span>
+              <Check size={12} className="check" />
               <span>Published</span>
               <span className="time">{fmtDate(cve.published)}</span>
             </div>
             <div className="provenance-row">
-              <span className="check">✓</span>
+              <Check size={12} className="check" />
               <span>Last modified</span>
               <span className="time">{fmtDate(cve.modified)}</span>
             </div>
             <div className="provenance-row">
-              <span className="check">✓</span>
+              <Check size={12} className="check" />
               <span>EPSS snapshot</span>
               <span className="time">{patch?.epssAt ? fmtDate(patch.epssAt) : fmtDate(DEMO_NOW.toISOString())}</span>
             </div>
