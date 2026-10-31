@@ -15,7 +15,9 @@ import {
   RefreshCw,
   Sparkles,
 } from '../../components/Icons'
-import { alerts, DEMO_NOW, sourceHealth } from '../../data/seed'
+import { DEMO_NOW, sourceHealth } from '../../data/seed'
+import { useLiveAlerts } from '../../lib/liveData'
+import { latestLiveFetch, useLiveFeeds } from '../../lib/liveFeeds'
 import { fmtDate, fmtDateTime } from '../../lib/format'
 import './provenance.css'
 
@@ -51,10 +53,13 @@ const TRUTH_TONE: Record<Truth, { bg: string; fg: string; label: string }> = {
 }
 
 export default function Provenance() {
+  const alerts = useLiveAlerts()
   const [selectedId, setSelectedId] = useState(alerts[0].id)
   const [filter, setFilter] = useState<'all' | Truth>('all')
   const [activeId, setActiveId] = useState<string | null>('alert')
   const alert = alerts.find((a) => a.id === selectedId) ?? alerts[0]
+  const patch = useLiveFeeds((s) => s.patches[alert.cve.id])
+  const lastFetch = latestLiveFetch(useLiveFeeds((s) => s.meta))
 
   const hash = useMemo(
     () =>
@@ -442,10 +447,10 @@ export default function Provenance() {
               </thead>
               <tbody>
                 {[
-                  { name: 'CVE base record', ok: true, time: alert.cve.modified, source: 'NVD' },
-                  { name: 'CVSS metrics', ok: alert.cve.cvss != null, time: alert.cve.modified, source: 'NVD' },
-                  { name: 'EPSS score', ok: alert.cve.epss != null, time: DEMO_NOW.toISOString(), source: 'FIRST EPSS' },
-                  { name: 'KEV membership', ok: alert.cve.kev, time: alert.cve.kevDue ?? alert.cve.modified, source: 'CISA KEV' },
+                  { name: 'CVE base record', ok: true, time: patch?.nvdAt ?? alert.cve.modified, source: 'NVD' },
+                  { name: 'CVSS metrics', ok: alert.cve.cvss != null, time: patch?.nvdAt ?? alert.cve.modified, source: 'NVD' },
+                  { name: 'EPSS score', ok: alert.cve.epss != null, time: patch?.epssAt ?? DEMO_NOW.toISOString(), source: 'FIRST EPSS' },
+                  { name: 'KEV membership', ok: alert.cve.kev, time: patch?.kevAt ?? alert.cve.kevDue ?? alert.cve.modified, source: 'CISA KEV' },
                   { name: 'Affected range', ok: Boolean(alert.cve.range.endExcluding || alert.cve.range.endIncluding), time: alert.cve.modified, source: 'NVD CPE' },
                   { name: 'Installed version', ok: alert.version !== 'unknown' && alert.version !== 'not installed', time: DEMO_NOW.toISOString(), source: 'SIMULATED' },
                 ].map((r) => (
@@ -473,7 +478,7 @@ export default function Provenance() {
           </div>
           <div className="table-note">
             <span className="mono">{missing === 0 ? 'No gaps in this record' : `${missing} input(s) missing for this record`}</span>
-            <span className="mono">snapshot {DEMO_NOW.toISOString().slice(0, 16).replace('T', ' ')}Z</span>
+            <span className="mono">{lastFetch ? `live pull ${fmtDateTime(lastFetch)}` : `snapshot ${DEMO_NOW.toISOString().slice(0, 16).replace('T', ' ')}Z`}</span>
           </div>
         </Panel>
 
