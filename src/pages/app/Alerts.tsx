@@ -95,8 +95,8 @@ export default function Alerts() {
   const theme = useTheme((s) => s.theme)
   const gaugeColors =
     theme === 'dark'
-      ? ['#ff7440', '#6d86c8', '#8b93a8', '#3b4457']
-      : ['#f4602a', '#1d2b4f', '#b9bccd', '#e6e6ef']
+      ? ['#ff6a36', '#a9c2da', '#6f8499', '#465b70']
+      : ['#ff5a1f', '#14263e', '#8d99a8', '#c0c7d0']
 
   const levelCounts = LEVELS.map((level) => ({
     level,
@@ -158,9 +158,9 @@ export default function Alerts() {
     const ax = axisStyle(theme, { split: true })
     const t = chartTokens(theme)
     const ranked = activeAlerts.slice().sort((a, b) => b.score - a.score)
-    const line = theme === 'dark' ? '#ff8a5c' : '#f4602a'
-    const bar = theme === 'dark' ? '#5b79c9' : '#1d2b4f'
-    const tipBg = theme === 'dark' ? 'rgba(12,18,30,0.97)' : '#1d2b4f'
+    const line = theme === 'dark' ? '#ff8a5c' : '#ff5a1f'
+    const bar = theme === 'dark' ? '#a9c2da' : '#14263e'
+    const tipBg = theme === 'dark' ? 'rgba(12,18,30,0.97)' : '#14263e'
     return {
       grid: { left: 34, right: 18, top: 26, bottom: 26 },
       xAxis: {
@@ -254,7 +254,8 @@ export default function Alerts() {
   }
 
   return (
-    <div className="page dashboard-page alerts-page">
+    <div className="page dashboard-page alerts-page exposure-page">
+      <div className="xp-shell">
       <header className="mc-header">
         <div>
           <span className="mono mc-eyebrow">ALERT CENTER · CORRELATED QUEUE</span>
@@ -757,6 +758,7 @@ export default function Alerts() {
             </p>
           </div>
         </Panel>
+      </div>
       </div>
 
       <Drawer open={Boolean(selected)} onClose={close} label={selected ? `${selected.cve.id} alert` : 'Alert detail'}>

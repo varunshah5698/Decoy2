@@ -80,8 +80,8 @@ export default function Dashboard() {
 
   const gaugeColors =
     theme === 'dark'
-      ? ['#ff7b4d', '#5b79c9', '#8b93a8', '#3b4457']
-      : ['#f4602a', '#1d2b4f', '#b9bccd', '#e6e6ef']
+      ? ['#ff6a36', '#a9c2da', '#6f8499', '#465b70']
+      : ['#ff5a1f', '#14263e', '#8d99a8', '#c0c7d0']
 
   const deduction = exposureDeduction(counts)
 
@@ -188,9 +188,9 @@ export default function Dashboard() {
     const series = threatDaily.slice(-range)
     const values = series.map((d) => d.newCves)
     const avg = values.reduce((a, b) => a + b, 0) / Math.max(1, values.length)
-    const line = theme === 'dark' ? '#ff8a5c' : '#f4602a'
-    const bar = theme === 'dark' ? '#5b79c9' : '#1d2b4f'
-    const tipBg = theme === 'dark' ? 'rgba(12,18,30,0.97)' : '#1d2b4f'
+    const line = theme === 'dark' ? '#ff8a5c' : '#ff5a1f'
+    const bar = theme === 'dark' ? '#a9c2da' : '#14263e'
+    const tipBg = theme === 'dark' ? 'rgba(12,18,30,0.97)' : '#14263e'
     const interval = range <= 7 ? 0 : range <= 14 ? 2 : 4
     return {
       grid: { left: 40, right: 34, top: 36, bottom: 28 },
@@ -597,7 +597,8 @@ export default function Dashboard() {
   }, [theme])
 
   return (
-    <div className="page dashboard-page">
+    <div className="page dashboard-page exposure-page">
+      <div className="xp-shell">
       <header className="mc-header">
         <div>
           <span className="mono mc-eyebrow">
@@ -1035,6 +1036,7 @@ export default function Dashboard() {
           Demo window {DEMO_NOW.toISOString().slice(0, 16).replace('T', ' ')}Z · {fmtInt(18)} CVEs · {inventory.length} assets · 15 correlation candidates
         </span>
         <span className="mono">Labels: NVD / CISA KEV / FIRST EPSS = real · SIMULATED = seeded · USER UPLOAD = customer data</span>
+      </div>
       </div>
     </div>
   )
