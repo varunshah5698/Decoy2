@@ -1,13 +1,11 @@
 import { useMemo, useState } from 'react'
 import { PageHeader, Panel } from '../../components/Panel'
-import { Drawer, DrawerHead } from '../../components/Drawer'
+import { Drawer } from '../../components/Drawer'
 import { StatsPanel } from '../../components/StatsPanel'
-import { SeverityBadge, SimulatedBadge } from '../../components/Badges'
 import { EmptyState } from '../../components/EmptyState'
 import {
   ArrowRight,
   Bug,
-  Check,
   ExternalLink,
   RefreshCw,
   Search,
@@ -17,12 +15,14 @@ import {
 } from '../../components/Icons'
 import { DEMO_NOW } from '../../data/seed'
 import { useFilters } from '../../lib/store'
-import { cx, fmtDate, fmtDateTime, fmtPct, fmtScore, timeAgo } from '../../lib/format'
+import { cx, fmtDate, fmtDateTime, fmtPct, timeAgo } from '../../lib/format'
 import { median, quantile } from '../../lib/stats'
 import { LEVEL_COLORS } from '../../lib/colors'
 import { latestLiveFetch, useLiveCves, useLiveFeeds } from '../../lib/liveFeeds'
 import { useLiveActiveAlerts, useLiveAlerts } from '../../lib/liveData'
 import { CveOrbit, CveSpectrum, cvssBin } from './cve/CveVisuals'
+import { CveWorkspace } from './cve/CveWorkspace'
+import { stageLabel, useCveWorkflow } from './cve/useCveWorkflow'
 import type { Alert, Cve } from '../../lib/types'
 import './cves.css'
 
@@ -146,6 +146,8 @@ export default function Cves() {
   const syncAll = useLiveFeeds((s) => s.syncAll)
   const lastFetch = latestLiveFetch(liveMeta)
   const selected = selectedId ? (liveCves.find((c) => c.id === selectedId) ?? null) : null
+  const flows = useCveWorkflow((s) => s.flows)
+  const flowCount = Object.keys(flows).length
 
   const chartEntries = useMemo(
     () =>
@@ -341,7 +343,7 @@ export default function Cves() {
         <Panel
           className="col-12 cve-register"
           title="CVE register"
-          sub={`${rows.length} of ${liveCves.length} records · exposure derived from correlated alerts`}
+          sub={`${rows.length} of ${liveCves.length} records · ${flowCount} in response · exposure derived from correlated alerts`}
           action={
             <span className={lastFetch ? 'badge real' : 'badge simulated'}>
               {lastFetch ? 'Live pull · cached' : 'Seed snapshot'}
@@ -426,7 +428,9 @@ export default function Cves() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map(({ cve: c, exposure, risk }) => (
+                  {rows.map(({ cve: c, exposure, risk }) => {
+                    const flow = flows[c.id]
+                    return (
                     <tr
                       key={c.id}
                       className={selected?.id === c.id ? 'is-selected' : undefined}
@@ -516,19 +520,31 @@ export default function Cves() {
                         </span>
                       </td>
                       <td className="right">
-                        <button
-                          className="ops-action"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            setSelectedId(c.id)
-                          }}
-                          aria-label={`Review ${c.id}`}
-                        >
-                          Review <ArrowRight size={11} />
-                        </button>
+                        <div className="cve-register-action">
+                          {flow && (
+                            <span
+                              className={cx('cve-flow-chip', `s-${flow.stage}`)}
+                              title={`Response in progress · ${flow.stage} · ${flow.owner ?? 'unassigned'}`}
+                            >
+                              <i />
+                              {stageLabel(flow.stage)}
+                            </span>
+                          )}
+                          <button
+                            className="ops-action"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              setSelectedId(c.id)
+                            }}
+                            aria-label={`Open CVE workspace for ${c.id}`}
+                          >
+                            Review <ArrowRight size={11} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -581,206 +597,21 @@ export default function Cves() {
         />
       </div>
 
-      <Drawer open={Boolean(selected)} onClose={() => setSelectedId(null)} label={selected ? selected.id : 'CVE'}>
-        {selected && <CveDetail cve={selected} onClose={() => setSelectedId(null)} />}
+      <Drawer
+        wide
+        open={Boolean(selected)}
+        onClose={() => setSelectedId(null)}
+        label={selected ? `${selected.id} workspace` : 'CVE workspace'}
+      >
+        {selected && (
+          <CveWorkspace
+            key={selected.id}
+            cve={selected}
+            onClose={() => setSelectedId(null)}
+            onOpenCve={setSelectedId}
+          />
+        )}
       </Drawer>
     </div>
-  )
-}
-
-function CveDetail({ cve, onClose }: { cve: Cve; onClose: () => void }) {
-  const alerts = useLiveAlerts()
-  const related = alerts.filter((a) => a.cve.id === cve.id)
-  const patch = useLiveFeeds((s) => s.patches[cve.id])
-  const exposure = exposureFor(cve, alertsByCve(alerts))
-  const risk = primaryRisk(cve, exposure)
-  const liveRows = [
-    {
-      label: 'NVD record',
-      at: patch?.nvdAt,
-      detail: patch?.nvdAt
-        ? `CVSS ${cve.cvss?.toFixed(1) ?? '—'} · ${cve.cwe.length} CWE · ${cve.refs.length} refs`
-        : 'seed snapshot',
-    },
-    {
-      label: 'FIRST EPSS',
-      at: patch?.epssAt,
-      detail:
-        patch?.epss == null
-          ? 'seed snapshot'
-          : `EPSS ${fmtPct(patch.epss)} · p${Math.round((patch.epssPercentile ?? 0) * 100)}`,
-    },
-    {
-      label: 'CISA KEV',
-      at: patch?.kevAt,
-      detail: patch?.kev == null ? 'seed snapshot' : patch.kev ? `listed · due ${cve.kevDue ? fmtDate(cve.kevDue) : '—'}` : 'not listed',
-    },
-  ]
-  return (
-    <>
-      <DrawerHead
-        overline={`${cve.id} · ${cve.vendor.toUpperCase()} ${cve.product.toUpperCase()}`}
-        title={cve.title}
-        onClose={onClose}
-        meta={
-          <span className="inline-flex" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <SeverityBadge level={cve.severity} />
-            {cve.kev && <span className="badge high">CISA KEV</span>}
-            <span className={cx('ops-pill', risk.tone)}>
-              <i />
-              {risk.label}
-            </span>
-            <span className={cx('ops-pill', exposure.tone)}>
-              <i />
-              {exposure.label}
-            </span>
-          </span>
-        }
-      />
-      <div className="drawer-body">
-        <div className="drawer-section">
-          <p style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.7 }}>{cve.description}</p>
-          <div className="drawer-meta">
-            <span>CVSS {cve.cvss?.toFixed(1) ?? '—'}</span>
-            <span>EPSS {cve.epss == null ? '—' : fmtPct(cve.epss)}</span>
-            <span>{cve.kev ? 'in KEV' : 'not in KEV'}</span>
-          </div>
-        </div>
-
-        <div className="drawer-section">
-          <h3>Exposure and priority</h3>
-          <div className="action-box">
-            <div className="inline-flex" style={{ flexWrap: 'wrap', gap: 8 }}>
-              <span className={cx('ops-pill', risk.tone)}>
-                <i />
-                {risk.label}
-              </span>
-              <span className={cx('ops-pill', exposure.tone)}>
-                <i />
-                {exposure.label}
-              </span>
-            </div>
-            <p style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 8, lineHeight: 1.6 }}>
-              {risk.detail}. Exposure is derived from the demo inventory through the relevance gate, not from a live
-              scan.
-            </p>
-          </div>
-        </div>
-
-        <div className="drawer-section">
-          <h3>Affected range</h3>
-          <div className="action-box">
-            <div className="mono" style={{ fontSize: 13, color: 'var(--teal)' }}>
-              {rangeLabel(cve)}
-            </div>
-            <p style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 6 }}>
-              Installed versions inside this range are MATCHED. Versions outside are suppressed with the reason
-              kept on the alert. Fix version in this demo: <span className="mono">{cve.fixVersion}</span>.
-            </p>
-          </div>
-        </div>
-
-        <div className="drawer-section">
-          <h3>Weaknesses</h3>
-          <div className="entity-tags">
-            {cve.cwe.map((c) => (
-              <span className="entity-tag" key={c}>
-                {c}
-              </span>
-            ))}
-            <span className="entity-tag">{cve.vector}</span>
-          </div>
-        </div>
-
-        <div className="drawer-section">
-          <h3>Correlated alerts</h3>
-          {related.length === 0 ? (
-            <EmptyState title="No alert from this CVE" hint="None of the demo assets meet the relevance gate." />
-          ) : (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {related.map((a) => (
-                <div key={a.id} className="action-box">
-                  <div className="inline-flex" style={{ justifyContent: 'space-between', width: '100%' }}>
-                    <strong style={{ fontSize: 12 }}>{a.asset.name}</strong>
-                    <span className="inline-flex">
-                      <SeverityBadge level={a.level} suppressed={a.suppressed} />
-                      <span className="mono" style={{ marginLeft: 8 }}>{fmtScore(a.score)}</span>
-                    </span>
-                  </div>
-                  <div className="mono" style={{ marginTop: 5, fontSize: 8.5 }}>
-                    {a.relevance} · installed {a.version}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="drawer-section">
-          <h3>References</h3>
-          <div style={{ display: 'grid', gap: 6 }}>
-            {cve.refs.map((r) => (
-              <a
-                key={r.url}
-                href={r.url}
-                target="_blank"
-                rel="noreferrer"
-                className="link-arrow"
-                style={{ fontSize: 11.5, justifyContent: 'space-between' }}
-              >
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.source}</span>
-                <ExternalLink size={11} />
-              </a>
-            ))}
-          </div>
-        </div>
-
-        <div className="drawer-section">
-          <h3>Live pull</h3>
-          <div className="provenance-list">
-            {liveRows.map((row) => (
-              <div className="provenance-row" key={row.label}>
-                <span className={row.at ? 'check' : 'dim'}>{row.at ? <Check size={12} /> : '·'}</span>
-                <span>{row.label}</span>
-                <span className="time">
-                  {row.detail}
-                  {row.at ? ` · ${timeAgo(row.at)}` : ''}
-                </span>
-              </div>
-            ))}
-          </div>
-          {!liveRows.some((row) => row.at) && (
-            <p className="dim" style={{ fontSize: 11, marginTop: 8 }}>
-              No live pull for this record yet; values come from the demo seed. Use “Sync live feeds”.
-            </p>
-          )}
-        </div>
-
-        <div className="drawer-section">
-          <h3>Timestamps</h3>
-          <div className="provenance-list">
-            <div className="provenance-row">
-              <Check size={12} className="check" />
-              <span>Published</span>
-              <span className="time">{fmtDate(cve.published)}</span>
-            </div>
-            <div className="provenance-row">
-              <Check size={12} className="check" />
-              <span>Last modified</span>
-              <span className="time">{fmtDate(cve.modified)}</span>
-            </div>
-            <div className="provenance-row">
-              <Check size={12} className="check" />
-              <span>EPSS snapshot</span>
-              <span className="time">{patch?.epssAt ? fmtDate(patch.epssAt) : fmtDate(DEMO_NOW.toISOString())}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="drawer-section">
-          <SimulatedBadge /> <span className="dim" style={{ fontSize: 11 }}>Asset correlation is demo context; the CVE record is real.</span>
-        </div>
-      </div>
-    </>
   )
 }
