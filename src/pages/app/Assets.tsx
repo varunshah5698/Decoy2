@@ -5,7 +5,14 @@ import { Chart, chartFont } from '../../components/Chart'
 import { Drawer, DrawerHead } from '../../components/Drawer'
 import { Counter } from '../../components/Counter'
 import { CriticalityBadge, SeverityBadge, SimulatedBadge, UploadBadge } from '../../components/Badges'
-import { EmptyState } from '../../components/EmptyState'
+import {
+  BoardDial,
+  BoardRiskRow,
+  BoardSeverityMix,
+  BoardStat,
+  levelColor,
+  levelLabel,
+} from '../../components/BoardDetail'
 import {
   Activity,
   ArrowRight,
@@ -30,7 +37,7 @@ import { useAuth, useFilters, useTheme } from '../../lib/store'
 import { allUploadedAssets, useUploads } from '../../lib/uploads'
 import { fmtScore, timeAgo } from '../../lib/format'
 import { mean, median } from '../../lib/stats'
-import { LEVEL_COLORS, hexA } from '../../lib/colors'
+import { LEVEL_COLORS } from '../../lib/colors'
 import type { Alert, Asset, AssetType, Criticality, RiskLevel } from '../../lib/types'
 import './assets.css'
 
@@ -1015,7 +1022,7 @@ export default function Assets() {
         </div>
       </div>
 
-      <Drawer open={Boolean(selected)} onClose={() => setSelected(null)} label={selected ? selected.name : 'Asset'}>
+      <Drawer open={Boolean(selected)} onClose={() => setSelected(null)} label={selected ? selected.name : 'Asset'} board>
         {selected && <AssetDetail asset={selected} onClose={() => setSelected(null)} />}
       </Drawer>
     </div>
@@ -1028,26 +1035,147 @@ function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) 
   const alerts = useLiveAlerts()
   const list = alerts.filter((a) => a.asset.id === asset.id)
   const active = list.filter((a) => !a.suppressed)
+  const suppressed = list.filter((a) => a.suppressed)
+  const highest = topScore(active)
+  const top = topLevel(active)
+  const versioned = asset.software.filter((s) => s.version !== 'unknown').length
+  const counts = LEVEL_SEGMENTS.map((segment) => ({
+    level: segment.level,
+    count: active.filter((a) => a.level === segment.level).length,
+  }))
+  const versionPhrase = (score: Alert) =>
+    score.version === 'unknown'
+      ? 'Version not recorded'
+      : score.relevance === 'MATCHED'
+        ? `Installed ${score.version} is affected`
+        : `Installed ${score.version} is not affected`
+
   return (
     <>
       <DrawerHead
-        overline={`${asset.id} · ${asset.type.toUpperCase()} · ${asset.department.toUpperCase()}`}
+        overline={`${asset.id} · ${asset.department}`}
         title={asset.name}
         onClose={onClose}
         meta={
-          <span className="inline-flex" style={{ flexWrap: 'wrap', gap: 8 }}>
+          <span className="inline-flex" style={{ flexWrap: 'wrap', gap: 6 }}>
             <CriticalityBadge level={asset.criticality} />
-            {asset.internetFacing ? <span className="badge high">Internet-facing</span> : <span className="badge suppressed">Internal</span>}
+            {asset.internetFacing ? <span className="badge medium">Internet-facing</span> : <span className="badge suppressed">Internal</span>}
             {asset.source === 'USER UPLOAD' ? <UploadBadge /> : <SimulatedBadge />}
           </span>
         }
       />
       <div className="drawer-body">
         <div className="drawer-section">
-          <p style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-            {asset.businessFunction}. Data sensitivity is {asset.sensitivity.toLowerCase()}.
-          </p>
+          <div className="bd-hero">
+            <BoardDial
+              value={highest}
+              max={100}
+              color={top ? levelColor[top] : 'var(--bd-green)'}
+              display={active.length ? fmtScore(highest) : '—'}
+              label={top ? `${levelLabel[top]} risk` : 'No active risk'}
+              sub={active.length ? 'highest score' : 'in the queue'}
+              size={158}
+            />
+            <div className="bd-hero-copy">
+              <span className="bd-kicker">
+                {asset.internetFacing ? 'Internet-facing system' : 'Internal system'} · {TYPE_META[asset.type].label}
+              </span>
+              <h3>{asset.businessFunction}</h3>
+              <p>
+                {asset.sensitivity === 'HIGH'
+                  ? 'This system holds highly sensitive data.'
+                  : asset.sensitivity === 'MEDIUM'
+                    ? 'This system holds moderately sensitive data.'
+                    : 'This system holds low-sensitivity data.'}{' '}
+                {active.length
+                  ? `${active.length} active risk${active.length === 1 ? '' : 's'} need review.`
+                  : 'Nothing active in the queue right now.'}
+              </p>
+              <div className="bd-chips">
+                <span className="bd-chip">{asset.software.length} products installed</span>
+                <span className="bd-chip">{asset.source === 'USER UPLOAD' ? 'User upload' : 'Demo inventory'}</span>
+              </div>
+            </div>
+          </div>
+          <div className="bd-stats" style={{ marginTop: 12 }}>
+            <BoardStat
+              label="Active risks"
+              value={active.length}
+              sub="scored in the queue"
+              tone={active.length > 0 ? 'orange' : undefined}
+            />
+            <BoardStat label="Highest score" value={active.length ? fmtScore(highest) : '—'} sub="out of 100" />
+            <BoardStat label="Held back" value={suppressed.length} sub="version not affected" />
+          </div>
         </div>
+
+        <div className="drawer-section">
+          <h3>Risk mix</h3>
+          {active.length === 0 ? (
+            <div className="bd-empty">No active alert is attached to this system right now.</div>
+          ) : (
+            <BoardSeverityMix counts={counts} total={active.length} />
+          )}
+          {suppressed.length > 0 && (
+            <p style={{ marginTop: 10, fontSize: 11, color: 'var(--bd-muted)' }}>
+              {suppressed.length} candidate{suppressed.length === 1 ? '' : 's'} held back because the installed version
+              is not affected.
+            </p>
+          )}
+        </div>
+
+        <div className="drawer-section">
+          <h3>Active risks</h3>
+          {active.length === 0 ? (
+            <div className="bd-empty">Nothing to remediate on this system.</div>
+          ) : (
+            <div className="bd-risks">
+              {active.map((a) => (
+                <BoardRiskRow
+                  key={a.id}
+                  title={a.cve.title}
+                  badge={<SeverityBadge level={a.level} />}
+                  value={a.score}
+                  display={fmtScore(a.score)}
+                  color={levelColor[a.level]}
+                  meta={
+                    <>
+                      <span>{a.cve.id}</span>
+                      <span>{versionPhrase(a)}</span>
+                      <span>Raised {timeAgo(a.createdAt)}</span>
+                    </>
+                  }
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {suppressed.length > 0 && (
+          <div className="drawer-section">
+            <h3>Held back</h3>
+            <div className="bd-risks">
+              {suppressed.map((a) => (
+                <BoardRiskRow
+                  key={a.id}
+                  title={a.cve.title}
+                  badge={<SeverityBadge level={a.level} suppressed />}
+                  value={0}
+                  display="Held"
+                  color="var(--bd-slate)"
+                  muted
+                  meta={
+                    <>
+                      <span>{a.cve.id}</span>
+                      <span>{versionPhrase(a)}</span>
+                    </>
+                  }
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="drawer-section">
           <h3>Installed software</h3>
           <div className="table-wrap">
@@ -1064,61 +1192,39 @@ function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) 
                   <tr key={`${s.vendor}-${s.product}`}>
                     <td>{s.vendor}</td>
                     <td>{s.product}</td>
-                    <td className="right mono">{s.version === 'unknown' ? 'unverified' : s.version}</td>
+                    <td className="right mono">{s.version === 'unknown' ? 'Not recorded' : s.version}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <p style={{ marginTop: 10, fontSize: 11, color: 'var(--bd-muted)' }}>
+            Versions are matched against published vulnerability ranges when a record arrives.
+          </p>
         </div>
+
         <div className="drawer-section">
-          <h3>Correlated alerts</h3>
-          {list.length === 0 ? (
-            <EmptyState title="No correlation candidates" hint="No ingested CVE references this software." />
-          ) : (
-            <div style={{ display: 'grid', gap: 8 }}>
-              {list.map((a) => (
-                <div
-                  key={a.id}
-                  className="action-box"
-                  style={{ borderColor: a.suppressed ? 'var(--line)' : hexA(LEVEL_COLORS[a.level], 0.3) }}
-                >
-                  <div className="inline-flex" style={{ justifyContent: 'space-between', width: '100%' }}>
-                    <strong style={{ fontSize: 12 }}>{a.cve.id}</strong>
-                    <span className="inline-flex" style={{ gap: 6 }}>
-                      <SeverityBadge level={a.level} suppressed={a.suppressed} />
-                      <span className="mono">{fmtScore(a.score)}</span>
-                    </span>
-                  </div>
-                  <p style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 5 }}>{a.cve.title}</p>
-                  <div className="mono" style={{ marginTop: 5, fontSize: 8.5 }}>
-                    {a.relevance} · raised {timeAgo(a.createdAt)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="drawer-section">
-          <h3>Exposure summary</h3>
-          <div className="provenance-list">
-            <div className="provenance-row">
-              <Network size={12} className="check" />
-              <span>Network position</span>
-              <span className="time">{asset.internetFacing ? 'Internet-facing' : 'Internal only'}</span>
-            </div>
-            <div className="provenance-row">
-              <Globe2 size={12} className="check" />
-              <span>Correlated alerts</span>
-              <span className="time">
-                {active.length} active · {list.length - active.length} suppressed
-              </span>
-            </div>
+          <h3>About this system</h3>
+          <div className="bd-stats">
+            <BoardStat label="Business criticality" value={asset.criticality} sub="how important to the business" />
+            <BoardStat
+              label="Network position"
+              value={asset.internetFacing ? 'Internet' : 'Internal'}
+              sub={asset.internetFacing ? 'reachable from outside' : 'not reachable from outside'}
+            />
+            <BoardStat label="Data sensitivity" value={asset.sensitivity} sub="classification of stored data" />
+            <BoardStat
+              label="Version coverage"
+              value={`${versioned}/${asset.software.length}`}
+              sub="products with a recorded version"
+              tone={versioned === asset.software.length ? 'green' : undefined}
+            />
           </div>
-          <button className="btn btn-ghost btn-sm mt-16" onClick={onClose}>
-            Close <ArrowRight size={13} />
-          </button>
         </div>
+      </div>
+      <div className="drawer-foot">
+        <span>{asset.software.length} products · {asset.department}</span>
+        <span>{asset.source === 'USER UPLOAD' ? 'User upload' : 'Demo inventory'}</span>
       </div>
     </>
   )

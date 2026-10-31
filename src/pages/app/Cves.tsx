@@ -313,8 +313,8 @@ export default function Cves() {
 
         <div className="cve-signal tone-low is-accent">
           <div className="cve-signal-top">
-            <span className="cve-signal-label">CPE ranges</span>
-            <span className="cve-signal-meta">CVE → CPE</span>
+            <span className="cve-signal-label">Affected versions</span>
+            <span className="cve-signal-meta">published ranges</span>
           </div>
           <div className="cve-signal-value">
             {withRanges}
@@ -588,9 +588,9 @@ export default function Cves() {
               n: liveCves.length,
             },
             {
-              name: 'CVEs with CPE ranges',
+              name: 'CVEs with version ranges',
               value: String(liveCves.filter((c) => rangeLabel(c) !== 'not published').length),
-              formula: 'range present in demo CPE data',
+              formula: 'range present in demo data',
               n: liveCves.length,
             },
           ]}

@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from './Icons'
+import './drawer-board.css'
 
 export function Drawer({
   open,
@@ -9,12 +10,14 @@ export function Drawer({
   children,
   label,
   wide,
+  board,
 }: {
   open: boolean
   onClose: () => void
   children: ReactNode
   label: string
   wide?: boolean
+  board?: boolean
 }) {
   useEffect(() => {
     if (!open) return
@@ -35,7 +38,7 @@ export function Drawer({
       {open && (
         <>
           <motion.div
-            className="overlay"
+            className={board ? 'overlay overlay-board' : 'overlay'}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -43,7 +46,7 @@ export function Drawer({
             onClick={onClose}
           />
           <motion.aside
-            className={wide ? 'drawer drawer-wide' : 'drawer'}
+            className={['drawer', wide ? 'drawer-wide' : '', board ? 'drawer-board' : ''].filter(Boolean).join(' ')}
             role="dialog"
             aria-modal="true"
             aria-label={label}
