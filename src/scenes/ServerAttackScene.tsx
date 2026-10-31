@@ -2,9 +2,33 @@ import { useEffect, useRef } from 'react'
 import { useReducedMotion } from 'framer-motion'
 import { alerts, assetById } from '../data/seed'
 import { cx } from '../lib/format'
+import { useTheme } from '../lib/store'
 
 const TAU = Math.PI * 2
 const RACK = { w: 250, h: 430, d: 170 }
+
+const SCENE_TONES = {
+  dark: {
+    teal: '83, 227, 203',
+    amber: '240, 169, 74',
+    amberBright: '255, 190, 92',
+    red: '255, 91, 77',
+    redBright: '255, 120, 100',
+    redPale: '255, 170, 150',
+    bone: '233, 231, 222',
+    noise: '155, 166, 168',
+  },
+  light: {
+    teal: '10, 111, 102',
+    amber: '140, 85, 16',
+    amberBright: '160, 98, 24',
+    red: '178, 58, 47',
+    redBright: '198, 76, 62',
+    redPale: '208, 96, 81',
+    bone: '22, 32, 29',
+    noise: '84, 97, 91',
+  },
+} as const
 
 interface MatchNode {
   assetId: string
@@ -20,7 +44,7 @@ const matchNodes: MatchNode[] = [
   { assetId: 'AST-HR-01', cveId: 'CVE-2021-44228', product: 'Log4j', version: '2.14.1', fix: '2.17.1' },
   { assetId: 'AST-FIN-04', cveId: 'CVE-2023-34362', product: 'MOVEit', version: '2023.0.1', fix: '2023.0.3' },
   { assetId: 'AST-ENG-09', cveId: 'CVE-2023-44487', product: 'nginx', version: '1.25.2', fix: '1.25.5' },
-  { assetId: 'AST-FIN-02', cveId: 'CVE-2023-20862', product: 'Spring', version: '5.3.17', fix: '5.3.27' },
+  { assetId: 'AST-FIN-02', cveId: 'CVE-2023-20863', product: 'Spring', version: '5.3.17', fix: '5.3.27' },
 ].map((node) => {
   const asset = assetById[node.assetId]
   const alert = alerts.find((a) => a.cve.id === node.cveId && a.relevance === 'MATCHED')
@@ -82,6 +106,8 @@ export function ServerAttackScene() {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const reduce = useReducedMotion()
+  const theme = useTheme((state) => state.theme)
+  const light = theme === 'light'
 
   useEffect(() => {
     const wrap = wrapRef.current
@@ -89,6 +115,8 @@ export function ServerAttackScene() {
     if (!wrap || !canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+    const C = SCENE_TONES[light ? 'light' : 'dark']
+    const clamp255 = (value: number) => Math.max(0, Math.min(255, Math.round(value)))
 
     let w = 0
     let h = 0
@@ -327,8 +355,8 @@ export function ServerAttackScene() {
       for (let z = 320; z >= -1500; z -= 170) {
         const a = project(-1500, baseY, z)
         const b = project(1500, baseY, z)
-        const fade = 0.11 * Math.max(0, 1 - Math.abs(z + 300) / 1600)
-        ctx.strokeStyle = `rgba(83, 227, 203, ${fade})`
+        const fade = (light ? 0.15 : 0.11) * Math.max(0, 1 - Math.abs(z + 300) / 1600)
+        ctx.strokeStyle = `rgba(${C.teal}, ${fade})`
         ctx.beginPath()
         ctx.moveTo(a.x, a.y)
         ctx.lineTo(b.x, b.y)
@@ -337,7 +365,7 @@ export function ServerAttackScene() {
       for (let x = -1400; x <= 1400; x += 200) {
         const a = project(x, baseY, 320)
         const b = project(x, baseY, -1500)
-        ctx.strokeStyle = 'rgba(83, 227, 203, 0.045)'
+        ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.075 : 0.045})`
         ctx.beginPath()
         ctx.moveTo(a.x, a.y)
         ctx.lineTo(b.x, b.y)
@@ -347,9 +375,9 @@ export function ServerAttackScene() {
       const a = project(-1500, baseY, scanZ)
       const b = project(1500, baseY, scanZ)
       const scan = ctx.createLinearGradient(a.x, a.y, b.x, b.y)
-      scan.addColorStop(0, 'rgba(83, 227, 203, 0)')
-      scan.addColorStop(0.5, `rgba(83, 227, 203, ${0.22 + flash * 0.2})`)
-      scan.addColorStop(1, 'rgba(83, 227, 203, 0)')
+      scan.addColorStop(0, `rgba(${C.teal}, 0)`)
+      scan.addColorStop(0.5, `rgba(${C.teal}, ${(light ? 0.3 : 0.22) + flash * (light ? 0.25 : 0.2)})`)
+      scan.addColorStop(1, `rgba(${C.teal}, 0)`)
       ctx.strokeStyle = scan
       ctx.lineWidth = 1
       ctx.beginPath()
@@ -392,21 +420,31 @@ export function ServerAttackScene() {
         const gx1 = Math.max(...face.pts.map((point) => point.x))
         const gy1 = Math.max(...face.pts.map((point) => point.y))
         const grad = ctx.createLinearGradient(gx0, gy0, gx1, gy1)
-        const glow = primary ? flash * 0.35 : 0
-        grad.addColorStop(0, `rgba(${Math.round(17 + 34 * s + glow * 120)}, ${Math.round(23 + 34 * s + glow * 60)}, ${Math.round(25 + 28 * s + glow * 20)}, 1)`)
-        grad.addColorStop(1, `rgba(${Math.round(6 + 16 * s + glow * 60)}, ${Math.round(10 + 16 * s + glow * 30)}, ${Math.round(12 + 14 * s)}, 1)`)
+        if (light) {
+          const l = 0.72 + 0.28 * s
+          const warm = primary ? flash * 10 : 0
+          grad.addColorStop(0, `rgb(${clamp255(240 * l + warm)}, ${clamp255(236 * l + warm * 0.4)}, ${clamp255(224 * l)})`)
+          grad.addColorStop(1, `rgb(${clamp255(222 * l + warm * 0.5)}, ${clamp255(216 * l + warm * 0.2)}, ${clamp255(202 * l)})`)
+        } else {
+          const glow = primary ? flash * 0.35 : 0
+          grad.addColorStop(0, `rgba(${Math.round(17 + 34 * s + glow * 120)}, ${Math.round(23 + 34 * s + glow * 60)}, ${Math.round(25 + 28 * s + glow * 20)}, 1)`)
+          grad.addColorStop(1, `rgba(${Math.round(6 + 16 * s + glow * 60)}, ${Math.round(10 + 16 * s + glow * 30)}, ${Math.round(12 + 14 * s)}, 1)`)
+        }
         ctx.fillStyle = grad
         ctx.fill()
-        ctx.strokeStyle = `rgba(83, 227, 203, ${primary ? 0.2 + s * 0.12 : 0.05})`
-        ctx.lineWidth = primary ? 0.9 : 0.6
+        ctx.strokeStyle = light
+          ? `rgba(${C.bone}, ${primary ? 0.34 + s * 0.12 : 0.16})`
+          : `rgba(${C.teal}, ${primary ? 0.2 + s * 0.12 : 0.05})`
+        ctx.lineWidth = primary ? 1 : 0.6
         ctx.stroke()
       }
 
       if (!primary) {
         for (let i = 0; i < 5; i += 1) {
           const lp = p(W / 2 - 4, -H / 2 + 10 + i * (H / 6), D / 2 + 1)
+          const amberLed = rng() > 0.7
           ctx.beginPath()
-          ctx.fillStyle = rng() > 0.7 ? 'rgba(240, 169, 74, 0.5)' : 'rgba(83, 227, 203, 0.35)'
+          ctx.fillStyle = `rgba(${amberLed ? C.amber : C.teal}, ${amberLed ? (light ? 0.75 : 0.5) : light ? 0.6 : 0.35})`
           ctx.arc(lp.x, lp.y, 1.3, 0, TAU)
           ctx.fill()
         }
@@ -417,22 +455,22 @@ export function ServerAttackScene() {
       const topR = p(W / 2, -H / 2, D / 2)
       const botL = p(-W / 2, H / 2, D / 2)
       ctx.save()
-      ctx.strokeStyle = `rgba(83, 227, 203, ${0.34 + flash * 0.3})`
+      ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.48 + flash * 0.25 : 0.34 + flash * 0.3})`
       ctx.lineWidth = 1.2
-      ctx.shadowColor = 'rgba(83, 227, 203, 0.5)'
-      ctx.shadowBlur = 10
+      ctx.shadowColor = `rgba(${C.teal}, ${light ? 0.18 : 0.5})`
+      ctx.shadowBlur = light ? 5 : 10
       ctx.beginPath()
       ctx.moveTo(topL.x, topL.y)
       ctx.lineTo(topR.x, topR.y)
       ctx.stroke()
       ctx.restore()
-      ctx.strokeStyle = 'rgba(83, 227, 203, 0.16)'
+      ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.24 : 0.16})`
       ctx.lineWidth = 0.9
       ctx.beginPath()
       ctx.moveTo(topL.x, topL.y)
       ctx.lineTo(botL.x, botL.y)
       ctx.stroke()
-      ctx.strokeStyle = 'rgba(240, 169, 74, 0.3)'
+      ctx.strokeStyle = `rgba(${C.amber}, ${light ? 0.42 : 0.3})`
       ctx.beginPath()
       ctx.moveTo(topR.x, topR.y)
       ctx.lineTo(p(W / 2, H / 2, D / 2).x, p(W / 2, H / 2, D / 2).y)
@@ -440,7 +478,7 @@ export function ServerAttackScene() {
 
       const capA = p(-W / 2 + 10, -H / 2 + 6, D / 2 + 2)
       const capB = p(W / 2 - 10, -H / 2 + 6, D / 2 + 2)
-      ctx.strokeStyle = `rgba(83, 227, 203, ${0.35 + flash * 0.3})`
+      ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.5 + flash * 0.25 : 0.35 + flash * 0.3})`
       ctx.lineWidth = 1.5
       ctx.beginPath()
       ctx.moveTo(capA.x, capA.y)
@@ -465,12 +503,19 @@ export function ServerAttackScene() {
         ctx.closePath()
         const hot = hotUnit === u && hotAge < 2.6
         const unitGrad = ctx.createLinearGradient(quad[0].x, quad[0].y, quad[3].x, quad[3].y)
-        unitGrad.addColorStop(0, hot ? 'rgba(80, 51, 18, 0.95)' : 'rgba(16, 22, 24, 0.95)')
-        unitGrad.addColorStop(1, hot ? 'rgba(34, 24, 11, 0.95)' : 'rgba(8, 12, 13, 0.95)')
+        if (light) {
+          unitGrad.addColorStop(0, hot ? 'rgb(242, 210, 160)' : 'rgb(234, 228, 216)')
+          unitGrad.addColorStop(1, hot ? 'rgb(250, 227, 188)' : 'rgb(248, 245, 237)')
+        } else {
+          unitGrad.addColorStop(0, hot ? 'rgba(80, 51, 18, 0.95)' : 'rgba(16, 22, 24, 0.95)')
+          unitGrad.addColorStop(1, hot ? 'rgba(34, 24, 11, 0.95)' : 'rgba(8, 12, 13, 0.95)')
+        }
         ctx.fillStyle = unitGrad
         ctx.fill()
-        ctx.strokeStyle = hot ? `rgba(240, 169, 74, ${0.55 + Math.sin(hotAge * 12) * 0.2})` : 'rgba(233, 231, 222, 0.1)'
-        ctx.lineWidth = hot ? 1 : 0.5
+        ctx.strokeStyle = hot
+          ? `rgba(${C.amber}, ${(light ? 0.8 : 0.55) + Math.sin(hotAge * 12) * 0.15})`
+          : `rgba(${C.bone}, ${light ? 0.24 : 0.1})`
+        ctx.lineWidth = hot ? 1 : 0.6
         ctx.stroke()
 
         for (let v = 0; v < 7; v += 1) {
@@ -478,7 +523,7 @@ export function ServerAttackScene() {
           const a = p(vx, y0 + 3, D / 2 + 2)
           const b = p(vx, y1, D / 2 + 2)
           ctx.beginPath()
-          ctx.strokeStyle = hot ? 'rgba(240, 169, 74, 0.2)' : 'rgba(233, 231, 222, 0.075)'
+          ctx.strokeStyle = hot ? `rgba(${C.amber}, ${light ? 0.36 : 0.2})` : `rgba(${C.bone}, ${light ? 0.14 : 0.075})`
           ctx.lineWidth = 0.5
           ctx.moveTo(a.x, a.y)
           ctx.lineTo(b.x, b.y)
@@ -491,16 +536,16 @@ export function ServerAttackScene() {
         const led = p(lx, ly, D / 2 + 2)
         ctx.beginPath()
         ctx.fillStyle = hot
-          ? `rgba(255, 190, 92, ${0.6 + blink * 0.4})`
+          ? `rgba(${C.amberBright}, ${0.65 + blink * 0.35})`
           : u % 4 === 1
-            ? `rgba(240, 169, 74, ${0.25 + blink * 0.5})`
-            : `rgba(83, 227, 203, ${0.24 + blink * 0.62})`
+            ? `rgba(${C.amber}, ${light ? 0.45 + blink * 0.45 : 0.25 + blink * 0.5})`
+            : `rgba(${C.teal}, ${light ? 0.5 + blink * 0.5 : 0.24 + blink * 0.62})`
         ctx.arc(led.x, led.y, hot ? 2.6 : 1.7, 0, TAU)
         ctx.fill()
         if (hot) {
           const glow = ctx.createRadialGradient(led.x, led.y, 0, led.x, led.y, 22)
-          glow.addColorStop(0, 'rgba(240, 169, 74, 0.45)')
-          glow.addColorStop(1, 'rgba(240, 169, 74, 0)')
+          glow.addColorStop(0, `rgba(${C.amber}, ${light ? 0.2 : 0.45})`)
+          glow.addColorStop(1, `rgba(${C.amber}, 0)`)
           ctx.fillStyle = glow
           ctx.beginPath()
           ctx.arc(led.x, led.y, 22, 0, TAU)
@@ -509,10 +554,10 @@ export function ServerAttackScene() {
           const seamTop = p(-W * 0.1 + Math.sin(hotAge * 9) * 3, y0 + 2, D / 2 + 2.5)
           const seamBottom = p(-W * 0.1, y1 - 1, D / 2 + 2.5)
           ctx.save()
-          ctx.strokeStyle = `rgba(255, 190, 92, ${0.5 + Math.sin(hotAge * 14) * 0.2})`
+          ctx.strokeStyle = `rgba(${C.amberBright}, ${light ? 0.8 : 0.5 + Math.sin(hotAge * 14) * 0.2})`
           ctx.lineWidth = 1.4
-          ctx.shadowColor = 'rgba(240, 169, 74, 0.8)'
-          ctx.shadowBlur = 12
+          ctx.shadowColor = `rgba(${C.amber}, ${light ? 0.28 : 0.8})`
+          ctx.shadowBlur = light ? 6 : 12
           ctx.beginPath()
           ctx.moveTo(seamTop.x, seamTop.y)
           ctx.lineTo(seamBottom.x, seamBottom.y)
@@ -527,9 +572,9 @@ export function ServerAttackScene() {
       ctx.save()
       ctx.transform(ux.x - origin.x, ux.y - origin.y, vy.x - origin.x, vy.y - origin.y, origin.x, origin.y)
       ctx.font = '600 8px "JetBrains Mono Variable", ui-monospace, monospace'
-      ctx.fillStyle = 'rgba(233, 231, 222, 0.42)'
+      ctx.fillStyle = `rgba(${C.bone}, ${light ? 0.72 : 0.42})`
       ctx.fillText('AEGIS // RACK-01', 8, 18)
-      ctx.fillStyle = 'rgba(83, 227, 203, 0.5)'
+      ctx.fillStyle = `rgba(${C.teal}, ${light ? 0.86 : 0.5})`
       ctx.fillText(hotUnit >= 0 ? 'MATCH CONFIRMED' : 'SHIELD ACTIVE', 8, 29)
       ctx.restore()
     }
@@ -541,9 +586,9 @@ export function ServerAttackScene() {
       const ry = gate.ry * pulse
 
       const fill = ctx.createRadialGradient(gate.x, gate.y, 4, gate.x, gate.y, ry)
-      fill.addColorStop(0, `rgba(83, 227, 203, ${0.085 + flash * 0.05})`)
-      fill.addColorStop(0.72, 'rgba(83, 227, 203, 0.03)')
-      fill.addColorStop(1, 'rgba(83, 227, 203, 0)')
+      fill.addColorStop(0, `rgba(${C.teal}, ${(light ? 0.065 : 0.085) + flash * (light ? 0.04 : 0.05)})`)
+      fill.addColorStop(0.72, `rgba(${C.teal}, ${light ? 0.022 : 0.03})`)
+      fill.addColorStop(1, `rgba(${C.teal}, 0)`)
       ctx.fillStyle = fill
       ctx.beginPath()
       ctx.ellipse(gate.x, gate.y, rx, ry, 0, 0, TAU)
@@ -553,7 +598,7 @@ export function ServerAttackScene() {
       ctx.beginPath()
       ctx.ellipse(gate.x, gate.y, rx, ry, 0, 0, TAU)
       ctx.clip()
-      ctx.strokeStyle = 'rgba(83, 227, 203, 0.08)'
+      ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.08 : 0.08})`
       ctx.lineWidth = 0.6
       for (let i = -18; i <= 18; i += 1) {
         ctx.beginPath()
@@ -567,9 +612,9 @@ export function ServerAttackScene() {
       }
       const scanY = gate.y - ry + ((time * 0.22) % 1) * ry * 2
       const scan = ctx.createLinearGradient(0, scanY - 16, 0, scanY + 16)
-      scan.addColorStop(0, 'rgba(83, 227, 203, 0)')
-      scan.addColorStop(0.5, `rgba(83, 227, 203, ${0.09 + flash * 0.06})`)
-      scan.addColorStop(1, 'rgba(83, 227, 203, 0)')
+      scan.addColorStop(0, `rgba(${C.teal}, 0)`)
+      scan.addColorStop(0.5, `rgba(${C.teal}, ${(light ? 0.1 : 0.09) + flash * 0.06})`)
+      scan.addColorStop(1, `rgba(${C.teal}, 0)`)
       ctx.fillStyle = scan
       ctx.fillRect(gate.x - rx, scanY - 9, rx * 2, 18)
       ctx.restore()
@@ -577,29 +622,29 @@ export function ServerAttackScene() {
       ctx.save()
       ctx.beginPath()
       ctx.setLineDash([3, 7])
-      ctx.strokeStyle = `rgba(83, 227, 203, ${0.46 + flash * 0.3})`
-      ctx.lineWidth = 1
-      ctx.shadowColor = 'rgba(83, 227, 203, 0.55)'
-      ctx.shadowBlur = 14
+      ctx.strokeStyle = `rgba(${C.teal}, ${(light ? 0.62 : 0.46) + flash * (light ? 0.25 : 0.3)})`
+      ctx.lineWidth = 1.1
+      ctx.shadowColor = `rgba(${C.teal}, ${light ? 0.2 : 0.55})`
+      ctx.shadowBlur = light ? 7 : 14
       ctx.ellipse(gate.x, gate.y, rx, ry, -0.05, 0, TAU)
       ctx.stroke()
       ctx.restore()
       ctx.setLineDash([])
 
       ctx.beginPath()
-      ctx.strokeStyle = `rgba(83, 227, 203, ${0.2 + flash * 0.2})`
+      ctx.strokeStyle = `rgba(${C.teal}, ${(light ? 0.28 : 0.2) + flash * 0.2})`
       ctx.lineWidth = 0.7
       ctx.ellipse(gate.x, gate.y, rx * 0.9, ry * 0.9, -0.05, 0, TAU)
       ctx.stroke()
 
       const arc = time * 0.28
       ctx.beginPath()
-      ctx.strokeStyle = `rgba(240, 169, 74, ${0.55 + flash * 0.35})`
-      ctx.lineWidth = 1.4
+      ctx.strokeStyle = `rgba(${C.amber}, ${(light ? 0.74 : 0.55) + flash * 0.25})`
+      ctx.lineWidth = 1.5
       ctx.ellipse(gate.x, gate.y, rx * 1.06, ry * 1.03, -0.05, arc, arc + 0.5)
       ctx.stroke()
       ctx.beginPath()
-      ctx.strokeStyle = 'rgba(83, 227, 203, 0.28)'
+      ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.4 : 0.28})`
       ctx.lineWidth = 1
       ctx.ellipse(gate.x, gate.y, rx * 1.13, ry * 1.08, -0.05, -arc * 0.7, -arc * 0.7 + 0.9)
       ctx.stroke()
@@ -608,8 +653,8 @@ export function ServerAttackScene() {
         const angle = (i / 8) * TAU
         const x = gate.x + Math.cos(angle) * rx * 1.18
         const y = gate.y + Math.sin(angle) * ry * 1.12
-        ctx.strokeStyle = 'rgba(83, 227, 203, 0.45)'
-        ctx.lineWidth = 0.8
+        ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.6 : 0.45})`
+        ctx.lineWidth = 0.9
         ctx.beginPath()
         ctx.moveTo(x - Math.cos(angle) * 5, y - Math.sin(angle) * 5)
         ctx.lineTo(x + Math.cos(angle) * 5, y + Math.sin(angle) * 5)
@@ -618,8 +663,8 @@ export function ServerAttackScene() {
 
       if (flash > 0.02) {
         const glow = ctx.createRadialGradient(gate.x, gate.y, 0, gate.x, gate.y, ry * 1.2)
-        glow.addColorStop(0, `rgba(240, 169, 74, ${flash * 0.16})`)
-        glow.addColorStop(1, 'rgba(240, 169, 74, 0)')
+        glow.addColorStop(0, `rgba(${C.amber}, ${flash * (light ? 0.1 : 0.16)})`)
+        glow.addColorStop(1, `rgba(${C.amber}, 0)`)
         ctx.fillStyle = glow
         ctx.beginPath()
         ctx.ellipse(gate.x, gate.y, rx * 1.2, ry * 1.15, 0, 0, TAU)
@@ -631,12 +676,12 @@ export function ServerAttackScene() {
       const fade = Math.max(0, Math.min(1, (px + 30) / 140))
       if (fade <= 0.02) return
       const isMatch = packet.tone === 'match'
-      const color = isMatch ? '240, 169, 74' : packet.tone === 'crit' ? '255, 91, 77' : '155, 166, 168'
+      const color = isMatch ? C.amber : packet.tone === 'crit' ? C.red : C.noise
       if (packet.trail.length > 2) {
         ctx.beginPath()
         ctx.moveTo(packet.trail[0].x, packet.trail[0].y)
         for (let i = 1; i < packet.trail.length; i += 1) ctx.lineTo(packet.trail[i].x, packet.trail[i].y)
-        ctx.strokeStyle = `rgba(${color}, ${(isMatch ? 0.32 : 0.13) * fade})`
+        ctx.strokeStyle = `rgba(${color}, ${(isMatch ? (light ? 0.52 : 0.32) : light ? 0.26 : 0.13) * fade})`
         ctx.lineWidth = isMatch ? 1.6 : 0.9
         ctx.lineCap = 'round'
         ctx.stroke()
@@ -645,27 +690,28 @@ export function ServerAttackScene() {
         const point = packet.trail[i]
         const f = i / packet.trail.length
         ctx.beginPath()
-        ctx.fillStyle = `rgba(${color}, ${f * (isMatch ? 0.55 : 0.3) * fade})`
+        ctx.fillStyle = `rgba(${color}, ${f * (isMatch ? (light ? 0.72 : 0.55) : light ? 0.5 : 0.3) * fade})`
         ctx.arc(point.x, point.y, (isMatch ? 1.9 : 1.05) * f + 0.3, 0, TAU)
         ctx.fill()
       }
       if (isMatch) {
         const glow = ctx.createRadialGradient(px, py, 0, px, py, 26)
-        glow.addColorStop(0, `rgba(240, 169, 74, ${0.55 * fade})`)
-        glow.addColorStop(1, 'rgba(240, 169, 74, 0)')
+        glow.addColorStop(0, `rgba(${C.amber}, ${(light ? 0.3 : 0.55) * fade})`)
+        glow.addColorStop(1, `rgba(${C.amber}, 0)`)
         ctx.fillStyle = glow
         ctx.beginPath()
         ctx.arc(px, py, 26, 0, TAU)
         ctx.fill()
       }
       ctx.beginPath()
-      ctx.fillStyle = `rgba(${color}, ${(0.6 + packet.depth * 0.4) * fade})`
+      ctx.fillStyle = `rgba(${color}, ${(light ? 0.78 + packet.depth * 0.22 : 0.6 + packet.depth * 0.4) * fade})`
       ctx.arc(px, py, isMatch ? 3.2 : 1.1 + packet.depth * 1.7, 0, TAU)
       ctx.fill()
-      if (packet.label && isMatch && w >= 1280) {
+      const clearsHostile = hostiles().every((node) => Math.hypot(node.x - px, node.y - py) > 132)
+      if (packet.label && isMatch && w >= 1280 && packet.p > 0.32 && clearsHostile) {
         ctx.font = '8.5px "JetBrains Mono Variable", ui-monospace, monospace'
         ctx.textAlign = 'left'
-        ctx.fillStyle = `rgba(${color}, ${(isMatch ? 0.95 : 0.55) * fade})`
+        ctx.fillStyle = `rgba(${color}, ${(isMatch ? (light ? 1 : 0.95) : 0.55) * fade})`
         ctx.fillText(packet.label, px + 10, py - 7)
       }
     }
@@ -674,8 +720,8 @@ export function ServerAttackScene() {
       for (const node of hostiles()) {
         const pulse = 0.5 + 0.5 * Math.sin(time * 2.1 + node.phase * 9)
         const glow = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, 58)
-        glow.addColorStop(0, `rgba(255, 91, 77, ${0.2 + pulse * 0.1})`)
-        glow.addColorStop(1, 'rgba(255, 91, 77, 0)')
+        glow.addColorStop(0, `rgba(${C.red}, ${(light ? 0.1 : 0.2) + pulse * (light ? 0.06 : 0.1)})`)
+        glow.addColorStop(1, `rgba(${C.red}, 0)`)
         ctx.fillStyle = glow
         ctx.beginPath()
         ctx.arc(node.x, node.y, 58, 0, TAU)
@@ -685,12 +731,12 @@ export function ServerAttackScene() {
         ctx.translate(node.x, node.y)
         ctx.setLineDash([3, 6])
         ctx.lineDashOffset = -time * 14
-        ctx.strokeStyle = 'rgba(255, 91, 77, 0.42)'
+        ctx.strokeStyle = `rgba(${C.red}, ${light ? 0.5 : 0.42})`
         ctx.lineWidth = 0.9
         ctx.beginPath()
         ctx.arc(0, 0, 15, 0, TAU)
         ctx.stroke()
-        ctx.strokeStyle = 'rgba(255, 91, 77, 0.18)'
+        ctx.strokeStyle = `rgba(${C.red}, ${light ? 0.24 : 0.18})`
         ctx.lineDashOffset = time * 9
         ctx.beginPath()
         ctx.arc(0, 0, 23, 0, TAU)
@@ -698,7 +744,7 @@ export function ServerAttackScene() {
         ctx.setLineDash([])
         for (let i = 0; i < 4; i += 1) {
           const a = i * (Math.PI / 2) + Math.PI / 4
-          ctx.strokeStyle = 'rgba(255, 91, 77, 0.55)'
+          ctx.strokeStyle = `rgba(${C.red}, ${light ? 0.65 : 0.55})`
           ctx.lineWidth = 0.8
           ctx.beginPath()
           ctx.moveTo(Math.cos(a) * 8, Math.sin(a) * 8)
@@ -706,17 +752,17 @@ export function ServerAttackScene() {
           ctx.stroke()
         }
         ctx.beginPath()
-        ctx.fillStyle = `rgba(255, 120, 100, ${0.7 + pulse * 0.3})`
+        ctx.fillStyle = `rgba(${C.redBright}, ${0.7 + pulse * 0.3})`
         ctx.arc(0, 0, 2.4, 0, TAU)
         ctx.fill()
         ctx.restore()
 
         ctx.font = '600 8px "JetBrains Mono Variable", ui-monospace, monospace'
         ctx.textAlign = 'left'
-        ctx.fillStyle = 'rgba(255, 112, 96, 0.82)'
+        ctx.fillStyle = `rgba(${C.red}, ${light ? 0.9 : 0.82})`
         ctx.fillText(node.label, node.x - 12, node.y - 28)
         ctx.font = '8px "JetBrains Mono Variable", ui-monospace, monospace'
-        ctx.fillStyle = 'rgba(233, 231, 222, 0.34)'
+        ctx.fillStyle = `rgba(${C.bone}, ${light ? 0.62 : 0.34})`
         ctx.fillText(node.meta, node.x - 12, node.y - 17)
       }
     }
@@ -734,7 +780,7 @@ export function ServerAttackScene() {
           ctx.beginPath()
           ctx.setLineDash([2, 9])
           ctx.lineDashOffset = -time * 26 - a * 14
-          ctx.strokeStyle = `rgba(255, 91, 77, ${0.14 + a * 0.035})`
+          ctx.strokeStyle = `rgba(${C.red}, ${(light ? 0.26 : 0.14) + a * (light ? 0.05 : 0.035)})`
           ctx.lineWidth = 0.9
           ctx.moveTo(node.x, node.y)
           ctx.quadraticCurveTo(mx, my, ex, ey)
@@ -745,14 +791,14 @@ export function ServerAttackScene() {
           const cxp = (1 - t) * (1 - t) * node.x + 2 * (1 - t) * t * mx + t * t * ex
           const cyp = (1 - t) * (1 - t) * node.y + 2 * (1 - t) * t * my + t * t * ey
           const comet = ctx.createRadialGradient(cxp, cyp, 0, cxp, cyp, 12)
-          comet.addColorStop(0, 'rgba(255, 120, 96, 0.6)')
-          comet.addColorStop(1, 'rgba(255, 91, 77, 0)')
+          comet.addColorStop(0, `rgba(${C.redBright}, ${light ? 0.58 : 0.6})`)
+          comet.addColorStop(1, `rgba(${C.red}, 0)`)
           ctx.fillStyle = comet
           ctx.beginPath()
           ctx.arc(cxp, cyp, 12, 0, TAU)
           ctx.fill()
           ctx.beginPath()
-          ctx.fillStyle = 'rgba(255, 170, 150, 0.9)'
+          ctx.fillStyle = `rgba(${C.redPale}, ${light ? 0.95 : 0.9})`
           ctx.arc(cxp, cyp, 1.5, 0, TAU)
           ctx.fill()
         }
@@ -764,23 +810,29 @@ export function ServerAttackScene() {
       const gate = shield()
 
       const ambient = ctx.createRadialGradient(cx, cy, 20, cx, cy, h * 0.72)
-      ambient.addColorStop(0, `rgba(32, 171, 158, ${0.2 + flash * 0.06})`)
-      ambient.addColorStop(0.5, 'rgba(24, 95, 91, 0.07)')
-      ambient.addColorStop(1, 'rgba(0,0,0,0)')
+      if (light) {
+        ambient.addColorStop(0, `rgba(${C.teal}, ${0.065 + flash * 0.04})`)
+        ambient.addColorStop(0.5, `rgba(${C.teal}, 0.02)`)
+        ambient.addColorStop(1, `rgba(${C.teal}, 0)`)
+      } else {
+        ambient.addColorStop(0, `rgba(32, 171, 158, ${0.2 + flash * 0.06})`)
+        ambient.addColorStop(0.5, 'rgba(24, 95, 91, 0.07)')
+        ambient.addColorStop(1, 'rgba(0,0,0,0)')
+      }
       ctx.fillStyle = ambient
       ctx.fillRect(0, 0, w, h)
 
       const floorGlow = ctx.createRadialGradient(cx, cy + RACK.h * 0.65 * scale, 10, cx, cy + RACK.h * 0.65 * scale, h * 0.42)
-      floorGlow.addColorStop(0, `rgba(240, 169, 74, ${0.055 + flash * 0.16})`)
-      floorGlow.addColorStop(1, 'rgba(240, 169, 74, 0)')
+      floorGlow.addColorStop(0, `rgba(${C.amber}, ${(light ? 0.07 : 0.055) + flash * (light ? 0.18 : 0.16)})`)
+      floorGlow.addColorStop(1, `rgba(${C.amber}, 0)`)
       ctx.fillStyle = floorGlow
       ctx.fillRect(0, 0, w, h)
 
       const flashHot = Math.max(0, Math.min(1, flash - 0.25) / 0.75)
       for (const node of hostiles()) {
         const hostileGlow = ctx.createRadialGradient(node.x, node.y, 2, node.x, node.y, 230)
-        hostileGlow.addColorStop(0, 'rgba(255, 91, 77, 0.07)')
-        hostileGlow.addColorStop(1, 'rgba(255, 91, 77, 0)')
+        hostileGlow.addColorStop(0, `rgba(${C.red}, ${light ? 0.05 : 0.07})`)
+        hostileGlow.addColorStop(1, `rgba(${C.red}, 0)`)
         ctx.fillStyle = hostileGlow
         ctx.fillRect(0, 0, w, h)
       }
@@ -790,7 +842,7 @@ export function ServerAttackScene() {
         const x = (mote.x + drift + pointer.x * 16 * mote.z + w * 2) % w
         const y = (mote.y - scrollShift * mote.z + pointer.y * 12 * mote.z + h * 2) % h
         ctx.beginPath()
-        ctx.fillStyle = `rgba(83, 227, 203, ${0.05 + mote.z * 0.22})`
+        ctx.fillStyle = `rgba(${C.teal}, ${0.05 + mote.z * (light ? 0.11 : 0.22)})`
         ctx.arc(x, y, mote.r, 0, TAU)
         ctx.fill()
       }
@@ -806,15 +858,29 @@ export function ServerAttackScene() {
         for (let i = 0; i < 4; i += 1) {
           const sy = top.y + (bottom.y - top.y) * (0.16 + i * 0.21) + Math.sin(time * 24 + i * 2) * 3
           const sliceW = 140 + Math.sin(time * 6 + i) * 46
-          ctx.fillStyle = `rgba(240, 169, 74, ${flashHot * 0.15})`
+          ctx.fillStyle = `rgba(${C.amber}, ${flashHot * (light ? 0.12 : 0.15)})`
           ctx.fillRect(cx - sliceW / 2, sy, sliceW, 1.5 + (i % 2) * 2)
         }
       }
 
       const under = project(0, RACK.h / 2 + 8, RACK.d / 2)
+      if (light) {
+        ctx.save()
+        ctx.translate(under.x, under.y)
+        ctx.scale(1, 0.24)
+        const contact = ctx.createRadialGradient(0, 0, 8, 0, 0, RACK.w * 1.08 * scale)
+        contact.addColorStop(0, 'rgba(22, 32, 29, 0.14)')
+        contact.addColorStop(0.62, 'rgba(22, 32, 29, 0.08)')
+        contact.addColorStop(1, 'rgba(22, 32, 29, 0)')
+        ctx.fillStyle = contact
+        ctx.beginPath()
+        ctx.arc(0, 0, RACK.w * 1.08 * scale, 0, TAU)
+        ctx.fill()
+        ctx.restore()
+      }
       const underGlow = ctx.createRadialGradient(under.x, under.y, 2, under.x, under.y, RACK.w * 0.9 * scale)
-      underGlow.addColorStop(0, `rgba(83, 227, 203, ${0.16 + flash * 0.16})`)
-      underGlow.addColorStop(1, 'rgba(83, 227, 203, 0)')
+      underGlow.addColorStop(0, `rgba(${C.teal}, ${(light ? 0.12 : 0.16) + flash * 0.16})`)
+      underGlow.addColorStop(1, `rgba(${C.teal}, 0)`)
       ctx.save()
       ctx.translate(under.x, under.y)
       ctx.scale(1, 0.26)
@@ -832,8 +898,8 @@ export function ServerAttackScene() {
         const a = project(0, 0, RACK.d / 2 + 46)
         const b = project(0, -RACK.h * 0.1, RACK.d / 2 + 2)
         const beam = ctx.createLinearGradient(a.x, a.y, b.x, b.y)
-        beam.addColorStop(0, `rgba(240, 169, 74, ${breachBeam * 0.65})`)
-        beam.addColorStop(1, `rgba(240, 169, 74, ${breachBeam * 0.1})`)
+        beam.addColorStop(0, `rgba(${C.amber}, ${breachBeam * (light ? 0.75 : 0.65)})`)
+        beam.addColorStop(1, `rgba(${C.amber}, ${breachBeam * 0.1})`)
         ctx.strokeStyle = beam
         ctx.lineWidth = 2 + breachBeam * 3
         ctx.beginPath()
@@ -855,8 +921,8 @@ export function ServerAttackScene() {
         ctx.beginPath()
         ctx.strokeStyle =
           ripple.tone === 'amber'
-            ? `rgba(240, 169, 74, ${(1 - t) * 0.55})`
-            : `rgba(83, 227, 203, ${(1 - t) * 0.32})`
+            ? `rgba(${C.amber}, ${(1 - t) * (light ? 0.65 : 0.55)})`
+            : `rgba(${C.teal}, ${(1 - t) * (light ? 0.4 : 0.32)})`
         ctx.lineWidth = ripple.tone === 'amber' ? 1.4 : 0.9
         ctx.ellipse(ripple.x, ripple.y, radius * 0.72, radius, 0, 0, TAU)
         ctx.stroke()
@@ -864,9 +930,9 @@ export function ServerAttackScene() {
 
       for (const spark of sparks) {
         const t = spark.age / spark.life
-        const color = spark.tone === 'amber' ? '240, 169, 74' : spark.tone === 'red' ? '255, 91, 77' : '83, 227, 203'
+        const color = spark.tone === 'amber' ? C.amber : spark.tone === 'red' ? C.red : C.teal
         ctx.beginPath()
-        ctx.fillStyle = `rgba(${color}, ${(1 - t) * 0.7})`
+        ctx.fillStyle = `rgba(${color}, ${(1 - t) * (light ? 0.8 : 0.7)})`
         ctx.arc(spark.x, spark.y, 1.2, 0, TAU)
         ctx.fill()
       }
@@ -874,7 +940,7 @@ export function ServerAttackScene() {
       drawHostiles()
 
       const tagPoint = project(RACK.w / 2 + 24, -RACK.h * 0.16, RACK.d / 2)
-      ctx.strokeStyle = 'rgba(83, 227, 203, 0.3)'
+      ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.5 : 0.3})`
       ctx.lineWidth = 0.7
       ctx.beginPath()
       ctx.moveTo(tagPoint.x, tagPoint.y)
@@ -882,14 +948,14 @@ export function ServerAttackScene() {
       ctx.lineTo(tagPoint.x + 120, tagPoint.y - 18)
       ctx.stroke()
       ctx.font = '8px "JetBrains Mono Variable", ui-monospace, monospace'
-      ctx.fillStyle = 'rgba(233, 231, 222, 0.55)'
+      ctx.fillStyle = `rgba(${C.bone}, ${light ? 0.7 : 0.55})`
       ctx.textAlign = 'left'
       ctx.fillText(hotUnit >= 0 ? 'EXPOSED SERVICE' : 'VERSION GATE', tagPoint.x + 38, tagPoint.y - 23)
 
       if (flash > 0.02) {
         const hit = ctx.createRadialGradient(gate.x, gate.y, 0, gate.x, gate.y, h * 0.5)
-        hit.addColorStop(0, `rgba(240, 169, 74, ${flash * 0.1})`)
-        hit.addColorStop(1, 'rgba(240, 169, 74, 0)')
+        hit.addColorStop(0, `rgba(${C.amber}, ${flash * (light ? 0.08 : 0.1)})`)
+        hit.addColorStop(1, `rgba(${C.amber}, 0)`)
         ctx.fillStyle = hit
         ctx.fillRect(0, 0, w, h)
       }
@@ -985,7 +1051,7 @@ export function ServerAttackScene() {
       intersection.disconnect()
       window.removeEventListener('pointermove', pointerMove)
     }
-  }, [reduce])
+  }, [reduce, theme])
 
   return (
     <div ref={wrapRef} className={cx('sa-scene', reduce && 'sa-still')}>
