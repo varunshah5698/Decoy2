@@ -205,7 +205,9 @@ export function ServerAttackScene() {
       hotUnit = 2 + Math.floor(rng() * 7)
       hotAge = 0
       ripples.push({ x: sx, y: sy, age: 0, life: 1.15, tone: 'amber', size: 1.5 })
-      ripples.push({ x: cx, y: cy, age: 0, life: 1.5, tone: 'amber', size: 2.2 })
+      const gate = shield()
+      ripples.push({ x: gate.x, y: gate.y, age: 0, life: 1.85, tone: 'amber', size: 3.4 })
+      ripples.push({ x: gate.x, y: gate.y, age: 0, life: 1.4, tone: 'amber', size: 2.1 })
       for (let i = 0; i < 14; i += 1) {
         const angle = rng() * TAU
         sparks.push({
@@ -314,11 +316,11 @@ export function ServerAttackScene() {
       const narrow = w < 760
       const compact = w < 900
       const mid = w < 1280
-      const xAnchor = narrow ? 0.68 : compact ? 0.74 : mid ? 0.7 : 0.66
+      const xAnchor = narrow ? 0.6 : compact ? 0.74 : mid ? 0.72 : 0.66
       cx = w * xAnchor + pointer.x * (narrow ? 10 : 26)
-      cy = h * (narrow ? 0.34 : 0.46) + pointer.y * (narrow ? 8 : 18) - scrollShift
-      const sizeFactor = narrow ? 0.72 : compact ? 0.74 : mid ? 0.86 : 1
-      scale = Math.min(1.32, Math.max(0.58, h / 900)) * sizeFactor
+      cy = h * (narrow ? 0.315 : compact ? 0.42 : 0.465) + pointer.y * (narrow ? 8 : 18) - scrollShift
+      const sizeFactor = narrow ? 0.62 : compact ? 0.75 : mid ? 0.82 : 1
+      scale = Math.min(1.55, Math.max(0.62, h / 700)) * sizeFactor
       yaw = -0.52 + Math.sin(time * 0.12) * 0.03 + pointer.x * 0.07
       pitch = 0.16 + pointer.y * 0.04
 
@@ -355,7 +357,7 @@ export function ServerAttackScene() {
       for (let z = 320; z >= -1500; z -= 170) {
         const a = project(-1500, baseY, z)
         const b = project(1500, baseY, z)
-        const fade = (light ? 0.15 : 0.11) * Math.max(0, 1 - Math.abs(z + 300) / 1600)
+        const fade = (light ? 0.17 : 0.12) * Math.max(0, 1 - Math.abs(z + 300) / 1600)
         ctx.strokeStyle = `rgba(${C.teal}, ${fade})`
         ctx.beginPath()
         ctx.moveTo(a.x, a.y)
@@ -365,7 +367,7 @@ export function ServerAttackScene() {
       for (let x = -1400; x <= 1400; x += 200) {
         const a = project(x, baseY, 320)
         const b = project(x, baseY, -1500)
-        ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.075 : 0.045})`
+        ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.095 : 0.055})`
         ctx.beginPath()
         ctx.moveTo(a.x, a.y)
         ctx.lineTo(b.x, b.y)
@@ -383,6 +385,35 @@ export function ServerAttackScene() {
       ctx.beginPath()
       ctx.moveTo(a.x, a.y)
       ctx.lineTo(b.x, b.y)
+      ctx.stroke()
+
+      const ring = (radius: number, alpha: number, width: number, dash: number[] = []) => {
+        ctx.beginPath()
+        for (let i = 0; i <= 80; i += 1) {
+          const t = (i / 80) * TAU
+          const point = project(Math.cos(t) * radius, baseY, Math.sin(t) * radius)
+          if (i === 0) ctx.moveTo(point.x, point.y)
+          else ctx.lineTo(point.x, point.y)
+        }
+        ctx.setLineDash(dash)
+        ctx.strokeStyle = `rgba(${C.teal}, ${alpha})`
+        ctx.lineWidth = width
+        ctx.stroke()
+        ctx.setLineDash([])
+      }
+      ring(430, light ? 0.11 : 0.075, 0.7)
+      ring(330, light ? 0.19 : 0.13, 0.8, [3, 10])
+      ring(252, light ? 0.22 : 0.15, 0.7)
+      const arcStart = time * 0.34
+      ctx.beginPath()
+      for (let i = 0; i <= 22; i += 1) {
+        const t = arcStart + (i / 22) * 0.5
+        const point = project(Math.cos(t) * 300, baseY, Math.sin(t) * 300)
+        if (i === 0) ctx.moveTo(point.x, point.y)
+        else ctx.lineTo(point.x, point.y)
+      }
+      ctx.strokeStyle = `rgba(${C.amber}, ${light ? 0.52 : 0.38})`
+      ctx.lineWidth = 1.2
       ctx.stroke()
     }
 
@@ -421,20 +452,21 @@ export function ServerAttackScene() {
         const gy1 = Math.max(...face.pts.map((point) => point.y))
         const grad = ctx.createLinearGradient(gx0, gy0, gx1, gy1)
         if (light) {
-          const l = 0.72 + 0.28 * s
-          const warm = primary ? flash * 10 : 0
-          grad.addColorStop(0, `rgb(${clamp255(240 * l + warm)}, ${clamp255(236 * l + warm * 0.4)}, ${clamp255(224 * l)})`)
-          grad.addColorStop(1, `rgb(${clamp255(222 * l + warm * 0.5)}, ${clamp255(216 * l + warm * 0.2)}, ${clamp255(202 * l)})`)
+          const body = 158 + 64 * s
+          const warm = primary ? flash * 16 : 0
+          grad.addColorStop(0, `rgb(${clamp255(body + 16 + warm)}, ${clamp255(body + 11 + warm * 0.45)}, ${clamp255(body - 4)})`)
+          grad.addColorStop(1, `rgb(${clamp255(body - 4 + warm * 0.4)}, ${clamp255(body - 10 + warm * 0.18)}, ${clamp255(body - 26)})`)
         } else {
-          const glow = primary ? flash * 0.35 : 0
-          grad.addColorStop(0, `rgba(${Math.round(17 + 34 * s + glow * 120)}, ${Math.round(23 + 34 * s + glow * 60)}, ${Math.round(25 + 28 * s + glow * 20)}, 1)`)
-          grad.addColorStop(1, `rgba(${Math.round(6 + 16 * s + glow * 60)}, ${Math.round(10 + 16 * s + glow * 30)}, ${Math.round(12 + 14 * s)}, 1)`)
+          const base = 9 + 31 * s
+          const glow = primary ? flash * 0.4 : 0
+          grad.addColorStop(0, `rgba(${Math.round(base + 9 + glow * 130)}, ${Math.round(base + 13 + glow * 70)}, ${Math.round(base + 13 + glow * 26)}, 1)`)
+          grad.addColorStop(1, `rgba(${Math.round(base - 3 + glow * 58)}, ${Math.round(base + 1 + glow * 30)}, ${Math.round(base + 3)}, 1)`)
         }
         ctx.fillStyle = grad
         ctx.fill()
         ctx.strokeStyle = light
-          ? `rgba(${C.bone}, ${primary ? 0.34 + s * 0.12 : 0.16})`
-          : `rgba(${C.teal}, ${primary ? 0.2 + s * 0.12 : 0.05})`
+          ? `rgba(${C.bone}, ${primary ? 0.3 + s * 0.2 : 0.14})`
+          : `rgba(${C.teal}, ${primary ? 0.22 + s * 0.16 : 0.06})`
         ctx.lineWidth = primary ? 1 : 0.6
         ctx.stroke()
       }
@@ -476,6 +508,82 @@ export function ServerAttackScene() {
       ctx.lineTo(p(W / 2, H / 2, D / 2).x, p(W / 2, H / 2, D / 2).y)
       ctx.stroke()
 
+      for (let i = 1; i < 5; i += 1) {
+        const z = -D / 2 + (D * i) / 5
+        const a = p(-W / 2, -H / 2 + 6, z)
+        const b = p(-W / 2, H / 2 - 6, z)
+        ctx.strokeStyle = `rgba(${C.bone}, ${light ? 0.12 : 0.045})`
+        ctx.lineWidth = 0.6
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+      }
+      const seamTop = p(-W / 2, -H / 2 + 4, 4)
+      const seamBot = p(-W / 2, H / 2 - 4, 4)
+      ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.2 : 0.1})`
+      ctx.lineWidth = 0.8
+      ctx.beginPath()
+      ctx.moveTo(seamTop.x, seamTop.y)
+      ctx.lineTo(seamBot.x, seamBot.y)
+      ctx.stroke()
+
+      const panel = [
+        p(-W / 2 - 0.5, -H / 2 + 14, D / 2 - 16),
+        p(-W / 2 - 0.5, -H / 2 + 14, -D / 2 + 16),
+        p(-W / 2 - 0.5, H / 2 - 14, -D / 2 + 16),
+        p(-W / 2 - 0.5, H / 2 - 14, D / 2 - 16),
+      ]
+      ctx.beginPath()
+      ctx.moveTo(panel[0].x, panel[0].y)
+      for (let i = 1; i < 4; i += 1) ctx.lineTo(panel[i].x, panel[i].y)
+      ctx.closePath()
+      ctx.strokeStyle = `rgba(${C.bone}, ${light ? 0.16 : 0.06})`
+      ctx.lineWidth = 0.7
+      ctx.stroke()
+      for (let i = 0; i < 4; i += 1) {
+        const y = -H / 2 + 28 + i * 9
+        const a = p(-W / 2 - 0.5, y, D / 2 - 28)
+        const b = p(-W / 2 - 0.5, y, D / 2 - 66)
+        ctx.strokeStyle = `rgba(${C.bone}, ${light ? 0.14 : 0.05})`
+        ctx.lineWidth = 0.6
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+      }
+
+      for (let i = 1; i < 4; i += 1) {
+        const y = -H / 2 + (H * i) / 4
+        const a = p(W / 2, y, D / 2)
+        const b = p(W / 2, y, -D / 2)
+        ctx.strokeStyle = `rgba(${C.bone}, ${light ? 0.14 : 0.06})`
+        ctx.lineWidth = 0.6
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+      }
+
+      const beaconPulse = 0.55 + 0.45 * Math.sin(time * 2.4)
+      for (const beacon of [
+        { x: -W / 2 + 18, color: C.teal, alpha: 0.6 + beaconPulse * 0.4, radius: 2 },
+        { x: W / 2 - 18, color: C.amberBright, alpha: 0.4 + beaconPulse * 0.5, radius: 2.4 },
+      ]) {
+        const point = p(beacon.x, -H / 2 - 2, D / 2 - 12)
+        const beaconGlow = ctx.createRadialGradient(point.x, point.y, 0, point.x, point.y, 22)
+        beaconGlow.addColorStop(0, `rgba(${beacon.color}, ${(light ? 0.26 : 0.4) * beacon.alpha})`)
+        beaconGlow.addColorStop(1, `rgba(${beacon.color}, 0)`)
+        ctx.fillStyle = beaconGlow
+        ctx.beginPath()
+        ctx.arc(point.x, point.y, 22, 0, TAU)
+        ctx.fill()
+        ctx.fillStyle = `rgba(${beacon.color}, ${beacon.alpha})`
+        ctx.beginPath()
+        ctx.arc(point.x, point.y, beacon.radius, 0, TAU)
+        ctx.fill()
+      }
+
       const capA = p(-W / 2 + 10, -H / 2 + 6, D / 2 + 2)
       const capB = p(W / 2 - 10, -H / 2 + 6, D / 2 + 2)
       ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.5 + flash * 0.25 : 0.35 + flash * 0.3})`
@@ -484,6 +592,21 @@ export function ServerAttackScene() {
       ctx.moveTo(capA.x, capA.y)
       ctx.lineTo(capB.x, capB.y)
       ctx.stroke()
+
+      const insets = [
+        { x: -W / 2 + 6, color: C.teal, alpha: light ? 0.3 : 0.18 },
+        { x: W / 2 - 6, color: C.amber, alpha: light ? 0.24 : 0.14 },
+      ]
+      for (const rail of insets) {
+        const a = p(rail.x, -H / 2 + 4, D / 2 + 1)
+        const b = p(rail.x, H / 2 - 4, D / 2 + 1)
+        ctx.strokeStyle = `rgba(${rail.color}, ${rail.alpha})`
+        ctx.lineWidth = 0.8
+        ctx.beginPath()
+        ctx.moveTo(a.x, a.y)
+        ctx.lineTo(b.x, b.y)
+        ctx.stroke()
+      }
 
       const inset = 11
       const units = 10
@@ -502,20 +625,25 @@ export function ServerAttackScene() {
         for (let i = 1; i < 4; i += 1) ctx.lineTo(quad[i].x, quad[i].y)
         ctx.closePath()
         const hot = hotUnit === u && hotAge < 2.6
+        const accent = u === 4
         const unitGrad = ctx.createLinearGradient(quad[0].x, quad[0].y, quad[3].x, quad[3].y)
         if (light) {
-          unitGrad.addColorStop(0, hot ? 'rgb(242, 210, 160)' : 'rgb(234, 228, 216)')
-          unitGrad.addColorStop(1, hot ? 'rgb(250, 227, 188)' : 'rgb(248, 245, 237)')
+          const lit = hot || accent
+          unitGrad.addColorStop(0, lit ? (hot ? 'rgb(243, 205, 146)' : 'rgb(236, 205, 158)') : 'rgb(235, 229, 216)')
+          unitGrad.addColorStop(1, lit ? (hot ? 'rgb(252, 227, 184)' : 'rgb(248, 225, 184)') : 'rgb(249, 245, 235)')
         } else {
-          unitGrad.addColorStop(0, hot ? 'rgba(80, 51, 18, 0.95)' : 'rgba(16, 22, 24, 0.95)')
-          unitGrad.addColorStop(1, hot ? 'rgba(34, 24, 11, 0.95)' : 'rgba(8, 12, 13, 0.95)')
+          const lit = hot || accent
+          unitGrad.addColorStop(0, lit ? (hot ? 'rgba(84, 53, 18, 0.95)' : 'rgba(66, 43, 15, 0.95)') : 'rgba(19, 27, 29, 0.95)')
+          unitGrad.addColorStop(1, lit ? (hot ? 'rgba(34, 24, 11, 0.95)' : 'rgba(26, 18, 8, 0.95)') : 'rgba(6, 10, 11, 0.95)')
         }
         ctx.fillStyle = unitGrad
         ctx.fill()
         ctx.strokeStyle = hot
-          ? `rgba(${C.amber}, ${(light ? 0.8 : 0.55) + Math.sin(hotAge * 12) * 0.15})`
-          : `rgba(${C.bone}, ${light ? 0.24 : 0.1})`
-        ctx.lineWidth = hot ? 1 : 0.6
+          ? `rgba(${C.amber}, ${(light ? 0.85 : 0.6) + Math.sin(hotAge * 12) * 0.15})`
+          : accent
+            ? `rgba(${C.amber}, ${light ? 0.52 : 0.32})`
+            : `rgba(${C.bone}, ${light ? 0.3 : 0.12})`
+        ctx.lineWidth = hot ? 1.1 : accent ? 0.8 : 0.6
         ctx.stroke()
 
         for (let v = 0; v < 7; v += 1) {
@@ -523,7 +651,10 @@ export function ServerAttackScene() {
           const a = p(vx, y0 + 3, D / 2 + 2)
           const b = p(vx, y1, D / 2 + 2)
           ctx.beginPath()
-          ctx.strokeStyle = hot ? `rgba(${C.amber}, ${light ? 0.36 : 0.2})` : `rgba(${C.bone}, ${light ? 0.14 : 0.075})`
+          ctx.strokeStyle =
+            hot || accent
+              ? `rgba(${C.amber}, ${hot ? (light ? 0.36 : 0.2) : light ? 0.2 : 0.12})`
+              : `rgba(${C.bone}, ${light ? 0.14 : 0.075})`
           ctx.lineWidth = 0.5
           ctx.moveTo(a.x, a.y)
           ctx.lineTo(b.x, b.y)
@@ -537,20 +668,24 @@ export function ServerAttackScene() {
         ctx.beginPath()
         ctx.fillStyle = hot
           ? `rgba(${C.amberBright}, ${0.65 + blink * 0.35})`
-          : u % 4 === 1
-            ? `rgba(${C.amber}, ${light ? 0.45 + blink * 0.45 : 0.25 + blink * 0.5})`
-            : `rgba(${C.teal}, ${light ? 0.5 + blink * 0.5 : 0.24 + blink * 0.62})`
-        ctx.arc(led.x, led.y, hot ? 2.6 : 1.7, 0, TAU)
+          : accent
+            ? `rgba(${C.amberBright}, ${light ? 0.5 + blink * 0.3 : 0.45 + blink * 0.35})`
+            : u % 4 === 1
+              ? `rgba(${C.amber}, ${light ? 0.5 + blink * 0.5 : 0.3 + blink * 0.55})`
+              : `rgba(${C.teal}, ${light ? 0.55 + blink * 0.45 : 0.3 + blink * 0.65})`
+        ctx.arc(led.x, led.y, hot ? 3 : accent ? 2.5 : 2, 0, TAU)
         ctx.fill()
-        if (hot) {
-          const glow = ctx.createRadialGradient(led.x, led.y, 0, led.x, led.y, 22)
-          glow.addColorStop(0, `rgba(${C.amber}, ${light ? 0.2 : 0.45})`)
+        if (hot || accent) {
+          const glowRadius = hot ? 26 : 16
+          const glow = ctx.createRadialGradient(led.x, led.y, 0, led.x, led.y, glowRadius)
+          glow.addColorStop(0, `rgba(${C.amber}, ${hot ? (light ? 0.24 : 0.5) : light ? 0.16 : 0.26})`)
           glow.addColorStop(1, `rgba(${C.amber}, 0)`)
           ctx.fillStyle = glow
           ctx.beginPath()
-          ctx.arc(led.x, led.y, 22, 0, TAU)
+          ctx.arc(led.x, led.y, glowRadius, 0, TAU)
           ctx.fill()
-
+        }
+        if (hot) {
           const seamTop = p(-W * 0.1 + Math.sin(hotAge * 9) * 3, y0 + 2, D / 2 + 2.5)
           const seamBottom = p(-W * 0.1, y1 - 1, D / 2 + 2.5)
           ctx.save()
@@ -661,6 +796,41 @@ export function ServerAttackScene() {
         ctx.stroke()
       }
 
+      ctx.save()
+      ctx.beginPath()
+      ctx.setLineDash([18, 16])
+      ctx.lineDashOffset = time * 7
+      ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.26 : 0.17})`
+      ctx.lineWidth = 1
+      ctx.ellipse(gate.x, gate.y, rx * 1.24, ry * 1.17, -0.05, 0, TAU)
+      ctx.stroke()
+      ctx.restore()
+
+      for (let i = 0; i < 4; i += 1) {
+        const angle = (i / 4) * TAU + Math.PI / 4
+        const x = gate.x + Math.cos(angle) * rx * 1.07
+        const y = gate.y + Math.sin(angle) * ry * 1.04
+        ctx.save()
+        ctx.translate(x, y)
+        ctx.rotate(Math.PI / 4)
+        ctx.fillStyle = `rgba(${C.amber}, ${light ? 0.72 : 0.55})`
+        ctx.fillRect(-1.7, -1.7, 3.4, 3.4)
+        ctx.restore()
+      }
+
+      ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.3 : 0.2})`
+      ctx.lineWidth = 0.7
+      ctx.beginPath()
+      ctx.moveTo(gate.x - 9, gate.y)
+      ctx.lineTo(gate.x - 3, gate.y)
+      ctx.moveTo(gate.x + 3, gate.y)
+      ctx.lineTo(gate.x + 9, gate.y)
+      ctx.moveTo(gate.x, gate.y - 9)
+      ctx.lineTo(gate.x, gate.y - 3)
+      ctx.moveTo(gate.x, gate.y + 3)
+      ctx.lineTo(gate.x, gate.y + 9)
+      ctx.stroke()
+
       if (flash > 0.02) {
         const glow = ctx.createRadialGradient(gate.x, gate.y, 0, gate.x, gate.y, ry * 1.2)
         glow.addColorStop(0, `rgba(${C.amber}, ${flash * (light ? 0.1 : 0.16)})`)
@@ -719,51 +889,68 @@ export function ServerAttackScene() {
     const drawHostiles = () => {
       for (const node of hostiles()) {
         const pulse = 0.5 + 0.5 * Math.sin(time * 2.1 + node.phase * 9)
-        const glow = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, 58)
-        glow.addColorStop(0, `rgba(${C.red}, ${(light ? 0.1 : 0.2) + pulse * (light ? 0.06 : 0.1)})`)
+        const glow = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, 70)
+        glow.addColorStop(0, `rgba(${C.red}, ${(light ? 0.12 : 0.24) + pulse * (light ? 0.07 : 0.11)})`)
         glow.addColorStop(1, `rgba(${C.red}, 0)`)
         ctx.fillStyle = glow
         ctx.beginPath()
-        ctx.arc(node.x, node.y, 58, 0, TAU)
+        ctx.arc(node.x, node.y, 70, 0, TAU)
         ctx.fill()
 
         ctx.save()
         ctx.translate(node.x, node.y)
         ctx.setLineDash([3, 6])
         ctx.lineDashOffset = -time * 14
-        ctx.strokeStyle = `rgba(${C.red}, ${light ? 0.5 : 0.42})`
+        ctx.strokeStyle = `rgba(${C.red}, ${light ? 0.58 : 0.48})`
         ctx.lineWidth = 0.9
         ctx.beginPath()
-        ctx.arc(0, 0, 15, 0, TAU)
+        ctx.arc(0, 0, 18, 0, TAU)
         ctx.stroke()
-        ctx.strokeStyle = `rgba(${C.red}, ${light ? 0.24 : 0.18})`
+        ctx.strokeStyle = `rgba(${C.red}, ${light ? 0.26 : 0.2})`
         ctx.lineDashOffset = time * 9
         ctx.beginPath()
-        ctx.arc(0, 0, 23, 0, TAU)
+        ctx.arc(0, 0, 28, 0, TAU)
         ctx.stroke()
         ctx.setLineDash([])
         for (let i = 0; i < 4; i += 1) {
           const a = i * (Math.PI / 2) + Math.PI / 4
-          ctx.strokeStyle = `rgba(${C.red}, ${light ? 0.65 : 0.55})`
+          ctx.strokeStyle = `rgba(${C.red}, ${light ? 0.7 : 0.6})`
           ctx.lineWidth = 0.8
           ctx.beginPath()
-          ctx.moveTo(Math.cos(a) * 8, Math.sin(a) * 8)
-          ctx.lineTo(Math.cos(a) * 19, Math.sin(a) * 19)
+          ctx.moveTo(Math.cos(a) * 9, Math.sin(a) * 9)
+          ctx.lineTo(Math.cos(a) * 22, Math.sin(a) * 22)
           ctx.stroke()
         }
+        ctx.strokeStyle = `rgba(${C.red}, ${light ? 0.4 : 0.3})`
+        ctx.lineWidth = 0.6
+        ctx.beginPath()
+        ctx.moveTo(-9, 0)
+        ctx.lineTo(-4, 0)
+        ctx.moveTo(4, 0)
+        ctx.lineTo(9, 0)
+        ctx.moveTo(0, -9)
+        ctx.lineTo(0, -4)
+        ctx.moveTo(0, 4)
+        ctx.lineTo(0, 9)
+        ctx.stroke()
         ctx.beginPath()
         ctx.fillStyle = `rgba(${C.redBright}, ${0.7 + pulse * 0.3})`
-        ctx.arc(0, 0, 2.4, 0, TAU)
+        ctx.arc(0, 0, 2.8, 0, TAU)
         ctx.fill()
         ctx.restore()
 
-        ctx.font = '600 8px "JetBrains Mono Variable", ui-monospace, monospace'
+        const labelX = Math.max(10, node.x - 14)
+        ctx.save()
+        ctx.shadowColor = light ? 'rgba(241, 238, 231, 0.92)' : 'rgba(4, 6, 7, 0.92)'
+        ctx.shadowBlur = 5
         ctx.textAlign = 'left'
-        ctx.fillStyle = `rgba(${C.red}, ${light ? 0.9 : 0.82})`
-        ctx.fillText(node.label, node.x - 12, node.y - 28)
-        ctx.font = '8px "JetBrains Mono Variable", ui-monospace, monospace'
-        ctx.fillStyle = `rgba(${C.bone}, ${light ? 0.62 : 0.34})`
-        ctx.fillText(node.meta, node.x - 12, node.y - 17)
+        ctx.font = '600 10px "JetBrains Mono Variable", ui-monospace, monospace'
+        ctx.fillStyle = `rgba(${C.red}, ${light ? 0.95 : 0.9})`
+        ctx.fillText(node.label, labelX, node.y - 34)
+        ctx.font = '9px "JetBrains Mono Variable", ui-monospace, monospace'
+        ctx.fillStyle = `rgba(${C.bone}, ${light ? 0.72 : 0.44})`
+        ctx.fillText(node.meta, labelX, node.y - 22)
+        ctx.restore()
       }
     }
 
@@ -780,8 +967,8 @@ export function ServerAttackScene() {
           ctx.beginPath()
           ctx.setLineDash([2, 9])
           ctx.lineDashOffset = -time * 26 - a * 14
-          ctx.strokeStyle = `rgba(${C.red}, ${(light ? 0.26 : 0.14) + a * (light ? 0.05 : 0.035)})`
-          ctx.lineWidth = 0.9
+          ctx.strokeStyle = `rgba(${C.red}, ${(light ? 0.3 : 0.17) + a * (light ? 0.05 : 0.04)})`
+          ctx.lineWidth = 1
           ctx.moveTo(node.x, node.y)
           ctx.quadraticCurveTo(mx, my, ex, ey)
           ctx.stroke()
@@ -790,16 +977,16 @@ export function ServerAttackScene() {
           const t = (time * 0.17 + phase + a * 0.31) % 1
           const cxp = (1 - t) * (1 - t) * node.x + 2 * (1 - t) * t * mx + t * t * ex
           const cyp = (1 - t) * (1 - t) * node.y + 2 * (1 - t) * t * my + t * t * ey
-          const comet = ctx.createRadialGradient(cxp, cyp, 0, cxp, cyp, 12)
-          comet.addColorStop(0, `rgba(${C.redBright}, ${light ? 0.58 : 0.6})`)
+          const comet = ctx.createRadialGradient(cxp, cyp, 0, cxp, cyp, 14)
+          comet.addColorStop(0, `rgba(${C.redBright}, ${light ? 0.65 : 0.68})`)
           comet.addColorStop(1, `rgba(${C.red}, 0)`)
           ctx.fillStyle = comet
           ctx.beginPath()
-          ctx.arc(cxp, cyp, 12, 0, TAU)
+          ctx.arc(cxp, cyp, 14, 0, TAU)
           ctx.fill()
           ctx.beginPath()
           ctx.fillStyle = `rgba(${C.redPale}, ${light ? 0.95 : 0.9})`
-          ctx.arc(cxp, cyp, 1.5, 0, TAU)
+          ctx.arc(cxp, cyp, 1.8, 0, TAU)
           ctx.fill()
         }
       }
@@ -811,12 +998,12 @@ export function ServerAttackScene() {
 
       const ambient = ctx.createRadialGradient(cx, cy, 20, cx, cy, h * 0.72)
       if (light) {
-        ambient.addColorStop(0, `rgba(${C.teal}, ${0.065 + flash * 0.04})`)
-        ambient.addColorStop(0.5, `rgba(${C.teal}, 0.02)`)
+        ambient.addColorStop(0, `rgba(${C.teal}, ${0.08 + flash * 0.05})`)
+        ambient.addColorStop(0.5, `rgba(${C.teal}, 0.028)`)
         ambient.addColorStop(1, `rgba(${C.teal}, 0)`)
       } else {
-        ambient.addColorStop(0, `rgba(32, 171, 158, ${0.2 + flash * 0.06})`)
-        ambient.addColorStop(0.5, 'rgba(24, 95, 91, 0.07)')
+        ambient.addColorStop(0, `rgba(32, 171, 158, ${0.23 + flash * 0.07})`)
+        ambient.addColorStop(0.5, 'rgba(24, 95, 91, 0.08)')
         ambient.addColorStop(1, 'rgba(0,0,0,0)')
       }
       ctx.fillStyle = ambient
@@ -848,6 +1035,20 @@ export function ServerAttackScene() {
       }
 
       drawFloor()
+      const rackTop = project(0, -RACK.h / 2, RACK.d / 2)
+      const overhead = ctx.createRadialGradient(cx, Math.max(0, rackTop.y - 70), 10, cx, Math.max(0, rackTop.y - 70), w * 0.34)
+      overhead.addColorStop(0, `rgba(${C.teal}, ${light ? 0.11 : 0.1})`)
+      overhead.addColorStop(0.55, `rgba(${C.teal}, ${light ? 0.035 : 0.03})`)
+      overhead.addColorStop(1, `rgba(${C.teal}, 0)`)
+      ctx.fillStyle = overhead
+      ctx.fillRect(0, 0, w, h)
+
+      const vignette = ctx.createRadialGradient(cx, cy, Math.min(w, h) * 0.32, cx, cy, Math.max(w, h) * 0.78)
+      vignette.addColorStop(0, 'rgba(0, 0, 0, 0)')
+      vignette.addColorStop(1, light ? 'rgba(48, 42, 30, 0.1)' : 'rgba(0, 0, 0, 0.32)')
+      ctx.fillStyle = vignette
+      ctx.fillRect(0, 0, w, h)
+
       drawRack({ x: -700, y: -30, z: -1000 }, 0.55, false)
       drawRack({ x: 760, y: -10, z: -1250 }, 0.42, false)
       drawRack({ x: 0, y: 0, z: 0 }, 1, true)
@@ -864,22 +1065,21 @@ export function ServerAttackScene() {
       }
 
       const under = project(0, RACK.h / 2 + 8, RACK.d / 2)
-      if (light) {
-        ctx.save()
-        ctx.translate(under.x, under.y)
-        ctx.scale(1, 0.24)
-        const contact = ctx.createRadialGradient(0, 0, 8, 0, 0, RACK.w * 1.08 * scale)
-        contact.addColorStop(0, 'rgba(22, 32, 29, 0.14)')
-        contact.addColorStop(0.62, 'rgba(22, 32, 29, 0.08)')
-        contact.addColorStop(1, 'rgba(22, 32, 29, 0)')
-        ctx.fillStyle = contact
-        ctx.beginPath()
-        ctx.arc(0, 0, RACK.w * 1.08 * scale, 0, TAU)
-        ctx.fill()
-        ctx.restore()
-      }
+      ctx.save()
+      ctx.translate(under.x, under.y)
+      ctx.scale(1, 0.24)
+      const contact = ctx.createRadialGradient(0, 0, 8, 0, 0, RACK.w * 1.08 * scale)
+      const shadow = light ? '22, 32, 29' : '0, 0, 0'
+      contact.addColorStop(0, `rgba(${shadow}, ${light ? 0.2 : 0.5})`)
+      contact.addColorStop(0.62, `rgba(${shadow}, ${light ? 0.1 : 0.24})`)
+      contact.addColorStop(1, `rgba(${shadow}, 0)`)
+      ctx.fillStyle = contact
+      ctx.beginPath()
+      ctx.arc(0, 0, RACK.w * 1.08 * scale, 0, TAU)
+      ctx.fill()
+      ctx.restore()
       const underGlow = ctx.createRadialGradient(under.x, under.y, 2, under.x, under.y, RACK.w * 0.9 * scale)
-      underGlow.addColorStop(0, `rgba(${C.teal}, ${(light ? 0.12 : 0.16) + flash * 0.16})`)
+      underGlow.addColorStop(0, `rgba(${C.teal}, ${(light ? 0.16 : 0.19) + flash * 0.16})`)
       underGlow.addColorStop(1, `rgba(${C.teal}, 0)`)
       ctx.save()
       ctx.translate(under.x, under.y)
@@ -939,18 +1139,68 @@ export function ServerAttackScene() {
 
       drawHostiles()
 
-      const tagPoint = project(RACK.w / 2 + 24, -RACK.h * 0.16, RACK.d / 2)
-      ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.5 : 0.3})`
-      ctx.lineWidth = 0.7
-      ctx.beginPath()
-      ctx.moveTo(tagPoint.x, tagPoint.y)
-      ctx.lineTo(tagPoint.x + 34, tagPoint.y - 18)
-      ctx.lineTo(tagPoint.x + 120, tagPoint.y - 18)
-      ctx.stroke()
-      ctx.font = '8px "JetBrains Mono Variable", ui-monospace, monospace'
-      ctx.fillStyle = `rgba(${C.bone}, ${light ? 0.7 : 0.55})`
-      ctx.textAlign = 'left'
-      ctx.fillText(hotUnit >= 0 ? 'EXPOSED SERVICE' : 'VERSION GATE', tagPoint.x + 38, tagPoint.y - 23)
+      if (w >= 900) {
+        const anchor = project(RACK.w / 2 + 12, -RACK.h * 0.08, RACK.d / 2)
+        const elbowX = anchor.x + 34
+        const elbowY = anchor.y - 26
+        const endX = elbowX + 118
+        ctx.save()
+        ctx.strokeStyle = `rgba(${C.teal}, ${light ? 0.6 : 0.42})`
+        ctx.lineWidth = 0.8
+        ctx.beginPath()
+        ctx.moveTo(anchor.x, anchor.y)
+        ctx.lineTo(elbowX, elbowY)
+        ctx.lineTo(endX, elbowY)
+        ctx.moveTo(endX, elbowY - 4)
+        ctx.lineTo(endX, elbowY + 4)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.fillStyle = `rgba(${C.teal}, ${light ? 0.9 : 0.72})`
+        ctx.arc(anchor.x, anchor.y, 2.4, 0, TAU)
+        ctx.fill()
+        ctx.restore()
+
+        ctx.save()
+        ctx.shadowColor = light ? 'rgba(241, 238, 231, 0.92)' : 'rgba(4, 6, 7, 0.92)'
+        ctx.shadowBlur = 5
+        ctx.textAlign = 'left'
+        ctx.font = '600 9px "JetBrains Mono Variable", ui-monospace, monospace'
+        ctx.fillStyle = `rgba(${C.bone}, ${light ? 0.86 : 0.8})`
+        ctx.fillText(hotUnit >= 0 ? 'EXPOSED SERVICE' : 'VERSION GATE', elbowX, elbowY - 11)
+        ctx.font = '8px "JetBrains Mono Variable", ui-monospace, monospace'
+        ctx.fillStyle = `rgba(${C.bone}, ${light ? 0.56 : 0.42})`
+        ctx.fillText('rack-01 · shield live', elbowX, elbowY + 14)
+        ctx.restore()
+      }
+
+      if (w >= 1180) {
+        const lx = w - 52
+        const ly = h - 118
+        const items = [
+          { color: C.red, label: 'INBOUND' },
+          { color: C.amber, label: 'MATCH' },
+          { color: C.teal, label: 'BLOCKED' },
+        ]
+        ctx.save()
+        ctx.textAlign = 'right'
+        ctx.font = '600 8.5px "JetBrains Mono Variable", ui-monospace, monospace'
+        ctx.fillStyle = `rgba(${C.bone}, ${light ? 0.5 : 0.36})`
+        ctx.fillText('LIVE GATE · SIMULATED TELEMETRY', lx, ly - 22)
+        ctx.font = '9px "JetBrains Mono Variable", ui-monospace, monospace'
+        let cursor = lx
+        for (let i = items.length - 1; i >= 0; i -= 1) {
+          const item = items[i]
+          const width = ctx.measureText(item.label).width + 17
+          ctx.fillStyle = `rgba(${item.color}, ${light ? 0.85 : 0.7})`
+          ctx.beginPath()
+          ctx.arc(cursor - width + 3, ly - 3.5, 2.4, 0, TAU)
+          ctx.fill()
+          ctx.fillStyle = `rgba(${C.bone}, ${light ? 0.62 : 0.46})`
+          ctx.fillText(item.label, cursor, ly)
+          cursor -= width + 18
+        }
+        ctx.restore()
+      }
 
       if (flash > 0.02) {
         const hit = ctx.createRadialGradient(gate.x, gate.y, 0, gate.x, gate.y, h * 0.5)
@@ -985,9 +1235,10 @@ export function ServerAttackScene() {
       const narrow = w < 760
       const compact = w < 900
       const mid = w < 1280
-      cx = w * (narrow ? 0.68 : compact ? 0.74 : mid ? 0.7 : 0.66)
-      cy = h * (narrow ? 0.34 : 0.46)
-      scale = Math.min(1.32, Math.max(0.58, h / 900)) * (narrow ? 0.72 : compact ? 0.74 : mid ? 0.86 : 1)
+      cx = w * (narrow ? 0.6 : compact ? 0.74 : mid ? 0.72 : 0.66)
+      cy = h * (narrow ? 0.315 : compact ? 0.42 : 0.465)
+      scale =
+        Math.min(1.55, Math.max(0.62, h / 700)) * (narrow ? 0.62 : compact ? 0.75 : mid ? 0.82 : 1)
       yaw = -0.52
       pitch = 0.16
       dust.length = 0
