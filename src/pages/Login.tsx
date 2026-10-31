@@ -1,11 +1,22 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Clock, Moon, Sun } from 'lucide-react'
 import { Ambient } from '../components/Ambient'
-import { Logo, LogoMark } from '../components/Logo'
+import { LogoMark } from '../components/Logo'
 import { ShieldScene } from '../scenes/ShieldScene'
-import { AlertTriangle, ArrowRight, Eye, EyeOff, Lock, ShieldCheck, User } from '../components/Icons'
+import {
+  AlertTriangle,
+  ArrowRight,
+  Check,
+  Eye,
+  EyeOff,
+  Lock,
+  ShieldCheck,
+  User,
+} from '../components/Icons'
 import { demoAccounts, useAuth, useTheme } from '../lib/store'
-import { cx } from '../lib/format'
+import { assets, counts } from '../data/seed'
+import './Login.css'
 
 const DEMO_PASSWORD = 'aegis-demo-2026'
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -86,187 +97,252 @@ export default function Login() {
   }
 
   return (
-    <div className="login-page">
+    <div className="auth">
       <Ambient />
 
-      <section className="login-scene">
-        <ShieldScene status={status} />
-        <div className="login-scene-top">
-          <Link to="/" aria-label="Back to Aegis Sentinel home">
-            <Logo sub="Threat early warning" />
+      <header className="auth-top">
+        <Link to="/" className="auth-brand" aria-label="Back to Aegis Sentinel home">
+          <LogoMark />
+          <span className="auth-brand-text">
+            Aegis Sentinel
+            <small>Threat early warning</small>
+          </span>
+        </Link>
+
+        <div className="auth-top-actions">
+          <span className="auth-system">
+            <i />
+            Matcher online
+          </span>
+          <Link to="/" className="auth-back">
+            Back to overview
+            <ArrowRight size={13} />
           </Link>
+          <button
+            type="button"
+            className="theme-toggle auth-theme"
+            onClick={toggle}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+          >
+            {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
         </div>
+      </header>
 
-        <div className="scene-readout" aria-hidden="true">
-          <div><i /> Session · httpOnly cookie</div>
-          <div><i /> Deploy · offline seed</div>
-          <div><i /> Formula v1.1</div>
-        </div>
+      <main className="auth-main">
+        <section className="auth-visual" aria-label="Aegis Sentinel perimeter status">
+          <ShieldScene status={status} />
+          <div className="auth-visual-scrim" aria-hidden="true" />
+          <div className="auth-rings" aria-hidden="true" />
 
-        <div className="login-scene-copy">
-          <div className="eyebrow">
-            <span className="dot" />
-            Identity check
-          </div>
-          <h2>
-            One shield.
-            <em>Every asset.</em>
-          </h2>
-          <p>
-            Sign in to the command centre. The version-aware matcher is already running against 16
-            simulated assets and {demoAccounts.length} demo roles.
-          </p>
-          <div className="source-cell" style={{ marginTop: 24 }}>
-            <span className="badge simulated">Simulated environment</span>
-            <span className="badge real">Deterministic scores</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="login-form-side">
-        <div className="login-form-wrap">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 44 }}>
-            <span className="brand" style={{ fontSize: 11 }}>
-              <LogoMark />
-              <span>
-                Aegis Sentinel
-                <small>Secure sign in</small>
-              </span>
+          <div className="auth-scene-top" aria-hidden="true">
+            <span>Perimeter feed</span>
+            <span className="auth-scene-state">
+              <i />
+              Live
             </span>
-            <button
-              className="theme-toggle"
-              onClick={toggle}
-              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-            >
-              {theme === 'dark' ? '☀' : '☾'}
-            </button>
           </div>
 
-          <h1>Enter the command centre.</h1>
-          <p>Two roles are available in this deployment: admin and analyst.</p>
+          <div className="auth-visual-copy">
+            <h2>
+              One shield.
+              <em>Every asset.</em>
+            </h2>
+            <p>
+              Sign in to the command centre. The version-aware matcher is already running against{' '}
+              {assets.length} simulated assets and {demoAccounts.length} demo roles.
+            </p>
+            <div className="auth-visual-tags">
+              <span className="badge simulated">Simulated environment</span>
+              <span className="badge real">Deterministic scores</span>
+            </div>
+          </div>
 
-          <form className="login-form" onSubmit={submit} noValidate>
-            <div className="field">
-              <label htmlFor="email">Email</label>
-              <div className="field-wrap">
-                <User size={15} />
-                <input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="analyst@aegis.demo"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value)
-                    setFieldErrors((f) => ({ ...f, email: undefined }))
-                  }}
-                  aria-invalid={Boolean(fieldErrors.email)}
-                  aria-describedby={fieldErrors.email ? 'email-error' : undefined}
-                />
+          <div className="auth-rail" aria-hidden="true">
+            <span>Session · cookie</span>
+            <span>Matcher · v1.1</span>
+            <span>Data · seeded</span>
+          </div>
+        </section>
+
+        <section className="auth-panel">
+          <div className="auth-panel-inner">
+            <h1>
+              <span>Enter the</span>
+              <span>command centre.</span>
+            </h1>
+            <p className="auth-sub">
+              Two roles are provisioned for this deployment — admin and analyst.
+            </p>
+
+            <form className="auth-form" onSubmit={submit} noValidate>
+              <div className="auth-field">
+                <div className="auth-label-row">
+                  <label htmlFor="email">Email</label>
+                </div>
+                <div className="auth-input">
+                  <User size={16} />
+                  <input
+                    id="email"
+                    type="email"
+                    inputMode="email"
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    placeholder="analyst@aegis.demo"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value)
+                      setFieldErrors((f) => ({ ...f, email: undefined }))
+                    }}
+                    aria-invalid={Boolean(fieldErrors.email)}
+                    aria-describedby={fieldErrors.email ? 'email-error' : undefined}
+                  />
+                </div>
+                {fieldErrors.email && (
+                  <div className="auth-field-error" id="email-error" role="alert">
+                    {fieldErrors.email}
+                  </div>
+                )}
               </div>
-              {fieldErrors.email && (
-                <div className="field-error" id="email-error" role="alert">
-                  {fieldErrors.email}
-                </div>
-              )}
-            </div>
 
-            <div className="field">
-              <label htmlFor="password">Password</label>
-              <div className="field-wrap">
-                <Lock size={15} />
-                <input
-                  id="password"
-                  type={show ? 'text' : 'password'}
-                  autoComplete="current-password"
-                  placeholder="At least 12 characters"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value)
-                    setFieldErrors((f) => ({ ...f, password: undefined }))
-                  }}
-                  aria-invalid={Boolean(fieldErrors.password)}
-                  aria-describedby={fieldErrors.password ? 'password-error' : undefined}
-                />
-                <button
-                  type="button"
-                  className="reveal"
-                  onClick={() => setShow((s) => !s)}
-                  aria-label={show ? 'Hide password' : 'Show password'}
-                  aria-pressed={show}
-                >
-                  {show ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
+              <div className="auth-field">
+                <div className="auth-label-row">
+                  <label htmlFor="password">Password</label>
+                  <span className="auth-hint">12 characters minimum</span>
+                </div>
+                <div className="auth-input">
+                  <Lock size={16} />
+                  <input
+                    id="password"
+                    type={show ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    placeholder="Enter your password"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value)
+                      setFieldErrors((f) => ({ ...f, password: undefined }))
+                    }}
+                    aria-invalid={Boolean(fieldErrors.password)}
+                    aria-describedby={fieldErrors.password ? 'password-error' : undefined}
+                  />
+                  <button
+                    type="button"
+                    className="auth-reveal"
+                    onClick={() => setShow((s) => !s)}
+                    aria-label={show ? 'Hide password' : 'Show password'}
+                    aria-pressed={show}
+                  >
+                    {show ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {fieldErrors.password && (
+                  <div className="auth-field-error" id="password-error" role="alert">
+                    {fieldErrors.password}
+                  </div>
+                )}
               </div>
-              {fieldErrors.password && (
-                <div className="field-error" id="password-error" role="alert">
-                  {fieldErrors.password}
-                </div>
-              )}
-            </div>
 
-            <div className="form-row">
-              <label className="checkbox">
-                <input
-                  type="checkbox"
-                  checked={remember}
-                  onChange={(e) => setRemember(e.target.checked)}
-                />
-                Remember this device
-              </label>
-              <span className="mono" style={{ fontSize: 8.5 }}>
-                {remember ? '24h session' : '8h session'}
-              </span>
-            </div>
+              <div className="auth-options">
+                <label className="auth-check">
+                  <input
+                    type="checkbox"
+                    checked={remember}
+                    onChange={(e) => setRemember(e.target.checked)}
+                  />
+                  <span className="auth-check-box" aria-hidden="true">
+                    <Check size={11} />
+                  </span>
+                  <span>Remember this device</span>
+                </label>
+                <span className="auth-session">
+                  <Clock size={12} />
+                  {remember ? '24 h session' : '8 h session'}
+                </span>
+              </div>
 
-            <div aria-live="polite">
-              {error && (
-                <div className="form-alert" role="alert">
-                  <AlertTriangle size={14} />
-                  <span>{error}</span>
-                </div>
-              )}
-            </div>
+              <div aria-live="polite">
+                {error && (
+                  <div className="auth-alert" role="alert">
+                    <AlertTriangle size={15} />
+                    <span>{error}</span>
+                  </div>
+                )}
+              </div>
 
-            <button className={cx('btn', 'btn-primary', 'full')} type="submit" disabled={busy || status === 'success'}>
-              {status === 'success' ? 'Shield aligned — entering' : busy ? 'Verifying…' : 'Sign in'}
-              {status !== 'success' && <ArrowRight size={15} />}
-            </button>
-          </form>
+              <button
+                className="btn btn-primary auth-submit"
+                type="submit"
+                disabled={busy || status === 'success'}
+              >
+                {status === 'success' ? (
+                  <>
+                    Access granted
+                    <Check size={16} />
+                  </>
+                ) : busy ? (
+                  <>
+                    Verifying…
+                    <i className="auth-spinner" aria-hidden="true" />
+                  </>
+                ) : (
+                  <>
+                    Sign in
+                    <ArrowRight size={16} />
+                  </>
+                )}
+              </button>
+            </form>
 
-          <div className="demo-block">
-            <div className="demo-title">
-              <span className="mono" style={{ fontSize: 8.5 }}>
-                Demo accounts
-              </span>
-              <span className="line" />
-              <span className="mono" style={{ fontSize: 8 }}>
-                DEMO_MODE
-              </span>
-            </div>
-            <div className="demo-grid">
-              {demoAccounts.map((a, i) => (
-                <button key={a.role} className="demo-btn" onClick={() => useDemo(i)} type="button">
-                  <strong>{a.label}</strong>
-                  <span>{a.role}</span>
-                  <em>{a.access}</em>
-                </button>
-              ))}
-            </div>
-            <p className="mono" style={{ fontSize: 8, marginTop: 10, lineHeight: 1.7, letterSpacing: '0.04em' }}>
-              Password: {DEMO_PASSWORD} · one-click demo only
+            <section className="auth-demo" aria-labelledby="demo-title">
+              <div className="auth-demo-head">
+                <h2 id="demo-title">Demo access</h2>
+                <span className="auth-demo-mode">Demo mode</span>
+              </div>
+              <div className="auth-demo-list">
+                {demoAccounts.map((a, i) => (
+                  <button
+                    key={a.role}
+                    className="auth-demo-row"
+                    onClick={() => useDemo(i)}
+                    disabled={busy || status === 'success'}
+                    type="button"
+                  >
+                    <span className="auth-demo-icon" aria-hidden="true">
+                      {a.role === 'ADMIN' ? <ShieldCheck size={16} /> : <User size={16} />}
+                    </span>
+                    <span className="auth-demo-body">
+                      <span className="auth-demo-title">
+                        <strong>{a.label}</strong>
+                        <span className="auth-demo-email">{a.email}</span>
+                      </span>
+                      <span className="auth-demo-scope">{a.access}</span>
+                    </span>
+                    <ArrowRight className="auth-demo-go" size={16} aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
+              <p className="auth-demo-note">
+                Shared password <code>{DEMO_PASSWORD}</code> is filled in for you.
+              </p>
+            </section>
+
+            <p className="auth-security">
+              <ShieldCheck size={14} />
+              <span>httpOnly, SameSite sessions · accounts lock after five failed attempts.</span>
             </p>
           </div>
+        </section>
+      </main>
 
-          <div className="login-security">
-            <ShieldCheck size={13} />
-            <span>
-              Sessions use httpOnly, SameSite cookies. Analyst accounts cannot ingest data, run simulations
-              or export the alert queue. Accounts lock after five failed attempts.
-            </span>
-          </div>
-        </div>
-      </section>
+      <footer className="auth-foot" aria-hidden="true">
+        <span className="auth-foot-id">Aegis Sentinel · Secure access</span>
+        <span className="auth-foot-mid">
+          <i />
+          {assets.length} assets · {counts.cves} CVEs · matcher v1.1
+        </span>
+        <span className="auth-foot-end">Simulated environment</span>
+      </footer>
     </div>
   )
 }

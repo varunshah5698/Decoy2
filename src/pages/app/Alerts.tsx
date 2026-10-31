@@ -12,7 +12,7 @@ import { useAcks, useAuth, useFilters, useToast } from '../../lib/store'
 import { fmtDate, fmtPct, fmtScore, timeAgo } from '../../lib/format'
 import { mean } from '../../lib/stats'
 import { relevanceLabel, relevanceReason } from '../../lib/scoring'
-import { mlFor, topFeatureImportance, featureValueLabel, FEATURE_LABELS, MODEL_CARD } from '../../lib/ml'
+import { mlFor, topFeatureImportance, featureValueLabel, FEATURE_LABELS, ML_BANDS, MODEL_CARD } from '../../lib/ml'
 import type { Alert, RelevanceStatus, RiskLevel } from '../../lib/types'
 
 type RelevanceFilter = 'ALL' | RelevanceStatus
@@ -233,7 +233,7 @@ export default function Alerts() {
         <div className="table-note">
           <span className="inline-flex">
             <AlertTriangle size={11} /> Suppressed rows display the score they would have received — the gate is
-            explained, not hidden. XGB p is the model's 30-day prior; relevance still overrides it.
+            explained, not hidden. XGB p is the model's KEV-membership prior; relevance still overrides it.
           </span>
           <span className="mono">{rows.length} records · {DEMO_NOW.toISOString().slice(0, 10)}</span>
         </div>
@@ -361,11 +361,15 @@ function MlDetail({ alert }: { alert: Alert }) {
           <strong>{pct}%</strong>
           <span className={`ml-band ${ml.band.toLowerCase()}`}>{ml.band}</span>
         </div>
-        <span className="mono">30-day exploitation prior · {MODEL_CARD.version}</span>
+        <span className="mono">KEV-membership prior · {MODEL_CARD.version}</span>
       </div>
       <div className="ml-detail-track" aria-hidden="true">
         <i style={{ width: `${ml.probability * 100}%` }} />
-        <span className="ml-threshold" style={{ left: '35%' }} title="ELEVATED band starts at 35%" />
+        <span
+          className="ml-threshold"
+          style={{ left: `${ML_BANDS.elevated * 100}%` }}
+          title={`ELEVATED band starts at ${(ML_BANDS.elevated * 100).toFixed(1)}%`}
+        />
       </div>
       <div className="ml-inputs">
         {topFeatureImportance.map((f) => (
@@ -378,7 +382,7 @@ function MlDetail({ alert }: { alert: Alert }) {
       </div>
       <p className="dim ml-detail-note">
         A real gradient-boosted model ({MODEL_CARD.rounds} trees, test AUC {MODEL_CARD.test.auc.toFixed(3)},
-        trained on {MODEL_CARD.dataset.rows.toLocaleString('en-US')} synthetic rows) scores exploitation
+        fitted on {MODEL_CARD.dataset.rows.toLocaleString('en-US')} live NVD/EPSS records) scores KEV-membership
         likelihood as a second opinion. The six-factor deterministic score remains authoritative.
       </p>
       {alert.suppressed && (

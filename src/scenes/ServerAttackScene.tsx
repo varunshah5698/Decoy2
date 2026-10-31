@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { useReducedMotion } from 'framer-motion'
 import { alerts, assetById } from '../data/seed'
 import { cx } from '../lib/format'
@@ -32,15 +32,6 @@ const matchNodes: MatchNode[] = [
 })
 
 const feedIds = alerts.filter((a) => !a.suppressed).map((a) => a.cve.id)
-const filterReasons = ['version outside affected range', 'product not installed', 'range not satisfied']
-
-interface LogLine {
-  id: number
-  t: string
-  tag: string
-  msg: string
-  tone: 'dim' | 'block' | 'match'
-}
 
 interface Packet {
   sx: number
@@ -87,29 +78,10 @@ interface Dust {
   phase: number
 }
 
-const formatClock = (seconds: number) => {
-  const h = Math.floor(seconds / 3600) % 24
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':')
-}
-
-const initialLogs: LogLine[] = [
-  { id: 1, t: '09:42:07', tag: 'GATE', msg: 'version gate armed · 16 assets in scope', tone: 'dim' },
-  { id: 2, t: '09:42:11', tag: 'INGEST', msg: `${feedIds[1] ?? 'CVE'} · evaluating against inventory`, tone: 'dim' },
-]
-
 export function ServerAttackScene() {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const seenRef = useRef<HTMLSpanElement>(null)
-  const filteredRef = useRef<HTMLSpanElement>(null)
-  const matchedRef = useRef<HTMLSpanElement>(null)
-  const attackRef = useRef<() => void>(() => {})
   const reduce = useReducedMotion()
-  const [latest, setLatest] = useState<MatchNode | null>(null)
-  const [logs, setLogs] = useState<LogLine[]>(initialLogs)
-  const logId = useRef(2)
 
   useEffect(() => {
     const wrap = wrapRef.current
@@ -132,13 +104,9 @@ export function ServerAttackScene() {
     let scale = 1
     let yaw = -0.52
     let pitch = 0.16
-    let seen = 0
-    let filtered = 0
     let matched = 0
     let matchCooldown = 3.4
     let spawnClock = 0
-    let logClock = 0
-    let simClock = 9 * 3600 + 42 * 60 + 7
     let flash = 0
     let breachBeam = 0
     let hotUnit = -1
@@ -202,29 +170,12 @@ export function ServerAttackScene() {
       ]
     }
 
-    const updateCounts = () => {
-      if (seenRef.current) seenRef.current.textContent = seen.toLocaleString('en-US')
-      if (filteredRef.current) filteredRef.current.textContent = filtered.toLocaleString('en-US')
-      if (matchedRef.current) matchedRef.current.textContent = String(matched)
-    }
-
-    const pushLog = (tag: string, msg: string, tone: LogLine['tone']) => {
-      simClock += 1 + Math.floor(rng() * 3)
-      logId.current += 1
-      const line: LogLine = { id: logId.current, t: formatClock(simClock), tag, msg, tone }
-      setLogs((current) => [...current.slice(-3), line])
-    }
-
-    const onMatch = (node: MatchNode, sx: number, sy: number) => {
+    const onMatch = (sx: number, sy: number) => {
       matched += 1
       flash = 1
       breachBeam = 1
       hotUnit = 2 + Math.floor(rng() * 7)
       hotAge = 0
-      setLatest(node)
-      pushLog('INGEST', `${node.cveId} · ${node.product} ${node.version}`, 'dim')
-      pushLog('GATE', `${node.product} ${node.version} falls inside affected range`, 'match')
-      pushLog('VERDICT', `${node.name} · score ${node.score.toFixed(1)} · fix ${node.fix}`, 'match')
       ripples.push({ x: sx, y: sy, age: 0, life: 1.15, tone: 'amber', size: 1.5 })
       ripples.push({ x: cx, y: cy, age: 0, life: 1.5, tone: 'amber', size: 2.2 })
       for (let i = 0; i < 14; i += 1) {
@@ -239,7 +190,6 @@ export function ServerAttackScene() {
           tone: rng() > 0.35 ? 'amber' : 'red',
         })
       }
-      updateCounts()
     }
 
     const position = (packet: Packet) => {
@@ -301,12 +251,10 @@ export function ServerAttackScene() {
     }
 
     const impact = (packet: Packet, px: number, py: number) => {
-      seen += 1
       const isMatch = packet.tone === 'match' && packet.node
-      if (isMatch && packet.node) {
-        onMatch(packet.node, px, py)
+      if (isMatch) {
+        onMatch(px, py)
       } else {
-        filtered += 1
         ripples.push({ x: px, y: py, age: 0, life: 0.8, tone: 'teal', size: 0.8 })
         for (let i = 0; i < 4; i += 1) {
           const angle = rng() * TAU
@@ -321,7 +269,6 @@ export function ServerAttackScene() {
           })
         }
       }
-      updateCounts()
       packet.dead = true
     }
 
@@ -372,13 +319,6 @@ export function ServerAttackScene() {
         spark.vy += 60 * dt
       }
       sparks = sparks.filter((spark) => spark.age < spark.life)
-
-      logClock += dt
-      if (logClock > 2.4) {
-        logClock = 0
-        const id = feedIds[Math.floor(rng() * feedIds.length)]
-        pushLog('FILTER', `${id} · ${filterReasons[Math.floor(rng() * filterReasons.length)]}`, 'block')
-      }
     }
 
     const drawFloor = () => {
@@ -1011,21 +951,10 @@ export function ServerAttackScene() {
     resize()
 
     if (reduce) {
-      seen = 1284
-      filtered = 1272
-      matched = 12
-      updateCounts()
       flash = 0.6
       breachBeam = 0.45
       hotUnit = 4
       hotAge = 0.6
-      setLatest(matchNodes[0])
-      setLogs([
-        { id: 11, t: '09:42:07', tag: 'GATE', msg: 'version gate armed · 16 assets in scope', tone: 'dim' },
-        { id: 12, t: '09:42:09', tag: 'FILTER', msg: `${feedIds[1] ?? 'CVE'} · version outside affected range`, tone: 'block' },
-        { id: 13, t: '09:42:11', tag: 'GATE', msg: `Log4j 2.14.1 falls inside affected range`, tone: 'match' },
-        { id: 14, t: '09:42:11', tag: 'VERDICT', msg: `HR Portal · score 99.4 · fix 2.17.1`, tone: 'match' },
-      ])
       for (let i = 0; i < 7; i += 1) spawnPacket(i === 3 ? 'match' : 'noise')
       packets.forEach((packet, index) => {
         packet.p = 0.18 + index * 0.11
@@ -1049,11 +978,6 @@ export function ServerAttackScene() {
       raf = requestAnimationFrame(loop)
     }
 
-    attackRef.current = () => {
-      for (let i = 0; i < 5; i += 1) spawnPacket(i === 0 ? 'match' : undefined)
-      matchCooldown = Math.max(matchCooldown, 9)
-    }
-
     return () => {
       disposed = true
       cancelAnimationFrame(raf)
@@ -1066,72 +990,6 @@ export function ServerAttackScene() {
   return (
     <div ref={wrapRef} className={cx('sa-scene', reduce && 'sa-still')}>
       <canvas ref={canvasRef} aria-hidden="true" />
-
-      <div className="sa-status" aria-hidden="true">
-        <span className="sa-status-live">
-          <i />
-          Intrusion feed
-          <em>simulated</em>
-        </span>
-        <div className="sa-counts">
-          <span>
-            seen <b ref={seenRef}>0</b>
-          </span>
-          <span>
-            filtered <b ref={filteredRef}>0</b>
-          </span>
-          <span className="sa-count-match">
-            matched <b ref={matchedRef}>0</b>
-          </span>
-        </div>
-      </div>
-
-      <div className="sa-breach" aria-hidden="true" key={latest?.cveId ?? 'idle'}>
-        <span className="sa-breach-k">last breach</span>
-        {latest ? (
-          <>
-            <b>{latest.cveId}</b>
-            <span>
-              {latest.name} · {latest.product} {latest.version}
-            </span>
-            <em>{latest.score.toFixed(1)}</em>
-          </>
-        ) : (
-          <>
-            <b>awaiting signal</b>
-            <span>version gate armed</span>
-            <em>—</em>
-          </>
-        )}
-      </div>
-
-      <div className="sa-terminal">
-        <div className="sa-term-head">
-          <span className="sa-term-title">
-            <i />
-            Incident log
-            <em>demo-01</em>
-          </span>
-          {!reduce && (
-            <button type="button" className="sa-trigger" onClick={() => attackRef.current()}>
-              Trigger attack
-            </button>
-          )}
-        </div>
-        <div className="sa-term-body">
-          {logs.map((line) => (
-            <div className={cx('sa-line', `is-${line.tone}`)} key={line.id}>
-              <span className="sa-line-t">{line.t}</span>
-              <span className="sa-line-tag">{line.tag}</span>
-              <span className="sa-line-msg">{line.msg}</span>
-            </div>
-          ))}
-        </div>
-        <div className="sa-term-foot">
-          <span>version gate · armed</span>
-          <span>{reduce ? 'static preview' : 'auto-match ≈ 9s'}</span>
-        </div>
-      </div>
     </div>
   )
 }

@@ -46,8 +46,8 @@ Headline voice: two-clause declaratives. "The internet is loud. Your breach is s
 - Perspective projection with a fixed rack, two distant racks, floor grid, scan line, and dust.
 - Red hostile origins (screen-anchored, labelled with IPs and intent) fire dotted attack arcs and spurts of packets. Most packets are filtered at the teal shield; matched packets pass through, flash amber, spark, and light a rack unit.
 - Camera responds subtly to pointer and scroll; audio never plays.
-- The scene owns a DOM HUD: live counts, last breach, and an incident terminal with a manual **Trigger attack** control.
-- `prefers-reduced-motion` renders a single static composition with fixed counts and no trigger; the DOM never animates.
+- The scene is canvas-only: no DOM HUD overlays the hero.
+- `prefers-reduced-motion` renders a single static composition; the DOM never animates.
 
 ## Interaction & accessibility
 
