@@ -288,7 +288,7 @@ export default function Scoring() {
         </Panel>
 
         <Panel className="col-8" title="Live result" sub="All six factors, recomputed on every change" noPad>
-          <div style={{ display: 'grid', gridTemplateColumns: '210px minmax(0,1fr)', gap: 12, padding: '16px 20px 20px', alignItems: 'center' }}>
+          <div className="score-live-grid">
             <div style={{ display: 'grid', justifyItems: 'center', gap: 8 }}>
               <RadialGauge
                 value={result.score}

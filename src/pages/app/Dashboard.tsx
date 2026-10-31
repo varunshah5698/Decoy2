@@ -661,7 +661,7 @@ export default function Dashboard() {
           label="Critical now"
           value={<Counter to={counts.critical} />}
           small="needs patch this window"
-          delta="KEV floor applied to 2"
+          delta={`KEV floor applied to ${activeAlerts.filter((a) => a.level === 'CRITICAL' && a.cve.kev).length}`}
           spark={kpiSparks.critical}
           sparkColor="#e5545a"
           delay={140}
@@ -775,7 +775,11 @@ export default function Dashboard() {
         <Panel
           className="col-6 posture-panel"
           title="Posture"
-          sub="Exposure index · 4 critical alerts × 15 + 4 high × 6"
+          sub={`Exposure index · ${counts.critical} critical × 15 + ${counts.high} high × 6${
+            15 * counts.critical + 6 * counts.high > 100
+              ? ` = ${15 * counts.critical + 6 * counts.high} → floored at 0`
+              : ''
+          }`}
           action={<span className="mono">SIMULATED</span>}
           noPad
           spotlight
