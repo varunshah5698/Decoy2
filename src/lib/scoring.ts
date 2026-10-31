@@ -22,6 +22,18 @@ export const levelFromScore = (score: number): RiskLevel => {
   return 'LOW'
 }
 
+export const POSTURE_DEDUCTION = { critical: 15, high: 6 } as const
+
+export function exposureDeduction(counts: { critical: number; high: number }): number {
+  return POSTURE_DEDUCTION.critical * counts.critical + POSTURE_DEDUCTION.high * counts.high
+}
+
+// Each deduction point removes 1% of the remaining score, so the index
+// approaches zero without ever flattening there.
+export function postureFromCounts(counts: { critical: number; high: number }): number {
+  return Math.round(100 * Math.exp(-exposureDeduction(counts) / 100))
+}
+
 const raise = (current: RiskLevel, floor: RiskLevel): RiskLevel => {
   const order: RiskLevel[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
   return order.indexOf(current) >= order.indexOf(floor) ? current : floor

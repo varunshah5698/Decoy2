@@ -10,7 +10,7 @@ import { useLiveActiveAlerts, useLivePosture } from '../../lib/liveData'
 import { useTheme } from '../../lib/store'
 import { fmtScore } from '../../lib/format'
 import { mean } from '../../lib/stats'
-import { scoreAlert } from '../../lib/scoring'
+import { postureFromCounts, scoreAlert } from '../../lib/scoring'
 import { LEVEL_COLORS, TEAL, hexA } from '../../lib/colors'
 import type { Criticality } from '../../lib/types'
 
@@ -65,7 +65,7 @@ export default function Simulator() {
     critical: scenario.filter((s) => !s.suppressedAfter && s.levelAfter === 'CRITICAL').length,
     high: scenario.filter((s) => !s.suppressedAfter && s.levelAfter === 'HIGH').length,
   }
-  const afterPosture = Math.max(0, 100 - 15 * afterCounts.critical - 6 * afterCounts.high)
+  const afterPosture = postureFromCounts(afterCounts)
   const assetRows = scenario.filter((s) => s.alert.asset.id === asset.id)
   const assetBefore = assetRows.reduce((a, b) => a + b.before, 0)
   const assetAfter = assetRows.reduce((a, b) => a + b.after, 0)
@@ -196,7 +196,7 @@ export default function Simulator() {
             </div>
           </Panel>
 
-          <Panel title="Posture · before / after" sub="Index = 100 − (15 × critical + 6 × high)" noPad>
+          <Panel title="Posture · before / after" sub="Index = round(100 × e^(−(15 × critical + 6 × high) ÷ 100))" noPad>
             <div className="gauge-pair" style={{ padding: '12px 14px 16px' }}>
               <div style={{ display: 'grid', justifyItems: 'center', gap: 4 }}>
                 <RadialGauge value={posture} size={142} stroke={6} color="#e5545a" ticks={34}>

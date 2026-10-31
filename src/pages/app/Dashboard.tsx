@@ -31,6 +31,7 @@ import { allUploadedAssets, useUploads } from '../../lib/uploads'
 import { cx, fmtInt, fmtScore, timeAgo } from '../../lib/format'
 import { median, spearman, stdev, mean } from '../../lib/stats'
 import { predict, ML_BANDS, MODEL_CARD } from '../../lib/ml'
+import { exposureDeduction, postureFromCounts } from '../../lib/scoring'
 import { AMBER, LEVEL_COLORS, SUPPRESSED, TEAL, hexA, levelColor } from '../../lib/colors'
 import type { Alert, RiskLevel } from '../../lib/types'
 
@@ -598,7 +599,7 @@ export default function Dashboard() {
 
   const kpiSparks = useMemo(
     () => ({
-      posture: alertDaily.map((d) => d.critical * 15 + d.high * 6 + 8),
+      posture: alertDaily.map((d) => postureFromCounts(d)),
       active: alertDaily.map((d) => d.critical + d.high + d.medium + d.low + 1),
       critical: alertDaily.map((d) => d.critical),
       kev: threatDaily.map((d) => d.kev),
@@ -636,7 +637,7 @@ export default function Dashboard() {
           label="Posture score"
           value={<Counter to={posture} />}
           small="/ 100 · higher is better"
-          delta="−8 vs last week"
+          delta={`${exposureDeduction(counts)} pts deducted · ${counts.critical} critical, ${counts.high} high`}
           deltaTone="up"
           spark={kpiSparks.posture}
           sparkColor="#e5545a"
@@ -775,17 +776,13 @@ export default function Dashboard() {
         <Panel
           className="col-6 posture-panel"
           title="Posture"
-          sub={`Exposure index · ${counts.critical} critical × 15 + ${counts.high} high × 6${
-            15 * counts.critical + 6 * counts.high > 100
-              ? ` = ${15 * counts.critical + 6 * counts.high} → floored at 0`
-              : ''
-          }`}
+          sub={`Exposure index · ${counts.critical} critical × 15 + ${counts.high} high × 6 = ${exposureDeduction(counts)} deduction → ${posture}/100`}
           action={<span className="mono">SIMULATED</span>}
           noPad
           spotlight
         >
           <div className="posture-body">
-            <PostureGauge posture={posture} />
+            <PostureGauge posture={posture} deduction={exposureDeduction(counts)} />
             <div className="posture-factors">
               <FactorLine label="KEV-active alerts" value={kevActive.length} total={counts.active} tone="#e5545a" />
               <FactorLine label="Internet-facing" value={exposureActive.length} total={counts.active} tone="#e3a455" />
@@ -1032,7 +1029,7 @@ function KpiCard({
   )
 }
 
-function PostureGauge({ posture }: { posture: number }) {
+function PostureGauge({ posture, deduction }: { posture: number; deduction: number }) {
   const ref = useRef<HTMLDivElement>(null)
   const inView = useInView(ref, { once: true, margin: '-40px' })
   const reduce = useReducedMotion()
@@ -1064,7 +1061,9 @@ function PostureGauge({ posture }: { posture: number }) {
             <small>/100</small>
           </div>
           <div className="label">posture score</div>
-          <div className="trend down">▼ 8 pts this week</div>
+          <div className={cx('trend', deduction > 0 && 'down')}>
+            {deduction > 0 ? `▼ ${deduction} pts deducted` : 'no active deductions'}
+          </div>
         </div>
       </RadialGauge>
     </div>

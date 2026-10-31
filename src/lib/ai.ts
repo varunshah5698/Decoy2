@@ -11,7 +11,7 @@ import {
   uploadedDatasets,
 } from '../data/seed'
 import { componentByPath } from '../app/catalog'
-import { FORMULA_VERSION, WEIGHTS } from './scoring'
+import { FORMULA_VERSION, WEIGHTS, postureFromCounts } from './scoring'
 import { predict, ML_BANDS, MODEL_CARD } from './ml'
 import {
   currentLiveAlerts,
@@ -213,7 +213,7 @@ function buildPatchPlan(activeAlerts: Alert[], currentPosture: number) {
       const remaining = activeAlerts.filter((a) => a.asset.id !== assetId)
       const critical = remaining.filter((a) => a.level === 'CRITICAL').length
       const high = remaining.filter((a) => a.level === 'HIGH').length
-      const projected = Math.max(0, 100 - 15 * critical - 6 * high)
+      const projected = postureFromCounts({ critical, high })
       const gain = projected - currentPosture
       return {
         asset: list[0].asset.name,
@@ -410,7 +410,7 @@ export function buildAnalystContext(
     organisation: {
       postureScore: livePosture,
       postureDefinition:
-        'Posture score is 0-100 and higher is better. Computed as clamp(100 - 15 × CRITICAL alerts - 6 × HIGH alerts, 0, 100). Patching an asset raises the score.',
+        'Posture score is 0-100 and higher is better. Deduction = 15 × CRITICAL alerts + 6 × HIGH alerts; posture = round(100 × e^(-deduction ÷ 100)), so it decays with diminishing returns and never collapses to a flat zero. Patching an asset raises the score.',
       activeAlerts: liveCounts.active,
       critical: liveCounts.critical,
       high: liveCounts.high,

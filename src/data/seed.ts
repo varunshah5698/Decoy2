@@ -12,7 +12,7 @@ import type {
   Technique,
   TrafficPoint,
 } from '../lib/types'
-import { relevanceReason, round1, scoreAlert } from '../lib/scoring'
+import { postureFromCounts, relevanceReason, round1, scoreAlert } from '../lib/scoring'
 import { mulberry32 } from '../lib/stats'
 
 export const DEMO_NOW = new Date('2026-10-31T09:42:00Z')
@@ -707,7 +707,7 @@ export const counts = {
   cves: cves.length,
 }
 
-export const posture = Math.max(0, 100 - (15 * counts.critical + 6 * counts.high))
+export const posture = postureFromCounts(counts)
 
 export const riskLevels: RiskLevel[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
 

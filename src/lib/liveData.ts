@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { alerts as seedAlerts, cves as seedCves, sourceHealth as seedSourceHealth } from '../data/seed'
 import { mergeCve, useLiveFeeds, type LiveCvePatch, type LiveSource, type LiveSourceMeta } from './liveFeeds'
 import { portfolioFor, predict, type MlPrediction, type MlPortfolio } from './ml'
-import { relevanceReason, round1, scoreAlert } from './scoring'
+import { postureFromCounts, relevanceReason, round1, scoreAlert } from './scoring'
 import type { Alert, Cve, SourceHealth } from './types'
 
 export interface LiveCounts {
@@ -78,7 +78,7 @@ export function countsFor(alerts: Alert[], cves: Cve[]): LiveCounts {
 }
 
 export function postureFor(counts: LiveCounts): number {
-  return Math.max(0, 100 - (15 * counts.critical + 6 * counts.high))
+  return postureFromCounts(counts)
 }
 
 export interface LiveMl {
