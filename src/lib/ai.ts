@@ -519,7 +519,7 @@ export async function streamAnalyst({
       /* non-JSON error */
     }
     if (response.status === 503) {
-      message = 'The AI analyst is not configured. Add RIVER_API_KEY to .env.local and restart the server.'
+      message = 'The AI analyst is not configured. Set RIVER_API_KEY in the server environment.'
     }
     throw new AiError(code, message)
   }
