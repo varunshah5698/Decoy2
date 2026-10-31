@@ -1,19 +1,25 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useInView, useReducedMotion } from 'framer-motion'
 import { Chart, axisStyle, chartFont, chartTokens } from '../../components/Chart'
-import { Panel, PageHeader } from '../../components/Panel'
+import { Panel } from '../../components/Panel'
 import AiBriefing from '../../components/AiBriefing'
-import { RadialGauge } from '../../components/RadialGauge'
 import { SeverityBadge, SourceBadge } from '../../components/Badges'
-import { Sparkline } from '../../components/Sparkline'
 import { StatsPanel } from '../../components/StatsPanel'
 import { Counter } from '../../components/Counter'
 import { AttackChain } from '../../components/AttackChain'
-import { AlertTriangle, ArrowRight, Bug, ExternalLink, Globe2, ShieldAlert, ShieldCheck, Zap } from '../../components/Icons'
+import {
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  BarChart3,
+  CircleDot,
+  ExternalLink,
+  Globe2,
+  ShieldAlert,
+  Zap,
+} from '../../components/Icons'
 import {
   activityHeatmap,
-  alertDaily,
   assets as seedAssets,
   DEMO_NOW,
   threatDaily,
@@ -31,7 +37,7 @@ import { allUploadedAssets, useUploads } from '../../lib/uploads'
 import { cx, fmtInt, fmtScore, timeAgo } from '../../lib/format'
 import { median, spearman, stdev, mean } from '../../lib/stats'
 import { predict, ML_BANDS, MODEL_CARD } from '../../lib/ml'
-import { exposureDeduction, postureFromCounts } from '../../lib/scoring'
+import { exposureDeduction } from '../../lib/scoring'
 import { AMBER, LEVEL_COLORS, SUPPRESSED, TEAL, hexA, levelColor } from '../../lib/colors'
 import type { Alert, RiskLevel } from '../../lib/types'
 
@@ -43,6 +49,7 @@ export default function Dashboard() {
   const theme = useTheme((s) => s.theme)
   const query = useFilters((s) => s.query)
   const severity = useFilters((s) => s.severity)
+  const [range, setRange] = useState<7 | 14 | 30>(30)
 
   const alerts = useLiveAlerts()
   const activeAlerts = useLiveActiveAlerts()
@@ -59,12 +66,23 @@ export default function Dashboard() {
 
   const kevActive = activeAlerts.filter((a) => a.cve.kev)
   const exposureActive = activeAlerts.filter((a) => a.asset.internetFacing)
-  const criticalAssets = activeAlerts.filter((a) => a.asset.criticality === 'HIGH')
 
   const levelCounts = SEVERITIES.map((level) => ({
     level,
     value: activeAlerts.filter((a) => a.level === level).length,
   }))
+
+  const severityShares = levelCounts.map((l) => ({
+    ...l,
+    share: (l.value / Math.max(1, counts.active)) * 100,
+  }))
+
+  const gaugeColors =
+    theme === 'dark'
+      ? ['#ff7b4d', '#5b79c9', '#8b93a8', '#3b4457']
+      : ['#f4602a', '#1d2b4f', '#b9bccd', '#e6e6ef']
+
+  const deduction = exposureDeduction(counts)
 
   const topAlerts = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -166,77 +184,66 @@ export default function Dashboard() {
   const threatOption = useMemo(() => {
     const ax = axisStyle(theme, { split: true })
     const t = chartTokens(theme)
-    const values = threatDaily.map((d) => d.newCves)
+    const series = threatDaily.slice(-range)
+    const values = series.map((d) => d.newCves)
     const avg = values.reduce((a, b) => a + b, 0) / Math.max(1, values.length)
+    const line = theme === 'dark' ? '#ff8a5c' : '#f4602a'
+    const bar = theme === 'dark' ? '#5b79c9' : '#1d2b4f'
+    const tipBg = theme === 'dark' ? 'rgba(12,18,30,0.97)' : '#1d2b4f'
+    const interval = range <= 7 ? 0 : range <= 14 ? 2 : 4
     return {
-      grid: { left: 42, right: 20, top: 42, bottom: 30 },
+      grid: { left: 40, right: 34, top: 36, bottom: 28 },
       xAxis: {
         type: 'category',
-        data: threatDaily.map((d) => d.label),
+        data: series.map((d) => d.label),
         ...ax,
-        axisLabel: { ...ax.axisLabel, interval: 4, fontSize: 9.5 },
+        axisLabel: { ...ax.axisLabel, interval, fontSize: 9.5 },
         axisPointer: { label: { show: false } },
       },
       yAxis: { type: 'value', ...ax, splitNumber: 4, axisLabel: { ...ax.axisLabel, fontSize: 9.5 } },
       tooltip: {
         trigger: 'axis',
+        backgroundColor: tipBg,
+        borderWidth: 0,
+        padding: [10, 12],
+        textStyle: { color: '#ffffff', fontSize: 10.5, fontFamily: chartFont, lineHeight: 18 },
+        extraCssText: 'border-radius:12px;box-shadow:0 20px 40px -18px rgba(16,24,40,.45);',
         axisPointer: {
           type: 'cross',
-          lineStyle: { color: t.muted, width: 1, type: 'dashed' },
-          crossStyle: { color: t.muted, width: 1, type: 'dashed' },
-          label: {
-            backgroundColor: t.tooltipBg,
-            borderColor: t.tooltipBorder,
-            borderWidth: 1,
-            color: t.tooltipText,
-            fontSize: 9,
-            fontFamily: chartFont,
-            padding: [4, 6],
-          },
+          lineStyle: { color: hexA(line, 0.45), width: 1, type: 'dashed' },
+          crossStyle: { color: hexA(line, 0.45), width: 1, type: 'dashed' },
+          label: { show: false },
         },
         formatter: (params: any[]) => {
           const i = params[0]?.dataIndex ?? 0
-          const d = threatDaily[i]
-          return `<div style="font-weight:600;margin-bottom:5px">${d.label}</div>
-            <div style="display:flex;gap:16px;justify-content:space-between"><span><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${TEAL};margin-right:6px"></i>New CVEs</span><b>${d.newCves}</b></div>
-            <div style="display:flex;gap:16px;justify-content:space-between"><span><i style="display:inline-block;width:7px;height:7px;border-radius:2px;background:${AMBER};margin-right:6px"></i>KEV additions</span><b>${d.kev}</b></div>`
+          const d = series[i]
+          return `<div style="font-weight:600;margin-bottom:6px">${d.label}</div>
+            <div style="display:flex;gap:16px;justify-content:space-between"><span>New CVEs</span><b>${d.newCves}</b></div>
+            <div style="display:flex;gap:16px;justify-content:space-between"><span>KEV additions</span><b>${d.kev}</b></div>`
         },
       },
       series: [
         {
           name: 'KEV additions',
           type: 'bar',
-          data: threatDaily.map((d) => d.kev),
-          barWidth: '34%',
+          data: series.map((d) => d.kev),
+          barWidth: '38%',
           z: 1,
-          itemStyle: {
-            borderRadius: [3, 3, 0, 0],
-            color: {
-              type: 'linear',
-              x: 0,
-              y: 0,
-              x2: 0,
-              y2: 1,
-              colorStops: [
-                { offset: 0, color: hexA(AMBER, 0.92) },
-                { offset: 1, color: hexA(AMBER, 0.3) },
-              ],
-            },
-          },
-          emphasis: { itemStyle: { color: AMBER, shadowBlur: 14, shadowColor: hexA(AMBER, 0.5) } },
-          animationDelay: (idx: number) => idx * 22,
+          itemStyle: { borderRadius: [6, 6, 0, 0], color: hexA(bar, theme === 'dark' ? 0.42 : 0.18) },
+          emphasis: { itemStyle: { color: hexA(bar, theme === 'dark' ? 0.7 : 0.35) } },
+          animationDelay: (idx: number) => idx * 18,
         },
         {
           name: 'New CVEs',
           type: 'line',
-          smooth: 0.45,
+          smooth: 0.42,
           symbol: 'circle',
           showSymbol: false,
           symbolSize: 6,
           data: values,
           z: 3,
-          lineStyle: { width: 2, color: TEAL, shadowBlur: 16, shadowColor: hexA(TEAL, 0.45) },
-          itemStyle: { color: TEAL, borderColor: theme === 'dark' ? '#0a1019' : '#fbf9f4', borderWidth: 2 },
+          lineStyle: { width: 2.4, color: line, shadowBlur: 14, shadowColor: hexA(line, 0.35) },
+          itemStyle: { color: line, borderColor: theme === 'dark' ? '#0e1522' : '#ffffff', borderWidth: 2 },
           areaStyle: {
             color: {
               type: 'linear',
@@ -245,17 +252,17 @@ export default function Dashboard() {
               x2: 0,
               y2: 1,
               colorStops: [
-                { offset: 0, color: hexA(TEAL, 0.32) },
-                { offset: 0.55, color: hexA(TEAL, 0.1) },
-                { offset: 1, color: hexA(TEAL, 0) },
+                { offset: 0, color: hexA(line, 0.28) },
+                { offset: 0.6, color: hexA(line, 0.08) },
+                { offset: 1, color: hexA(line, 0) },
               ],
             },
           },
-          emphasis: { focus: 'series', lineStyle: { width: 2.4 } },
+          emphasis: { focus: 'series', lineStyle: { width: 2.8 } },
           markLine: {
             silent: true,
             symbol: 'none',
-            lineStyle: { color: hexA(t.muted, 0.65), type: 'dashed', width: 1 },
+            lineStyle: { color: hexA(t.muted, 0.55), type: 'dashed', width: 1 },
             label: {
               formatter: `avg ${avg.toFixed(1)}`,
               position: 'insideEndTop',
@@ -268,14 +275,15 @@ export default function Dashboard() {
           markPoint: {
             symbol: 'circle',
             symbolSize: 7,
-            itemStyle: { color: TEAL, borderColor: hexA(TEAL, 0.28), borderWidth: 6 },
+            itemStyle: { color: line, borderColor: hexA(line, 0.24), borderWidth: 6 },
             label: { show: false },
             data: [{ type: 'max' }],
           },
         },
       ],
     }
-  }, [theme])
+  }, [theme, range])
+
 
   const funnelOption = useMemo(() => {
     const t = chartTokens(theme)
@@ -370,36 +378,24 @@ export default function Dashboard() {
   }, [funnelStages, theme])
 
   const donutOption = useMemo(() => {
-    const t = chartTokens(theme)
-    const bg = theme === 'dark' ? '#0a1019' : '#fbf9f4'
+    const bg = theme === 'dark' ? '#0e1522' : '#ffffff'
+    const ink = theme === 'dark' ? '#eef2f9' : '#101a33'
+    const mute = theme === 'dark' ? '#8b93a8' : '#8b91a7'
     return {
       tooltip: { trigger: 'item', formatter: '{b}<br/><b>{c}</b> active · {d}%' },
-      legend: {
-        bottom: 2,
-        left: 'center',
-        itemWidth: 8,
-        itemHeight: 8,
-        itemGap: 14,
-        icon: 'roundRect',
-        textStyle: { color: t.muted, fontSize: 9, fontFamily: chartFont },
-      },
       title: {
         text: String(counts.active),
         subtext: 'active alerts',
         left: 'center',
-        top: '31%',
-        textStyle: { fontSize: 34, fontWeight: 500, color: t.text },
-        subtextStyle: {
-          fontSize: 8.5,
-          color: t.muted,
-          fontFamily: chartFont,
-        },
+        top: '34%',
+        textStyle: { fontSize: 36, fontWeight: 600, color: ink, fontFamily: "'Space Grotesk Variable', 'Inter Variable', sans-serif" },
+        subtextStyle: { fontSize: 8.5, color: mute, fontFamily: chartFont },
       },
       series: [
         {
           type: 'pie',
-          radius: ['54%', '76%'],
-          center: ['50%', '43%'],
+          radius: ['58%', '80%'],
+          center: ['50%', '46%'],
           startAngle: 90,
           minAngle: 8,
           padAngle: 3,
@@ -407,27 +403,29 @@ export default function Dashboard() {
           labelLine: { show: false },
           itemStyle: {
             borderColor: bg,
-            borderWidth: 2,
-            borderRadius: 6,
+            borderWidth: 3,
+            borderRadius: 8,
             shadowBlur: 10,
-            shadowColor: 'rgba(0,0,0,.35)',
+            shadowColor: 'rgba(20,28,58,.12)',
           },
           emphasis: {
             scaleSize: 7,
-            itemStyle: { shadowBlur: 24, shadowColor: 'rgba(0,0,0,.4)' },
+            itemStyle: { shadowBlur: 24, shadowColor: 'rgba(20,28,58,.2)' },
           },
           animationType: 'scale',
           animationEasing: 'cubicOut',
           animationDuration: 1000,
-          data: levelCounts.map((d) => ({
-            name: d.level,
-            value: d.value,
-            itemStyle: { color: LEVEL_COLORS[d.level] },
-          })),
+          data: levelCounts
+            .filter((d) => d.value > 0)
+            .map((d) => ({
+              name: d.level,
+              value: d.value,
+              itemStyle: { color: gaugeColors[SEVERITIES.indexOf(d.level)] },
+            })),
         },
       ],
     }
-  }, [theme, levelCounts])
+  }, [theme, levelCounts, counts.active])
 
   const treemapOption = useMemo(() => {
     const groups: Record<string, typeof activeAlerts> = {}
@@ -597,223 +595,302 @@ export default function Dashboard() {
     }
   }, [theme])
 
-  const kpiSparks = useMemo(
-    () => ({
-      posture: alertDaily.map((d) => postureFromCounts(d)),
-      active: alertDaily.map((d) => d.critical + d.high + d.medium + d.low + 1),
-      critical: alertDaily.map((d) => d.critical),
-      kev: threatDaily.map((d) => d.kev),
-      exposure: [3, 4, 4, 5, 5, 6, 7, exposureActive.length],
-      coverage: [88, 92, 92, 96, 96, 100, 100, 100],
-    }),
-    [exposureActive.length],
-  )
-
   return (
     <div className="page dashboard-page">
-      <PageHeader
-        eyebrow={`SECURITY POSTURE · ${DEMO_NOW.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase()} · DEMO SEED`}
-        title="Command centre"
-        description="Threats correlated to your inventory, ranked by what could actually reach a system you run."
-        actions={
-          <>
-            {uploadDatasets.length > 0 && (
-              <span className="badge upload">{uploadDatasets.length} upload{uploadDatasets.length === 1 ? '' : 's'} applied</span>
-            )}
-            <button className="btn btn-ghost btn-sm" onClick={() => navigate('/app/scoring')}>
-              <Zap size={13} /> Scoring model
-            </button>
-            <button className="btn btn-primary btn-sm" onClick={() => navigate('/app/alerts')}>
-              Review alerts <ArrowRight size={13} />
-            </button>
-          </>
-        }
-      />
+      <header className="mc-header">
+        <div>
+          <span className="mono mc-eyebrow">
+            SECURITY POSTURE · {DEMO_NOW.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase()} · DEMO SEED
+          </span>
+          <h1>Command centre</h1>
+          <p>Threats correlated to your inventory, ranked by what could actually reach a system you run.</p>
+        </div>
+        <div className="mc-header-actions">
+          {uploadDatasets.length > 0 && (
+            <span className="badge upload">{uploadDatasets.length} upload{uploadDatasets.length === 1 ? '' : 's'} applied</span>
+          )}
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/app/scoring')}>
+            <Zap size={13} /> Scoring model
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={() => navigate('/app/alerts')}>
+            Review alerts <ArrowRight size={13} />
+          </button>
+        </div>
+      </header>
 
-      <div className="kpi-grid">
-        <KpiCard
-          tone="critical"
-          icon={<ShieldAlert size={11} />}
-          label="Posture score"
-          value={<Counter to={posture} />}
-          small="/ 100 · higher is better"
-          delta={`${exposureDeduction(counts)} pts deducted · ${counts.critical} critical, ${counts.high} high`}
-          deltaTone="up"
-          spark={kpiSparks.posture}
-          sparkColor="#e5545a"
-          delay={0}
-          onClick={() => navigate('/app/alerts')}
-        />
-        <KpiCard
-          tone="high"
-          icon={<Zap size={11} />}
-          label="Active alerts"
-          value={<Counter to={counts.active} />}
-          small={`of ${counts.total} candidates`}
-          delta={`${counts.suppressed} suppressed by relevance`}
-          spark={kpiSparks.active}
-          sparkColor="#e08a2f"
-          delay={70}
-          onClick={() => navigate('/app/alerts')}
-        />
-        <KpiCard
-          tone="critical"
-          icon={<AlertTriangle size={11} />}
-          label="Critical now"
-          value={<Counter to={counts.critical} />}
-          small="needs patch this window"
-          delta={`KEV floor applied to ${activeAlerts.filter((a) => a.level === 'CRITICAL' && a.cve.kev).length}`}
-          spark={kpiSparks.critical}
-          sparkColor="#e5545a"
-          delay={140}
-          onClick={() => navigate('/app/alerts')}
-        />
-        <KpiCard
-          tone="amber"
-          icon={<Bug size={11} />}
-          label="KEV-linked alerts"
-          value={<Counter to={kevActive.length} />}
-          small="known exploited"
-          delta={`of ${counts.kev} KEV CVEs ingested`}
-          spark={kpiSparks.kev}
-          sparkColor="#e3a455"
-          delay={210}
-          onClick={() => navigate('/app/cves')}
-        />
-        <KpiCard
-          tone="teal"
-          icon={<Globe2 size={11} />}
-          label="Internet-facing"
-          value={<Counter to={exposureActive.length} />}
-          small="exposed assets alerting"
-          delta="+5 exposure points each"
-          spark={kpiSparks.exposure}
-          sparkColor="#3ed2c1"
-          delay={280}
-          onClick={() => navigate('/app/map')}
-        />
-        <KpiCard
-          tone="low"
-          icon={<ShieldCheck size={11} />}
-          label="Inventory coverage"
-          value={<Counter to={coverage} />}
-          small={`% · ${inventory.length} assets`}
-          delta={
-            <>
-              version-aware on {versioned} of {inventory.length}
-              {uploadedAssets.length ? ` · ${uploadedAssets.length} uploaded` : ''}
-            </>
-          }
-          deltaTone="down"
-          spark={kpiSparks.coverage}
-          sparkColor="#3fae74"
-          delay={350}
-          onClick={() => navigate('/app/assets')}
-        />
+      <div className="mc-shell">
+        <div className="mc-col-left">
+          <section className="mc-card mc-posture-card">
+            <McHead
+              icon={<ShieldAlert size={17} />}
+              tone="orange"
+              title="Today's posture"
+              sub="Exposure index · live queue"
+            />
+            <div className="mc-posture-body">
+              <HalfGauge
+                posture={posture}
+                segments={severityShares.map((s, i) => ({ value: s.value, color: gaugeColors[i], label: s.level }))}
+              />
+              <div className="mc-gauge-legend">
+                {severityShares.map((s, i) => (
+                  <span className="mc-legend-dot" key={s.level}>
+                    <i style={{ background: gaugeColors[i] }} />
+                    {s.value} {s.level.toLowerCase()}
+                  </span>
+                ))}
+              </div>
+              <div className="mc-deduct">
+                {deduction > 0
+                  ? `${counts.critical} × 15 + ${counts.high} × 6 = ${deduction} pts deducted`
+                  : 'No active deductions this window'}
+              </div>
+            </div>
+            <div className="mc-trio">
+              <div>
+                <span className="ic">
+                  <AlertTriangle size={12} />
+                </span>
+                <strong>{counts.critical}</strong>
+                <span>Critical now</span>
+              </div>
+              <div>
+                <span className="ic">
+                  <Activity size={12} />
+                </span>
+                <strong>{counts.high}</strong>
+                <span>High risk</span>
+              </div>
+              <div>
+                <span className="ic">
+                  <Globe2 size={12} />
+                </span>
+                <strong>{exposureActive.length}</strong>
+                <span>Internet-facing</span>
+              </div>
+            </div>
+          </section>
+
+          <section className="mc-card mc-pressure-card">
+            <McHead
+              icon={<BarChart3 size={16} />}
+              tone="navy"
+              title="Alert pressure"
+              sub="Share of the active queue"
+            />
+            <div className="mc-table" role="table" aria-label="Alert pressure by severity">
+              <div className="mc-table-head" role="row">
+                <span role="columnheader">Severity</span>
+                <span className="num" role="columnheader">
+                  Share
+                </span>
+                <span className="num" role="columnheader">
+                  Alerts
+                </span>
+              </div>
+              <div className="mc-table-body" role="rowgroup">
+                {severityShares.map((s) => (
+                  <div className="mc-row" role="row" key={s.level}>
+                    <span role="cell">
+                      <span className="mc-sev">
+                        <i style={{ background: LEVEL_COLORS[s.level] }} />
+                        {s.level.charAt(0) + s.level.slice(1).toLowerCase()}
+                      </span>
+                    </span>
+                    <span className="num pct" role="cell">
+                      {s.share.toFixed(0)}%
+                    </span>
+                    <span className="num" role="cell">
+                      {s.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="mc-press-facts">
+              <div>
+                <span>Median EPSS</span>
+                <b>{stats[1].value}</b>
+              </div>
+              <div>
+                <span>Suppression rate</span>
+                <b>{stats[4].value}</b>
+              </div>
+            </div>
+            <button className="mc-highlight" onClick={() => navigate('/app/alerts')}>
+              <span className="mc-highlight-dot" />
+              <span className="mc-highlight-label">KEV-linked</span>
+              <b>{kevActive.length}</b>
+              <span className="dim">of {counts.active} active</span>
+              <ArrowRight size={14} />
+            </button>
+          </section>
+        </div>
+
+        <div className="mc-col-main">
+          <section className="mc-card mc-hero-card">
+            <McHead
+              icon={<Activity size={17} />}
+              tone="soft"
+              title="Threat landscape"
+              sub="Ingested CVEs and known-exploited additions"
+              action={
+                <>
+                  <div className="mc-seg" role="group" aria-label="Chart range">
+                    {([7, 14, 30] as const).map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        className={cx(range === d && 'on')}
+                        aria-pressed={range === d}
+                        onClick={() => setRange(d)}
+                      >
+                        {d}D
+                      </button>
+                    ))}
+                  </div>
+                  <span className="mc-kebab" aria-hidden="true">
+                    ⋯
+                  </span>
+                </>
+              }
+            />
+            <div className="mc-hero-body">
+              <div className="mc-hero-left">
+                <div className="mc-big">
+                  <span className="mc-big-num">
+                    <Counter to={counts.active} />
+                  </span>
+                  <button className="mc-details" onClick={() => navigate('/app/alerts')}>
+                    Details
+                  </button>
+                </div>
+                <div className="mc-big-label">
+                  Active alerts <span className="dim">· {counts.total} correlated candidates</span>
+                </div>
+                <div className="mc-break">
+                  {severityShares.map((s) => (
+                    <div
+                      className="mc-break-row"
+                      key={s.level}
+                      style={{ '--tone': LEVEL_COLORS[s.level] } as CSSProperties}
+                    >
+                      <div className="top">
+                        <span>{s.level.charAt(0) + s.level.slice(1).toLowerCase()}</span>
+                        <b>{s.share.toFixed(1)}%</b>
+                      </div>
+                      <div className="mc-break-track">
+                        <i style={{ width: `${Math.max(2, s.share)}%` }} />
+                      </div>
+                      <div className="sub">{s.value} alerts in the queue</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mc-hero-chart">
+                <Chart option={threatOption} height={286} />
+              </div>
+            </div>
+            <div className="mc-hero-foot">
+              <div>
+                <span className="lab">KEV-linked</span>
+                <span className="val">
+                  {kevActive.length} of {counts.kev} KEV CVEs
+                </span>
+              </div>
+              <div>
+                <span className="lab">Suppressed</span>
+                <span className="val">{counts.suppressed} by relevance</span>
+              </div>
+              <div>
+                <span className="lab">Inventory coverage</span>
+                <span className="val">
+                  {coverage}% · {versioned} of {inventory.length} versioned
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <div className="mc-lower">
+            <section className="mc-card mc-critical-card">
+              <McHead
+                icon={<ShieldAlert size={16} />}
+                tone="soft"
+                title="Critical right now"
+                sub={`${counts.critical} critical · ${counts.high} high in the live queue`}
+                action={
+                  <button className="mc-link" onClick={() => navigate('/app/alerts')}>
+                    Open queue <ArrowRight size={11} />
+                  </button>
+                }
+              />
+              <ul className="crit-list">
+                {topCritical.map((a, i) => (
+                  <li
+                    key={a.id}
+                    className={cx('crit-row', a.level.toLowerCase())}
+                    style={{ '--i': i } as CSSProperties}
+                    onClick={() => navigate(`/app/alerts?alert=${a.id}`)}
+                  >
+                    <span className="crit-dot" aria-hidden="true" />
+                    <div className="crit-body">
+                      <div className="crit-title">
+                        <strong>{a.cve.id}</strong>
+                        <SeverityBadge level={a.level} />
+                      </div>
+                      <div className="crit-name">{a.cve.title}</div>
+                      <div className="crit-meta">
+                        {a.asset.name} · {a.asset.department} · {timeAgo(a.createdAt, DEMO_NOW)}
+                      </div>
+                    </div>
+                    <div className="crit-score">
+                      {fmtScore(a.score)}
+                      <small>score</small>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="crit-foot">
+                <span className="mono">XGBoost v{MODEL_CARD.version} second opinion</span>
+                <span className="mono">
+                  {liveMl.portfolio.elevated} elevated ≥{(ML_BANDS.elevated * 100).toFixed(1)}%
+                </span>
+              </div>
+            </section>
+
+            <section className="mc-card mc-risk-card">
+              <McHead
+                icon={<CircleDot size={16} />}
+                tone="soft"
+                title="Risk composition"
+                sub="Active alerts by severity"
+                action={<span className="mc-chip">n={counts.active}</span>}
+              />
+              <div className="mc-risk-body">
+                <Chart option={donutOption} height={214} />
+                <ul className="mc-risk-legend">
+                  {severityShares.map((s) => (
+                    <li key={s.level}>
+                      <span className="mc-sev">
+                        <i style={{ background: gaugeColors[SEVERITIES.indexOf(s.level)] }} />
+                        {s.level.charAt(0) + s.level.slice(1).toLowerCase()}
+                      </span>
+                      <span className="mc-risk-share">{s.share.toFixed(0)}%</span>
+                      <b>{s.value}</b>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </section>
+          </div>
+        </div>
       </div>
 
       <AiBriefing />
 
-      <div className="dash-grid">
+      <div className="mc-stack">
         <Panel
-          className="col-6 crit-panel"
-          title="Critical right now"
-          sub={`${counts.critical} critical · ${counts.high} high after the relevance gate`}
-          action={
-            <button className="panel-link" onClick={() => navigate('/app/alerts')}>
-              Open queue <ArrowRight size={11} />
-            </button>
-          }
-          noPad
-          spotlight
-        >
-          <div
-            className="sev-meter"
-            role="img"
-            aria-label={`Severity mix: ${levelCounts.map((l) => `${l.level} ${l.value}`).join(', ')}`}
-          >
-            {levelCounts.map((l) => (
-              <span
-                key={l.level}
-                style={{ '--w': `${(l.value / Math.max(1, counts.active)) * 100}%`, background: LEVEL_COLORS[l.level] } as CSSProperties}
-              />
-            ))}
-          </div>
-          <ul className="crit-list">
-            {topCritical.map((a, i) => (
-              <li
-                key={a.id}
-                className={cx('crit-row', a.level.toLowerCase())}
-                style={{ '--i': i } as CSSProperties}
-                onClick={() => navigate(`/app/alerts?alert=${a.id}`)}
-              >
-                <span className="crit-dot" aria-hidden="true" />
-                <div className="crit-body">
-                  <div className="crit-title">
-                    <strong>{a.cve.id}</strong>
-                    <SeverityBadge level={a.level} />
-                  </div>
-                  <div className="crit-name">{a.cve.title}</div>
-                  <div className="crit-meta">
-                    {a.asset.name} · {a.asset.department} · {timeAgo(a.createdAt, DEMO_NOW)}
-                  </div>
-                </div>
-                <div className="crit-score">
-                  {fmtScore(a.score)}
-                  <small>score</small>
-                </div>
-              </li>
-            ))}
-          </ul>
-          <div className="crit-foot">
-            <span className="mono">XGBoost v{MODEL_CARD.version} second opinion</span>
-            <span className="mono">
-              {liveMl.portfolio.elevated} elevated ≥{(ML_BANDS.elevated * 100).toFixed(1)}%
-            </span>
-          </div>
-        </Panel>
-
-        <Panel
-          className="col-6 posture-panel"
-          title="Posture"
-          sub={`Exposure index · ${counts.critical} critical × 15 + ${counts.high} high × 6 = ${exposureDeduction(counts)} deduction → ${posture}/100`}
-          action={<span className="mono">SIMULATED</span>}
-          noPad
-          spotlight
-        >
-          <div className="posture-body">
-            <PostureGauge posture={posture} deduction={exposureDeduction(counts)} />
-            <div className="posture-factors">
-              <FactorLine label="KEV-active alerts" value={kevActive.length} total={counts.active} tone="#e5545a" />
-              <FactorLine label="Internet-facing" value={exposureActive.length} total={counts.active} tone="#e3a455" />
-              <FactorLine label="High-criticality assets" value={criticalAssets.length} total={counts.active} tone="#e08a2f" />
-              <FactorLine label="Suppressed low-value" value={suppressedAlerts.length} total={alerts.length} tone="#3fae74" />
-            </div>
-          </div>
-        </Panel>
-
-        <Panel
-          className="col-12"
-          title="Threat landscape · 30 days"
-          sub="Ingested CVEs and known-exploited additions · demo series"
-          action={<span className="badge real">NVD · KEV</span>}
-          noPad
-          spotlight
-        >
-          <Chart option={threatOption} height={302} />
-          <div className="chart-legend">
-            <span className="legend-item">
-              <i style={{ background: TEAL }} /> New CVEs
-            </span>
-            <span className="legend-item">
-              <i style={{ background: AMBER }} /> KEV additions
-            </span>
-            <span className="legend-item dim">Series derived deterministically from seed 20261031</span>
-          </div>
-        </Panel>
-
-        <Panel
-          className="col-6"
+          className="col-5"
           title="Detection funnel"
           sub={`${counts.cves} ingested → ${counts.active} active after the gate → ${counts.critical} critical`}
           action={
@@ -837,17 +914,6 @@ export default function Dashboard() {
         </Panel>
 
         <Panel
-          className="col-6"
-          title="Risk composition"
-          sub={`Active alerts only · ${counts.suppressed} suppressed not counted`}
-          action={<span className="mono">n={counts.active}</span>}
-          noPad
-          spotlight
-        >
-          <Chart option={donutOption} height={286} />
-        </Panel>
-
-        <Panel
           className="col-7 treemap-panel"
           title="Asset exposure treemap"
           sub="Area weighted by score · colour by highest risk level"
@@ -865,7 +931,7 @@ export default function Dashboard() {
         </Panel>
 
         <Panel
-          className="col-5 heatmap-panel"
+          className="col-12 heatmap-panel"
           title="Authentication activity"
           sub={`Events per hour · 7-day window · peak ${DAY_LABELS[peakActivity.day]} ${String(peakActivity.hour).padStart(2, '0')}:00 (${peakActivity.value})`}
           action={<span className="badge simulated">Simulated</span>}
@@ -970,118 +1036,89 @@ export default function Dashboard() {
   )
 }
 
-function KpiCard({
-  tone,
+function McHead({
   icon,
-  label,
-  value,
-  small,
-  delta,
-  deltaTone,
-  spark,
-  sparkColor,
-  delay,
-  onClick,
+  tone,
+  title,
+  sub,
+  action,
 }: {
-  tone?: 'critical' | 'high' | 'teal' | 'amber' | 'low'
-  icon?: ReactNode
-  label: string
-  value: ReactNode
-  small?: ReactNode
-  delta: ReactNode
-  deltaTone?: 'up' | 'down'
-  spark: number[]
-  sparkColor: string
-  delay?: number
-  onClick: () => void
+  icon: ReactNode
+  tone: 'orange' | 'navy' | 'soft'
+  title: string
+  sub?: string
+  action?: ReactNode
 }) {
   return (
-    <div
-      className={cx('kpi', 'interactive', tone && `${tone}-tone`)}
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onPointerMove={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect()
-        e.currentTarget.style.setProperty('--mx', `${e.clientX - rect.left}px`)
-        e.currentTarget.style.setProperty('--my', `${e.clientY - rect.top}px`)
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onClick()
-        }
-      }}
-    >
-      <span className="kpi-accent" aria-hidden="true" />
-      <div className="kpi-label">
-        {icon} {label}
-      </div>
-      <div className="kpi-value">
-        {value}
-        {small && <small>{small}</small>}
-      </div>
-      <div className={cx('kpi-delta', deltaTone)}>{delta}</div>
-      <div className="kpi-spark">
-        <Sparkline values={spark} color={sparkColor} delay={delay ?? 0} fluid />
-      </div>
-    </div>
-  )
-}
-
-function PostureGauge({ posture, deduction }: { posture: number; deduction: number }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const inView = useInView(ref, { once: true, margin: '-40px' })
-  const reduce = useReducedMotion()
-  const [value, setValue] = useState(reduce ? posture : 0)
-
-  useEffect(() => {
-    if (!inView) return
-    if (reduce) {
-      setValue(posture)
-      return
-    }
-    let raf = 0
-    const t0 = performance.now()
-    const tick = (now: number) => {
-      const p = Math.min(1, (now - t0) / 1500)
-      setValue(posture * (1 - Math.pow(1 - p, 3)))
-      if (p < 1) raf = requestAnimationFrame(tick)
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [inView, posture, reduce])
-
-  return (
-    <div ref={ref}>
-      <RadialGauge value={value} size={196} stroke={7} color="#e5545a" ticks={52}>
-        <div className="posture-center">
-          <div className="num">
-            {Math.round(value)}
-            <small>/100</small>
-          </div>
-          <div className="label">posture score</div>
-          <div className={cx('trend', deduction > 0 && 'down')}>
-            {deduction > 0 ? `▼ ${deduction} pts deducted` : 'no active deductions'}
-          </div>
-        </div>
-      </RadialGauge>
-    </div>
-  )
-}
-
-function FactorLine({ label, value, total, tone }: { label: string; value: number; total: number; tone: string }) {
-  const pct = Math.min(100, (value / Math.max(1, total)) * 100)
-  return (
-    <div className="factor-line" style={{ '--tone': tone } as CSSProperties}>
-      <span>{label}</span>
-      <strong>
-        {value}
-        <span className="dim"> / {total}</span>
-      </strong>
-      <span className="factor-meter" aria-hidden="true">
-        <i style={{ '--w': `${pct}%` } as CSSProperties} />
+    <header className="mc-card-head">
+      <span className={cx('mc-icon', tone)} aria-hidden="true">
+        {icon}
       </span>
+      <div className="mc-card-id">
+        <h2 className="mc-card-title">{title}</h2>
+        {sub && <div className="mc-card-sub">{sub}</div>}
+      </div>
+      {action && <div className="mc-card-tools">{action}</div>}
+    </header>
+  )
+}
+
+function HalfGauge({
+  posture,
+  segments,
+}: {
+  posture: number
+  segments: { value: number; color: string; label: string }[]
+}) {
+  const size = 240
+  const cx = size / 2
+  const cy = 112
+  const r = 96
+  const active = segments.filter((s) => s.value > 0)
+  const total = Math.max(1, active.reduce((sum, s) => sum + s.value, 0))
+  const gap = active.length > 1 ? 3 : 0
+  let acc = 0
+
+  const arcs = active.map((s, i) => {
+    const start = (acc / total) * 180 + (i === 0 ? 0 : gap / 2)
+    acc += s.value
+    const end = (acc / total) * 180 - (i === active.length - 1 ? 0 : gap / 2)
+    const a0 = ((180 - start) * Math.PI) / 180
+    const a1 = ((180 - end) * Math.PI) / 180
+    const x0 = cx + r * Math.cos(a0)
+    const y0 = cy - r * Math.sin(a0)
+    const x1 = cx + r * Math.cos(a1)
+    const y1 = cy - r * Math.sin(a1)
+    return {
+      key: s.label,
+      color: s.color,
+      delay: i * 140,
+      d: `M${x0.toFixed(2)} ${y0.toFixed(2)} A${r} ${r} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`,
+    }
+  })
+
+  return (
+    <div className="mc-gauge">
+      <svg viewBox={`0 0 ${size} 128`} role="img" aria-label={`Posture ${Math.round(posture)} out of 100`}>
+        <path d={`M${cx - r} ${cy} A${r} ${r} 0 0 1 ${cx + r} ${cy}`} className="mc-gauge-track" />
+        {arcs.map((a) => (
+          <path
+            key={a.key}
+            d={a.d}
+            className="mc-gauge-arc"
+            pathLength={1}
+            stroke={a.color}
+            style={{ animationDelay: `${a.delay}ms` }}
+          />
+        ))}
+      </svg>
+      <div className="mc-gauge-center">
+        <div className="num">
+          <Counter to={posture} />
+          <small>/100</small>
+        </div>
+        <div className="label">posture score</div>
+      </div>
     </div>
   )
 }
