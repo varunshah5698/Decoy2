@@ -120,7 +120,7 @@ export default function AiBriefing() {
             </span>
             <strong>{(mlPortfolio.max * 100).toFixed(0)}%</strong>
             <p>
-              top 30-day exploit prior
+              top KEV-membership prior
               <span> · {mlPortfolio.elevated}/{mlPortfolio.coverage} elevated · AUC {MODEL_CARD.test.auc.toFixed(3)}</span>
             </p>
           </div>

@@ -19,7 +19,7 @@ import {
 } from '../data/seed'
 import { componentByPath } from '../app/catalog'
 import { FORMULA_VERSION, WEIGHTS } from './scoring'
-import { mlFor, mlPortfolio, MODEL_CARD } from './ml'
+import { mlFor, mlPortfolio, ML_BANDS, MODEL_CARD } from './ml'
 import { allUploadedAssets, useUploads } from './uploads'
 import type { Role } from './store'
 import type { Alert, Asset } from './types'
@@ -447,7 +447,7 @@ export function buildAnalystContext(
         low: mlPortfolio.low,
       },
       policy:
-        'XGBoost is a second opinion on 30-day exploitation likelihood, not a replacement for the six-factor score. It is trained on synthetic rows calibrated to demo feature ranges. Suppressed alerts still receive a prior for audit, but the version-relevance gate overrides the model. Bands: ELEVATED ≥35%, WATCH ≥8%, LOW below 8%.',
+        `XGBoost is a second opinion on KEV membership (observed in-the-wild exploitation), not a replacement for the six-factor score. It is fitted on live NVD, EPSS and KEV snapshots, with the KEV label excluded from the features. Suppressed alerts still receive a prior for audit, but the version-relevance gate overrides the model. Bands: ELEVATED ≥${(ML_BANDS.elevated * 100).toFixed(1)}%, WATCH ≥${(ML_BANDS.watch * 100).toFixed(1)}%, LOW below.`,
     },
     topAlerts: top.map(slimAlert),
     suppressed: suppressedAlerts.map(slimAlert),
@@ -691,7 +691,7 @@ export function localBriefing(ctx: AnalystContext): string {
   lines.push('')
   lines.push('**Model second opinion**')
   lines.push(
-    `XGBoost **${MODEL_CARD.version}** (${MODEL_CARD.rounds} trees, test AUC **${MODEL_CARD.test.auc.toFixed(3)}**) puts **${mlPortfolio.elevated} of ${mlPortfolio.coverage}** active alerts above 35% 30-day exploitation likelihood; the highest prior is **${(mlPortfolio.max * 100).toFixed(0)}%**. The deterministic score stays authoritative — the model is a cross-check, not a replacement.`,
+    `XGBoost **${MODEL_CARD.version}** (${MODEL_CARD.rounds} trees, test AUC **${MODEL_CARD.test.auc.toFixed(3)}**) puts **${mlPortfolio.elevated} of ${mlPortfolio.coverage}** active alerts above ${(ML_BANDS.elevated * 100).toFixed(1)}% KEV-membership likelihood; the highest prior is **${(mlPortfolio.max * 100).toFixed(0)}%**. The deterministic score stays authoritative — the model is a cross-check, not a replacement.`,
   )
   if (ctx.userUploads.datasetCount > 0) {
     lines.push('')

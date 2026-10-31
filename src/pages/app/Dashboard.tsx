@@ -27,8 +27,8 @@ import { useFilters, useTheme } from '../../lib/store'
 import { allUploadedAssets, useUploads } from '../../lib/uploads'
 import { cx, fmtInt, fmtScore, timeAgo } from '../../lib/format'
 import { median, spearman, stdev, mean } from '../../lib/stats'
-import { mlFor, mlPortfolio, MODEL_CARD } from '../../lib/ml'
-import { AMBER, LEVEL_COLORS, TEAL, hexA } from '../../lib/colors'
+import { mlFor, mlPortfolio, ML_BANDS, MODEL_CARD } from '../../lib/ml'
+import { AMBER, LEVEL_COLORS, SUPPRESSED, TEAL, hexA, levelColor } from '../../lib/colors'
 import type { Alert, RiskLevel } from '../../lib/types'
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -147,7 +147,7 @@ export default function Dashboard() {
         value: spearman(activeAlerts.map((a) => mlFor(a.id).probability), scores).toFixed(2),
         formula: 'Spearman ρ · XGBoost prior vs six-factor score',
         n: scores.length,
-        note: `XGBoost v${MODEL_CARD.version} · test AUC ${MODEL_CARD.test.auc.toFixed(3)} on synthetic data.`,
+        note: `XGBoost v${MODEL_CARD.version} · test AUC ${MODEL_CARD.test.auc.toFixed(3)} on live NVD/EPSS feeds.`,
       },
     ]
   }, [])
@@ -756,7 +756,9 @@ export default function Dashboard() {
           </ul>
           <div className="crit-foot">
             <span className="mono">XGBoost v{MODEL_CARD.version} second opinion</span>
-            <span className="mono">{mlPortfolio.elevated} elevated ≥35%</span>
+            <span className="mono">
+              {mlPortfolio.elevated} elevated ≥{(ML_BANDS.elevated * 100).toFixed(1)}%
+            </span>
           </div>
         </Panel>
 
@@ -876,7 +878,7 @@ export default function Dashboard() {
         <Panel
           className="col-12"
           title="Priority queue"
-          sub={`${topAlerts.length} of ${activeAlerts.length} active alerts · XGBoost flags ${mlPortfolio.elevated} at ≥35% · sorted by six-factor score`}
+          sub={`${topAlerts.length} of ${activeAlerts.length} active alerts · XGBoost flags ${mlPortfolio.elevated} at ≥${(ML_BANDS.elevated * 100).toFixed(1)}% · sorted by six-factor score`}
           action={
             <button className="panel-link" onClick={() => navigate('/app/alerts')}>
               Full queue <ArrowRight size={11} />

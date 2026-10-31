@@ -11,7 +11,7 @@ import { useTheme } from '../../lib/store'
 import { fmtPct, fmtScore } from '../../lib/format'
 import { mean, quantile, stdev } from '../../lib/stats'
 import { scoreAlert, WEIGHTS, levelFromScore, relevanceLabel } from '../../lib/scoring'
-import { mlActive, mlPortfolio, MODEL_CARD, topFeatureImportance, FEATURE_LABELS } from '../../lib/ml'
+import { mlActive, mlPortfolio, ML_BANDS, MODEL_CARD, topFeatureImportance, FEATURE_LABELS } from '../../lib/ml'
 import { LEVEL_COLORS, SUPPRESSED, TEAL, AMBER, hexA } from '../../lib/colors'
 import type { Alert, Criticality, RelevanceStatus, RiskLevel } from '../../lib/types'
 
@@ -424,7 +424,7 @@ export default function Scoring() {
         <Panel
           className="col-12"
           title="XGBoost second opinion"
-          sub={`${MODEL_CARD.dataset.rows.toLocaleString('en-US')} synthetic rows · ${MODEL_CARD.rounds} trees · exported and scored in the browser`}
+          sub={`${MODEL_CARD.dataset.rows.toLocaleString('en-US')} live rows · ${MODEL_CARD.rounds} trees · exported and scored in the browser`}
           action={<span className="badge real">trained · {MODEL_CARD.version}</span>}
           noPad
         >
@@ -437,7 +437,7 @@ export default function Scoring() {
                   { label: 'Log loss', value: MODEL_CARD.test.logloss.toFixed(3), note: 'test' },
                   { label: 'Brier', value: MODEL_CARD.test.brier.toFixed(3), note: 'calibration' },
                   { label: 'Rounds', value: String(MODEL_CARD.rounds), note: `early stop ${MODEL_CARD.params.earlyStoppingRounds}` },
-                  { label: 'Positive rate', value: `${MODEL_CARD.dataset.positiveRate.toFixed(1)}%`, note: 'synthetic label' },
+                  { label: 'Positive rate', value: `${MODEL_CARD.dataset.positiveRate.toFixed(2)}%`, note: 'KEV label' },
                 ].map((m) => (
                   <div className="ml-metric" key={m.label}>
                     <span className="mono">{m.label}</span>
@@ -493,14 +493,15 @@ export default function Scoring() {
                 ))}
               </div>
               <p className="dim ml-detail-note">
-                {MODEL_CARD.disclaimer} Bands: ELEVATED ≥ 35%, WATCH ≥ 8%, LOW below 8%. The deterministic
-                score still decides the queue; the model is a cross-check.
+                {MODEL_CARD.disclaimer} Bands: ELEVATED ≥ {(ML_BANDS.elevated * 100).toFixed(1)}%, WATCH ≥{' '}
+                {(ML_BANDS.watch * 100).toFixed(1)}%. The deterministic score still decides the queue; the model is
+                a cross-check.
               </p>
             </div>
           </div>
           <div className="table-note">
-            <span className="mono">train: python3 ml/train_xgb.py · export parity ≤ 1.5e-07 vs booster.predict</span>
-            <span className="mono">KEV × EPSS and KEV carry most gain</span>
+            <span className="mono">train: python3 ml/train_live_xgb.py · export parity ≤ 1e-05 vs booster.predict</span>
+            <span className="mono">Fitted on live NVD, EPSS and KEV · KEV label excluded</span>
           </div>
         </Panel>
 

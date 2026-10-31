@@ -1,8 +1,7 @@
 import modelJson from '../data/xgb-model.json'
 import cardJson from '../data/xgb-model-card.json'
-import { activeAlerts, alerts, DEMO_NOW } from '../data/seed'
-import { clamp } from './format'
-import type { Alert, Criticality } from './types'
+import { activeAlerts, alerts } from '../data/seed'
+import type { Alert } from './types'
 
 interface RuntimeModel {
   format: string
@@ -33,6 +32,8 @@ export interface ModelCard {
   cv: { folds: number; auc: number; logloss: number; bestIteration: number }
   test: { auc: number; logloss: number; brier: number }
   calibration: { bin: string; predicted: number; observed: number; count: number }[]
+  bands: { elevated: number; watch: number }
+  feeds?: { kevCatalog: string; epssModel: string; nvdYears: string; fetchedAt: string }
   featureImportance: FeatureImportance[]
   disclaimer: string
 }
@@ -43,43 +44,30 @@ export const MODEL_CARD: ModelCard = cardJson as ModelCard
 export const FEATURE_LABELS: Record<string, string> = {
   cvss: 'CVSS base',
   epss: 'EPSS score',
-  kev: 'KEV listed',
-  internet_facing: 'Internet-facing',
-  asset_criticality: 'Asset criticality',
-  age_days: 'Alert age (days)',
-  confidence: 'Correlation confidence',
-  version_verified: 'Version verified',
-  deterministic_score: 'Six-factor score',
-  patch_available: 'Patch available',
+  epss_percentile: 'EPSS percentile',
   epss_x_cvss: 'EPSS × CVSS',
-  kev_x_epss: 'KEV × EPSS',
-  exposure_index: 'Exposure index',
+  attack_vector_network: 'Network attack vector',
+  attack_complexity_low: 'Low attack complexity',
+  privileges_none: 'No privileges required',
+  user_interaction_none: 'No user interaction',
 }
 
-const CRIT: Record<Criticality, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 }
-const CONFIDENCE: Record<Alert['confidence'], number> = { HIGH: 1, MEDIUM: 0.65, LOW: 0.3 }
+const vectorFlag = (vector: string, flag: string) => (vector.split('/').includes(flag) ? 1 : 0)
 
 export function featureRow(alert: Alert): Record<string, number> {
   const cvss = alert.cve.cvss ?? 0
   const epss = alert.cve.epss ?? 0
-  const kev = alert.cve.kev ? 1 : 0
-  const internet = alert.asset.internetFacing ? 1 : 0
-  const criticality = CRIT[alert.asset.criticality]
-  const ageDays = clamp((DEMO_NOW.getTime() - new Date(alert.createdAt).getTime()) / 86_400_000, 0.1, 365)
+  const vector = alert.cve.vector ?? ''
+  const privileges = vectorFlag(vector, 'PR:N') || vectorFlag(vector, 'Au:N')
   return {
     cvss,
     epss,
-    kev,
-    internet_facing: internet,
-    asset_criticality: criticality,
-    age_days: ageDays,
-    confidence: CONFIDENCE[alert.confidence],
-    version_verified: alert.relevance === 'MATCHED' ? 1 : 0,
-    deterministic_score: alert.suppressed ? alert.wouldHaveScored ?? 0 : alert.score,
-    patch_available: alert.cve.fixVersion ? 1 : 0,
+    epss_percentile: alert.cve.epssPercentile ?? 0,
     epss_x_cvss: epss * cvss,
-    kev_x_epss: kev * epss,
-    exposure_index: internet * (criticality / 3),
+    attack_vector_network: vectorFlag(vector, 'AV:N'),
+    attack_complexity_low: vectorFlag(vector, 'AC:L'),
+    privileges_none: privileges,
+    user_interaction_none: vectorFlag(vector, 'UI:N'),
   }
 }
 
@@ -119,9 +107,11 @@ export function predict(alert: Alert): MlPrediction {
   return { probability, logit, band: bandFor(probability), features }
 }
 
+export const ML_BANDS = MODEL_CARD.bands
+
 export function bandFor(p: number): MlBand {
-  if (p >= 0.35) return 'ELEVATED'
-  if (p >= 0.08) return 'WATCH'
+  if (p >= ML_BANDS.elevated) return 'ELEVATED'
+  if (p >= ML_BANDS.watch) return 'WATCH'
   return 'LOW'
 }
 
@@ -141,9 +131,9 @@ const meanProbability = probabilities.reduce((s, p) => s + p, 0) / Math.max(1, p
 export const mlPortfolio = {
   mean: meanProbability,
   max: probabilities[0] ?? 0,
-  elevated: probabilities.filter((p) => p >= 0.35).length,
-  watch: probabilities.filter((p) => p >= 0.08 && p < 0.35).length,
-  low: probabilities.filter((p) => p < 0.08).length,
+  elevated: probabilities.filter((p) => p >= ML_BANDS.elevated).length,
+  watch: probabilities.filter((p) => p >= ML_BANDS.watch && p < ML_BANDS.elevated).length,
+  low: probabilities.filter((p) => p < ML_BANDS.watch).length,
   top: mlActive.slice(0, 5),
   coverage: mlActive.length,
   auc: MODEL_CARD.test.auc,
@@ -155,13 +145,10 @@ export const mlPortfolio = {
 export const topFeatureImportance = MODEL_CARD.featureImportance.slice(0, 6)
 
 export function featureValueLabel(feature: string, value: number): string {
-  if (feature === 'kev' || feature === 'internet_facing' || feature === 'version_verified') {
+  if (feature.startsWith('attack_') || feature === 'privileges_none' || feature === 'user_interaction_none') {
     return value >= 0.5 ? 'yes' : 'no'
   }
-  if (feature === 'asset_criticality') return value === 3 ? 'HIGH' : value === 2 ? 'MEDIUM' : 'LOW'
-  if (feature === 'confidence') return value >= 1 ? 'HIGH' : value >= 0.5 ? 'MEDIUM' : 'LOW'
-  if (feature === 'age_days') return `${value.toFixed(1)} d`
+  if (feature === 'epss' || feature === 'epss_percentile') return `${(value * 100).toFixed(1)}%`
   if (feature === 'cvss') return value.toFixed(1)
-  if (feature === 'patch_available') return value >= 0.5 ? 'yes' : 'no'
   return value.toFixed(2)
 }
