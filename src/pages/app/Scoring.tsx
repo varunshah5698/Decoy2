@@ -6,12 +6,12 @@ import { Waterfall } from '../../components/Waterfall'
 import { StatsPanel } from '../../components/StatsPanel'
 import { SeverityBadge } from '../../components/Badges'
 import { ChevronDown, Info, SlidersHorizontal, Sparkles } from '../../components/Icons'
-import { activeAlerts, alerts, counts } from '../../data/seed'
 import { useTheme } from '../../lib/store'
 import { fmtPct, fmtScore } from '../../lib/format'
 import { mean, quantile, stdev } from '../../lib/stats'
 import { scoreAlert, WEIGHTS, levelFromScore, relevanceLabel } from '../../lib/scoring'
-import { mlActive, mlPortfolio, ML_BANDS, MODEL_CARD, topFeatureImportance, FEATURE_LABELS } from '../../lib/ml'
+import { ML_BANDS, MODEL_CARD, topFeatureImportance, FEATURE_LABELS } from '../../lib/ml'
+import { useLiveActiveAlerts, useLiveAlerts, useLiveCounts, useLiveMl } from '../../lib/liveData'
 import { LEVEL_COLORS, SUPPRESSED, TEAL, AMBER, hexA } from '../../lib/colors'
 import type { Alert, Criticality, RelevanceStatus, RiskLevel } from '../../lib/types'
 
@@ -26,6 +26,10 @@ const WEIGHT_ROWS = [
 
 export default function Scoring() {
   const theme = useTheme((s) => s.theme)
+  const alerts = useLiveAlerts()
+  const activeAlerts = useLiveActiveAlerts()
+  const counts = useLiveCounts()
+  const liveMl = useLiveMl()
   const base = alerts[0]
   const [selectedId, setSelectedId] = useState(base.id)
   const assetAlert = alerts.find((a) => a.id === selectedId) ?? base
@@ -99,7 +103,7 @@ export default function Scoring() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, activeAlerts])
 
   const scatterOption = useMemo(() => {
     const ax = axisStyle(theme)
@@ -140,7 +144,7 @@ export default function Scoring() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, activeAlerts])
 
   const scores = activeAlerts.map((a) => a.score)
   const cvssRanked = [...activeAlerts].sort((a, b) => (b.cve.cvss ?? 0) - (a.cve.cvss ?? 0))
@@ -468,11 +472,11 @@ export default function Scoring() {
               <div className="ml-live-head">
                 <span className="mono">Live predictions · active alerts</span>
                 <span className="mono">
-                  mean {(mlPortfolio.mean * 100).toFixed(0)}% · elevated {mlPortfolio.elevated}
+                  mean {(liveMl.portfolio.mean * 100).toFixed(0)}% · elevated {liveMl.portfolio.elevated}
                 </span>
               </div>
               <div className="ml-live-list">
-                {mlActive.slice(0, 6).map(({ alert, prediction }) => (
+                {liveMl.active.slice(0, 6).map(({ alert, prediction }) => (
                   <div className="ml-live-row" key={alert.id}>
                     <div className="ml-live-id">
                       <span className="mono">{alert.cve.id}</span>

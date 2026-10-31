@@ -4,7 +4,8 @@ import { PageHeader, Panel } from '../../components/Panel'
 import { StatsPanel } from '../../components/StatsPanel'
 import { SourceBadge, SeverityBadge } from '../../components/Badges'
 import { ArrowRight, Info, Radar as RadarIcon, TrendingUp } from '../../components/Icons'
-import { cveById, epssHistory, threatDaily } from '../../data/seed'
+import { epssHistory, threatDaily } from '../../data/seed'
+import { useLiveCves } from '../../lib/liveData'
 import { useTheme } from '../../lib/store'
 import { fmtPct } from '../../lib/format'
 import { mean, spearman, trendSlope } from '../../lib/stats'
@@ -13,15 +14,19 @@ import type { RiskLevel } from '../../lib/types'
 
 export default function RadarPage() {
   const theme = useTheme((s) => s.theme)
+  const liveCves = useLiveCves()
+  const cveMap = useMemo(() => new Map(liveCves.map((c) => [c.id, c])), [liveCves])
   const [focus, setFocus] = useState<string[]>(epssHistory.map((e) => e.id))
 
-  const tracked = epssHistory.map((h) => {
-    const cve = cveById[h.id]
-    const current = h.points[h.points.length - 1].value
+  const tracked = epssHistory.flatMap((h) => {
+    const cve = cveMap.get(h.id)
+    if (!cve) return []
+    const seriesCurrent = h.points[h.points.length - 1].value
+    const current = cve.epss ?? seriesCurrent
     const weekAgo = h.points[Math.max(0, h.points.length - 8)].value
     const delta = current - weekAgo
     const slope = trendSlope(h.points.map((p) => p.value))
-    return { ...h, cve, current, weekAgo, delta, slope: slope.slope, r2: slope.r2 }
+    return [{ ...h, cve, current, weekAgo, delta, slope: slope.slope, r2: slope.r2 }]
   })
 
   const maxRise = [...tracked].sort((a, b) => b.delta - a.delta)[0]
@@ -285,7 +290,7 @@ export default function RadarPage() {
             <div className="insight-cell">
               <Info size={15} style={{ color: 'var(--simulated)' }} />
               <strong>Snapshot</strong>
-              <p>EPSS series are seeded demonstration data shaped around the real CVE records in the dataset.</p>
+              <p>History is seeded demonstration data shaped around the real CVE records; current values use the live FIRST EPSS pull when it is available.</p>
             </div>
           </div>
         </Panel>

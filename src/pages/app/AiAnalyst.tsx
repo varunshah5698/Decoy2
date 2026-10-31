@@ -15,8 +15,9 @@ import {
   Sparkles,
 } from '../../components/Icons'
 import { componentByPath } from '../../app/catalog'
-import { assets, counts, posture, sourceHealth } from '../../data/seed'
-import { mlPortfolio, MODEL_CARD } from '../../lib/ml'
+import { assets } from '../../data/seed'
+import { useLiveCounts, useLiveMl, useLivePosture, useLiveSourceHealth } from '../../lib/liveData'
+import { MODEL_CARD } from '../../lib/ml'
 import { useAiPanel } from '../../lib/aiStore'
 import { useAuth } from '../../lib/store'
 import { allUploadedAssets, useUploads } from '../../lib/uploads'
@@ -107,6 +108,11 @@ export default function AiAnalyst() {
   const resetChat = useAiPanel((s) => s.resetChat)
   const retryChat = useAiPanel((s) => s.retryChat)
   const uploadDatasets = useUploads((s) => s.datasets)
+
+  const counts = useLiveCounts()
+  const posture = useLivePosture()
+  const liveMl = useLiveMl()
+  const sourceHealth = useLiveSourceHealth()
 
   const uploadedAssets = allUploadedAssets(uploadDatasets)
 
@@ -455,7 +461,7 @@ export default function AiAnalyst() {
               </div>
               <div className="ai-page-fact">
                 <span>Sources</span>
-                <strong>{sourceHealth.length} · 1 degraded</strong>
+                <strong>{sourceHealth.length} · {sourceHealth.filter((s) => s.status === 'DEGRADED').length} degraded</strong>
               </div>
               {uploadDatasets.length > 0 && (
                 <div className="ai-page-fact">
@@ -475,8 +481,8 @@ export default function AiAnalyst() {
               </div>
             </div>
             <p className="ai-page-note">
-              Answers about the workspace use these live demo numbers. {mlPortfolio.elevated} of{' '}
-              {mlPortfolio.coverage} active alerts carry an elevated XGBoost prior; the deterministic score stays
+              Answers about the workspace use these live demo numbers. {liveMl.portfolio.elevated} of{' '}
+              {liveMl.portfolio.coverage} active alerts carry an elevated XGBoost prior; the deterministic score stays
               authoritative.
             </p>
           </div>

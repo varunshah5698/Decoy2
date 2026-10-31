@@ -115,6 +115,42 @@ export function bandFor(p: number): MlBand {
   return 'LOW'
 }
 
+export interface MlPortfolio {
+  mean: number
+  max: number
+  elevated: number
+  watch: number
+  low: number
+  top: { alert: Alert; prediction: MlPrediction }[]
+  coverage: number
+  auc: number
+  cvAuc: number
+  rounds: number
+  rows: number
+  snapshotAt: string | null
+}
+
+export function portfolioFor(
+  active: { alert: Alert; prediction: MlPrediction }[],
+): MlPortfolio {
+  const probabilities = active.map((row) => row.prediction.probability)
+  const mean = probabilities.reduce((sum, p) => sum + p, 0) / Math.max(1, probabilities.length)
+  return {
+    mean,
+    max: probabilities[0] ?? 0,
+    elevated: probabilities.filter((p) => p >= ML_BANDS.elevated).length,
+    watch: probabilities.filter((p) => p >= ML_BANDS.watch && p < ML_BANDS.elevated).length,
+    low: probabilities.filter((p) => p < ML_BANDS.watch).length,
+    top: active.slice(0, 5),
+    coverage: active.length,
+    auc: MODEL_CARD.test.auc,
+    cvAuc: MODEL_CARD.cv.auc,
+    rounds: MODEL_CARD.rounds,
+    rows: MODEL_CARD.dataset.rows,
+    snapshotAt: MODEL_CARD.feeds?.fetchedAt ?? null,
+  }
+}
+
 export const mlByAlert: Record<string, MlPrediction> = Object.fromEntries(
   alerts.map((a) => [a.id, predict(a)]),
 )

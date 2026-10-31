@@ -7,12 +7,13 @@ import { StatsPanel } from '../../components/StatsPanel'
 import { SeverityBadge, ConfidenceBadge, RelevanceBadge, SourceBadge, UploadBadge } from '../../components/Badges'
 import { EmptyState } from '../../components/EmptyState'
 import { AlertTriangle, Check, Download, Lock, Search, ShieldAlert, Sparkles, X } from '../../components/Icons'
-import { alerts, activeAlerts, DEMO_NOW, suppressedAlerts } from '../../data/seed'
+import { DEMO_NOW } from '../../data/seed'
 import { useAcks, useAuth, useFilters, useToast } from '../../lib/store'
 import { fmtDate, fmtPct, fmtScore, timeAgo } from '../../lib/format'
 import { mean } from '../../lib/stats'
 import { relevanceLabel, relevanceReason } from '../../lib/scoring'
-import { mlFor, topFeatureImportance, featureValueLabel, FEATURE_LABELS, ML_BANDS, MODEL_CARD } from '../../lib/ml'
+import { predict, topFeatureImportance, featureValueLabel, FEATURE_LABELS, ML_BANDS, MODEL_CARD } from '../../lib/ml'
+import { useLiveActiveAlerts, useLiveAlerts, useLiveSuppressedAlerts } from '../../lib/liveData'
 import type { Alert, RelevanceStatus, RiskLevel } from '../../lib/types'
 
 type RelevanceFilter = 'ALL' | RelevanceStatus
@@ -26,6 +27,10 @@ export default function Alerts() {
   const admin = session?.role === 'ADMIN'
   const acks = useAcks((s) => s.acks)
   const ack = useAcks((s) => s.ack)
+
+  const alerts = useLiveAlerts()
+  const activeAlerts = useLiveActiveAlerts()
+  const suppressedAlerts = useLiveSuppressedAlerts()
 
   const [level, setLevel] = useState<'ALL' | RiskLevel>('ALL')
   const [relevance, setRelevance] = useState<RelevanceFilter>('ALL')
@@ -57,7 +62,7 @@ export default function Alerts() {
         q ? `${a.id} ${a.cve.id} ${a.cve.title} ${a.asset.name} ${a.asset.department}`.toLowerCase().includes(q) : true,
       )
       .sort((a, b) => Number(a.suppressed) - Number(b.suppressed) || b.score - a.score)
-  }, [level, relevance, showSuppressed, kevOnly, query])
+  }, [alerts, level, relevance, showSuppressed, kevOnly, query])
 
   return (
     <div className="page">
@@ -329,7 +334,7 @@ export default function Alerts() {
 }
 
 function MlProb({ alert }: { alert: Alert }) {
-  const ml = mlFor(alert.id)
+  const ml = predict(alert)
   const pct = Math.round(ml.probability * 100)
   if (alert.suppressed) {
     return (
@@ -352,7 +357,7 @@ function MlProb({ alert }: { alert: Alert }) {
 }
 
 function MlDetail({ alert }: { alert: Alert }) {
-  const ml = mlFor(alert.id)
+  const ml = predict(alert)
   const pct = (ml.probability * 100).toFixed(1)
   return (
     <div className="ml-detail">

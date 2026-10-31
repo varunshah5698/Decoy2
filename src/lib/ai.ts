@@ -1,25 +1,26 @@
 import {
-  activeAlerts,
-  alerts,
   anomalyWindows,
   assets,
   attackProfiles,
-  counts,
-  cves,
   DEMO_NOW,
   geoPoints,
   intelItems,
   mitreTactics,
-  posture,
-  sourceHealth,
-  suppressedAlerts,
   techniques,
   trafficSeries,
   uploadedDatasets,
 } from '../data/seed'
 import { componentByPath } from '../app/catalog'
 import { FORMULA_VERSION, WEIGHTS } from './scoring'
-import { mlFor, mlPortfolio, ML_BANDS, MODEL_CARD } from './ml'
+import { predict, ML_BANDS, MODEL_CARD } from './ml'
+import {
+  currentLiveAlerts,
+  currentLiveCounts,
+  currentLiveCves,
+  currentLiveMl,
+  currentLivePosture,
+  currentLiveSourceHealth,
+} from './liveData'
 import { allUploadedAssets, useUploads } from './uploads'
 import type { Role } from './store'
 import type { Alert, Asset } from './types'
@@ -148,7 +149,7 @@ export interface AnalystContext {
 const hours = (iso: string) => Math.max(0, Math.round((DEMO_NOW.getTime() - new Date(iso).getTime()) / 3_600_000))
 
 function slimAlert(a: Alert) {
-  const ml = mlFor(a.id)
+  const ml = predict(a)
   return {
     id: a.id,
     score: a.score,
@@ -200,8 +201,7 @@ function slimAsset(a: Asset) {
 
 const truncate = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
-function buildPatchPlan() {
-  const currentPosture = posture
+function buildPatchPlan(activeAlerts: Alert[], currentPosture: number) {
   const groups = new Map<string, Alert[]>()
   for (const alert of activeAlerts) {
     const list = groups.get(alert.asset.id) ?? []
@@ -240,9 +240,16 @@ export function buildAnalystContext(
   const uploadDatasets = useUploads.getState().datasets
   const uploadedAssets = allUploadedAssets(uploadDatasets)
   const mergedAssets = [...uploadedAssets, ...assets]
-  const sorted = [...activeAlerts].sort((a, b) => b.score - a.score)
+  const liveAlerts = currentLiveAlerts()
+  const liveActive = liveAlerts.filter((alert) => !alert.suppressed)
+  const liveSuppressed = liveAlerts.filter((alert) => alert.suppressed)
+  const liveCves = currentLiveCves()
+  const liveCounts = currentLiveCounts()
+  const liveMl = currentLiveMl(liveAlerts)
+  const livePosture = currentLivePosture()
+  const sorted = [...liveActive].sort((a, b) => b.score - a.score)
   const top = sorted.slice(0, 8)
-  const patchPlan = buildPatchPlan()
+  const patchPlan = buildPatchPlan(liveActive, livePosture)
   const flagged = anomalyWindows.filter((w) => w.anomaly)
 
   const byType: Record<string, number> = {}
@@ -254,13 +261,13 @@ export function buildAnalystContext(
   const verifiedAssets = mergedAssets.filter((a) => a.software.every((s) => s.version && s.version !== 'unknown')).length
 
   const pageData: Record<string, unknown> = {}
-  if (component.id === 2) pageData.alerts = alerts.map(slimAlert)
+  if (component.id === 2) pageData.alerts = liveAlerts.map(slimAlert)
   if (component.id === 3) {
     pageData.weights = WEIGHTS
     pageData.formulaVersion = FORMULA_VERSION
     pageData.thresholds = { critical: 85, high: 65, medium: 40, low: 0 }
     pageData.workedExample = slimAlert(sorted[0])
-    pageData.suppressionExample = suppressedAlerts[0] ? slimAlert(suppressedAlerts[0]) : null
+    pageData.suppressionExample = liveSuppressed[0] ? slimAlert(liveSuppressed[0]) : null
     pageData.mlModelCard = {
       version: MODEL_CARD.version,
       target: MODEL_CARD.target,
@@ -272,7 +279,7 @@ export function buildAnalystContext(
       brier: MODEL_CARD.test.brier,
       topFeatures: MODEL_CARD.featureImportance.slice(0, 6),
     }
-    pageData.mlTopAlerts = mlPortfolio.top.map((row) => ({
+    pageData.mlTopAlerts = liveMl.portfolio.top.map((row) => ({
       alert: row.alert.cve.id,
       asset: row.alert.asset.name,
       probability: Math.round(row.prediction.probability * 1000) / 1000,
@@ -280,7 +287,7 @@ export function buildAnalystContext(
     }))
   }
   if (component.id === 4) {
-    pageData.edges = alerts.map((a) => ({
+    pageData.edges = liveAlerts.map((a) => ({
       cve: a.cve.id,
       asset: a.asset.name,
       relevance: a.relevance,
@@ -301,7 +308,7 @@ export function buildAnalystContext(
   }
   if (component.id === 6) pageData.assets = mergedAssets.slice(0, 80).map(slimAsset)
   if (component.id === 7) {
-    pageData.cves = cves.map((c) => ({
+    pageData.cves = liveCves.map((c) => ({
       id: c.id,
       title: c.title,
       cvss: c.cvss,
@@ -401,19 +408,19 @@ export function buildAnalystContext(
     },
     asOf: DEMO_NOW.toISOString(),
     organisation: {
-      postureScore: posture,
+      postureScore: livePosture,
       postureDefinition:
         'Posture score is 0-100 and higher is better. Computed as clamp(100 - 15 × CRITICAL alerts - 6 × HIGH alerts, 0, 100). Patching an asset raises the score.',
-      activeAlerts: counts.active,
-      critical: counts.critical,
-      high: counts.high,
-      medium: counts.medium,
-      low: counts.low,
-      suppressed: counts.suppressed,
-      totalCandidates: counts.total,
-      kevLinked: activeAlerts.filter((a) => a.cve.kev).length,
-      internetFacingAlerting: activeAlerts.filter((a) => a.asset.internetFacing).length,
-      versionUnknown: activeAlerts.filter((a) => a.relevance === 'VERSION_UNKNOWN').length,
+      activeAlerts: liveCounts.active,
+      critical: liveCounts.critical,
+      high: liveCounts.high,
+      medium: liveCounts.medium,
+      low: liveCounts.low,
+      suppressed: liveCounts.suppressed,
+      totalCandidates: liveCounts.total,
+      kevLinked: liveActive.filter((a) => a.cve.kev).length,
+      internetFacingAlerting: liveActive.filter((a) => a.asset.internetFacing).length,
+      versionUnknown: liveActive.filter((a) => a.relevance === 'VERSION_UNKNOWN').length,
       inventoryCoverage: `${mergedAssets.length} assets${uploadedAssets.length ? ` (${uploadedAssets.length} from user uploads)` : ''}, version-aware on ${verifiedAssets} of ${mergedAssets.length}`,
       assets: mergedAssets.length,
       departments: [...new Set(mergedAssets.map((a) => a.department))],
@@ -439,20 +446,20 @@ export function buildAnalystContext(
       brier: MODEL_CARD.test.brier,
       topFeatures: MODEL_CARD.featureImportance.slice(0, 6),
       portfolio: {
-        coverage: mlPortfolio.coverage,
-        meanProbability: Math.round(mlPortfolio.mean * 1000) / 1000,
-        maxProbability: Math.round(mlPortfolio.max * 1000) / 1000,
-        elevated: mlPortfolio.elevated,
-        watch: mlPortfolio.watch,
-        low: mlPortfolio.low,
+        coverage: liveMl.portfolio.coverage,
+        meanProbability: Math.round(liveMl.portfolio.mean * 1000) / 1000,
+        maxProbability: Math.round(liveMl.portfolio.max * 1000) / 1000,
+        elevated: liveMl.portfolio.elevated,
+        watch: liveMl.portfolio.watch,
+        low: liveMl.portfolio.low,
       },
       policy:
         `XGBoost is a second opinion on KEV membership (observed in-the-wild exploitation), not a replacement for the six-factor score. It is fitted on live NVD, EPSS and KEV snapshots, with the KEV label excluded from the features. Suppressed alerts still receive a prior for audit, but the version-relevance gate overrides the model. Bands: ELEVATED ≥${(ML_BANDS.elevated * 100).toFixed(1)}%, WATCH ≥${(ML_BANDS.watch * 100).toFixed(1)}%, LOW below.`,
     },
     topAlerts: top.map(slimAlert),
-    suppressed: suppressedAlerts.map(slimAlert),
+    suppressed: liveSuppressed.map(slimAlert),
     patchPlan,
-    sources: sourceHealth.map((s) => ({
+    sources: currentLiveSourceHealth().map((s) => ({
       source: s.source,
       status: s.status,
       kind: s.kind,
@@ -691,7 +698,7 @@ export function localBriefing(ctx: AnalystContext): string {
   lines.push('')
   lines.push('**Model second opinion**')
   lines.push(
-    `XGBoost **${MODEL_CARD.version}** (${MODEL_CARD.rounds} trees, test AUC **${MODEL_CARD.test.auc.toFixed(3)}**) puts **${mlPortfolio.elevated} of ${mlPortfolio.coverage}** active alerts above ${(ML_BANDS.elevated * 100).toFixed(1)}% KEV-membership likelihood; the highest prior is **${(mlPortfolio.max * 100).toFixed(0)}%**. The deterministic score stays authoritative — the model is a cross-check, not a replacement.`,
+    `XGBoost **${MODEL_CARD.version}** (${MODEL_CARD.rounds} trees, test AUC **${MODEL_CARD.test.auc.toFixed(3)}**) puts **${ctx.machineLearning.portfolio.elevated} of ${ctx.machineLearning.portfolio.coverage}** active alerts above ${(ML_BANDS.elevated * 100).toFixed(1)}% KEV-membership likelihood; the highest prior is **${(ctx.machineLearning.portfolio.maxProbability * 100).toFixed(0)}%**. The deterministic score stays authoritative — the model is a cross-check, not a replacement.`,
   )
   if (ctx.userUploads.datasetCount > 0) {
     lines.push('')

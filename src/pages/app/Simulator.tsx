@@ -5,7 +5,8 @@ import { RadialGauge } from '../../components/RadialGauge'
 import { StatsPanel } from '../../components/StatsPanel'
 import { SeverityBadge, SimulatedBadge } from '../../components/Badges'
 import { FlaskConical, RefreshCw, ShieldCheck, Sparkles } from '../../components/Icons'
-import { activeAlerts, alerts, assets, DEMO_NOW, posture } from '../../data/seed'
+import { assets, DEMO_NOW } from '../../data/seed'
+import { useLiveActiveAlerts, useLivePosture } from '../../lib/liveData'
 import { useTheme } from '../../lib/store'
 import { fmtScore } from '../../lib/format'
 import { mean } from '../../lib/stats'
@@ -15,13 +16,14 @@ import type { Criticality } from '../../lib/types'
 
 export default function Simulator() {
   const theme = useTheme((s) => s.theme)
+  const activeAlerts = useLiveActiveAlerts()
+  const posture = useLivePosture()
   const [assetId, setAssetId] = useState('AST-HR-01')
   const [patched, setPatched] = useState(false)
   const [exposed, setExposed] = useState<boolean | null>(null)
   const [criticality, setCriticality] = useState<Criticality | 'baseline'>('baseline')
 
   const asset = assets.find((a) => a.id === assetId) ?? assets[0]
-  const baseline = alerts.filter((a) => a.asset.id === asset.id)
   const beforeExposed = asset.internetFacing
   const beforeCrit = asset.criticality
   const effectiveExposed = exposed ?? beforeExposed
@@ -56,7 +58,7 @@ export default function Simulator() {
           wouldHave: next.wouldHaveScored,
         }
       }),
-    [asset.id, patched, effectiveExposed, effectiveCrit],
+    [asset.id, patched, effectiveExposed, effectiveCrit, activeAlerts],
   )
 
   const afterCounts = {

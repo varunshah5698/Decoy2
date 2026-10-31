@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { buildAnalystContext, localBriefing, streamAnalyst, type ChatMessage } from './ai'
 import { localChatReply, type ChatView } from './chat'
-import { counts, posture } from '../data/seed'
+import { currentLiveCounts, currentLivePosture } from './liveData'
 import { useAuth } from './store'
 import { useUploads } from './uploads'
 
@@ -36,8 +36,10 @@ let activeBriefing: AbortController | null = null
 let chatController: AbortController | null = null
 let queuedChat: { text: string; view: ChatView } | null = null
 
-const briefingKey = (pathname: string) =>
-  `briefing:${pathname}:${posture}:${counts.active}:${counts.critical}:${useUploads.getState().datasets.length}`
+const briefingKey = (pathname: string) => {
+  const counts = currentLiveCounts()
+  return `briefing:${pathname}:${currentLivePosture()}:${counts.active}:${counts.critical}:${useUploads.getState().datasets.length}`
+}
 
 const withoutEmptyTail = (messages: ChatMessage[]) => {
   const next = messages.slice()

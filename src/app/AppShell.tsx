@@ -12,7 +12,8 @@ import {
   Search,
   ShieldCheck,
 } from '../components/Icons'
-import { componentCatalog, counts, DEMO_NOW } from '../data/seed'
+import { componentCatalog, DEMO_NOW } from '../data/seed'
+import { useLiveCounts } from '../lib/liveData'
 import { useAuth, useFilters, useTheme, useToast } from '../lib/store'
 import { useAiPanel } from '../lib/aiStore'
 import { allUploadedAssets, useUploads } from '../lib/uploads'
@@ -32,6 +33,7 @@ export default function AppShell() {
   const query = useFilters((s) => s.query)
   const setQuery = useFilters((s) => s.setQuery)
   const showToast = useToast((s) => s.show)
+  const counts = useLiveCounts()
   const aiStreaming = useAiPanel((s) => s.streaming)
   const uploadDatasets = useUploads((s) => s.datasets)
   const inventoryCount = 16 + allUploadedAssets(uploadDatasets).length

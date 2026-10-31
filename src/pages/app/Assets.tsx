@@ -24,7 +24,8 @@ import {
   SlidersHorizontal,
   Upload,
 } from '../../components/Icons'
-import { activeAlerts, alerts, assets as seedAssets, DEMO_NOW, suppressedAlerts } from '../../data/seed'
+import { assets as seedAssets, DEMO_NOW } from '../../data/seed'
+import { useLiveActiveAlerts, useLiveAlerts, useLiveSuppressedAlerts } from '../../lib/liveData'
 import { useAuth, useFilters, useTheme } from '../../lib/store'
 import { allUploadedAssets, useUploads } from '../../lib/uploads'
 import { fmtScore, timeAgo } from '../../lib/format'
@@ -75,7 +76,7 @@ const LENS_LABEL: Record<Lens, string> = {
 
 /* ---------- helpers ---------- */
 
-const alertsFor = (assetId: string) => activeAlerts.filter((a) => a.asset.id === assetId)
+const alertsFor = (list: Alert[], assetId: string) => list.filter((a) => a.asset.id === assetId)
 
 const topScore = (list: Alert[]) => Math.max(0, ...list.map((a) => a.score))
 
@@ -174,6 +175,8 @@ function MiniStat({
 /* ---------- page ---------- */
 
 export default function Assets() {
+  const activeAlerts = useLiveActiveAlerts()
+  const suppressedAlerts = useLiveSuppressedAlerts()
   const navigate = useNavigate()
   const session = useAuth((s) => s.session)
   const theme = useTheme((s) => s.theme)
@@ -193,7 +196,7 @@ export default function Assets() {
   const enriched = useMemo(
     () =>
       inventory.map((asset) => {
-        const list = alertsFor(asset.id)
+        const list = alertsFor(activeAlerts, asset.id)
         return {
           asset,
           alerts: list,
@@ -202,7 +205,7 @@ export default function Assets() {
           versioned: asset.software.every((s) => s.version !== 'unknown'),
         }
       }),
-    [inventory],
+    [inventory, activeAlerts],
   )
 
   const filtered = useMemo(() => {
@@ -260,7 +263,7 @@ export default function Assets() {
     if (lens === 'UNKNOWN') return activeAlerts.filter((a) => a.relevance === 'VERSION_UNKNOWN')
     if (lens === 'SUPPRESSED') return suppressedAlerts
     return activeAlerts
-  }, [lens])
+  }, [lens, activeAlerts, suppressedAlerts])
 
   const daily = useMemo(() => {
     return Array.from({ length: 8 }, (_, i) => {
@@ -1022,6 +1025,7 @@ export default function Assets() {
 /* ---------- drawer ---------- */
 
 function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) {
+  const alerts = useLiveAlerts()
   const list = alerts.filter((a) => a.asset.id === asset.id)
   const active = list.filter((a) => !a.suppressed)
   return (

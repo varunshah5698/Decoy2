@@ -13,21 +13,24 @@ import { AttackChain } from '../../components/AttackChain'
 import { AlertTriangle, ArrowRight, Bug, ExternalLink, Globe2, ShieldAlert, ShieldCheck, Zap } from '../../components/Icons'
 import {
   activityHeatmap,
-  activeAlerts,
   alertDaily,
-  alerts,
   assets as seedAssets,
-  counts,
   DEMO_NOW,
-  posture,
-  suppressedAlerts,
   threatDaily,
 } from '../../data/seed'
+import {
+  useLiveActiveAlerts,
+  useLiveAlerts,
+  useLiveCounts,
+  useLiveMl,
+  useLivePosture,
+  useLiveSuppressedAlerts,
+} from '../../lib/liveData'
 import { useFilters, useTheme } from '../../lib/store'
 import { allUploadedAssets, useUploads } from '../../lib/uploads'
 import { cx, fmtInt, fmtScore, timeAgo } from '../../lib/format'
 import { median, spearman, stdev, mean } from '../../lib/stats'
-import { mlFor, mlPortfolio, ML_BANDS, MODEL_CARD } from '../../lib/ml'
+import { predict, ML_BANDS, MODEL_CARD } from '../../lib/ml'
 import { AMBER, LEVEL_COLORS, SUPPRESSED, TEAL, hexA, levelColor } from '../../lib/colors'
 import type { Alert, RiskLevel } from '../../lib/types'
 
@@ -39,6 +42,13 @@ export default function Dashboard() {
   const theme = useTheme((s) => s.theme)
   const query = useFilters((s) => s.query)
   const severity = useFilters((s) => s.severity)
+
+  const alerts = useLiveAlerts()
+  const activeAlerts = useLiveActiveAlerts()
+  const suppressedAlerts = useLiveSuppressedAlerts()
+  const counts = useLiveCounts()
+  const posture = useLivePosture()
+  const liveMl = useLiveMl()
 
   const uploadDatasets = useUploads((s) => s.datasets)
   const uploadedAssets = useMemo(() => allUploadedAssets(uploadDatasets), [uploadDatasets])
@@ -67,7 +77,7 @@ export default function Dashboard() {
       .slice()
       .sort((a, b) => b.score - a.score)
       .slice(0, 6)
-  }, [query, severity])
+  }, [query, severity, activeAlerts])
 
   const topCritical = useMemo(
     () =>
@@ -76,7 +86,7 @@ export default function Dashboard() {
         .slice()
         .sort((a, b) => b.score - a.score)
         .slice(0, 5),
-    [],
+    [activeAlerts],
   )
 
   const funnelStages = useMemo(
@@ -87,7 +97,7 @@ export default function Dashboard() {
       { name: 'High/Crit', value: counts.high + counts.critical, color: LEVEL_COLORS.HIGH, note: 'High and critical after six-factor scoring' },
       { name: 'Critical', value: counts.critical, color: LEVEL_COLORS.CRITICAL, note: 'Patch this window · KEV floor applied' },
     ],
-    [],
+    [counts],
   )
 
   const peakActivity = useMemo(() => {
@@ -144,13 +154,13 @@ export default function Dashboard() {
       },
       {
         name: 'Model ↔ score agreement',
-        value: spearman(activeAlerts.map((a) => mlFor(a.id).probability), scores).toFixed(2),
+        value: spearman(activeAlerts.map((a) => predict(a).probability), scores).toFixed(2),
         formula: 'Spearman ρ · XGBoost prior vs six-factor score',
         n: scores.length,
         note: `XGBoost v${MODEL_CARD.version} · test AUC ${MODEL_CARD.test.auc.toFixed(3)} on live NVD/EPSS feeds.`,
       },
     ]
-  }, [])
+  }, [activeAlerts, suppressedAlerts, alerts])
 
   const threatOption = useMemo(() => {
     const ax = axisStyle(theme, { split: true })
@@ -757,7 +767,7 @@ export default function Dashboard() {
           <div className="crit-foot">
             <span className="mono">XGBoost v{MODEL_CARD.version} second opinion</span>
             <span className="mono">
-              {mlPortfolio.elevated} elevated ≥{(ML_BANDS.elevated * 100).toFixed(1)}%
+              {liveMl.portfolio.elevated} elevated ≥{(ML_BANDS.elevated * 100).toFixed(1)}%
             </span>
           </div>
         </Panel>
@@ -878,7 +888,7 @@ export default function Dashboard() {
         <Panel
           className="col-12"
           title="Priority queue"
-          sub={`${topAlerts.length} of ${activeAlerts.length} active alerts · XGBoost flags ${mlPortfolio.elevated} at ≥${(ML_BANDS.elevated * 100).toFixed(1)}% · sorted by six-factor score`}
+          sub={`${topAlerts.length} of ${activeAlerts.length} active alerts · XGBoost flags ${liveMl.portfolio.elevated} at ≥${(ML_BANDS.elevated * 100).toFixed(1)}% · sorted by six-factor score`}
           action={
             <button className="panel-link" onClick={() => navigate('/app/alerts')}>
               Full queue <ArrowRight size={11} />
@@ -1074,7 +1084,7 @@ function FactorLine({ label, value, total, tone }: { label: string; value: numbe
 }
 
 function MlCell({ alert }: { alert: Alert }) {
-  const { probability, band } = mlFor(alert.id)
+  const { probability, band } = predict(alert)
   return (
     <div className={`ml-cell ${band.toLowerCase()}${alert.suppressed ? ' gated' : ''}`}>
       <span className="mono ml-cell-value">{(probability * 100).toFixed(0)}%</span>

@@ -15,12 +15,13 @@ import {
   ShieldCheck,
   X,
 } from '../../components/Icons'
-import { activeAlerts, alerts, DEMO_NOW } from '../../data/seed'
+import { DEMO_NOW } from '../../data/seed'
 import { useFilters } from '../../lib/store'
 import { cx, fmtDate, fmtDateTime, fmtPct, fmtScore, timeAgo } from '../../lib/format'
 import { median, quantile } from '../../lib/stats'
 import { LEVEL_COLORS } from '../../lib/colors'
 import { latestLiveFetch, useLiveCves, useLiveFeeds } from '../../lib/liveFeeds'
+import { useLiveActiveAlerts, useLiveAlerts } from '../../lib/liveData'
 import { CveOrbit, CveSpectrum, cvssBin } from './cve/CveVisuals'
 import type { Alert, Cve } from '../../lib/types'
 import './cves.css'
@@ -51,12 +52,13 @@ const BAND_LABEL: Record<Band, string> = {
   LOW: 'Low',
 }
 
-const ALERTS_BY_CVE = alerts.reduce<Map<string, Alert[]>>((map, alert) => {
-  const list = map.get(alert.cve.id)
-  if (list) list.push(alert)
-  else map.set(alert.cve.id, [alert])
-  return map
-}, new Map())
+const alertsByCve = (list: Alert[]) =>
+  list.reduce<Map<string, Alert[]>>((map, alert) => {
+    const related = map.get(alert.cve.id)
+    if (related) related.push(alert)
+    else map.set(alert.cve.id, [alert])
+    return map
+  }, new Map())
 
 type Exposure = {
   key: 'matched' | 'unverified' | 'reviewed' | 'none'
@@ -65,8 +67,8 @@ type Exposure = {
   detail: string
 }
 
-function exposureFor(cve: Cve): Exposure {
-  const related = ALERTS_BY_CVE.get(cve.id) ?? []
+function exposureFor(cve: Cve, map: Map<string, Alert[]>): Exposure {
+  const related = map.get(cve.id) ?? []
   const live = related.filter((alert) => !alert.suppressed)
   const matched = live.filter((alert) => alert.relevance === 'MATCHED')
   if (matched.length > 0) {
@@ -135,6 +137,9 @@ export default function Cves() {
   const [sort, setSort] = useState<SortKey>('cvss')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const liveCves = useLiveCves()
+  const alerts = useLiveAlerts()
+  const activeAlerts = useLiveActiveAlerts()
+  const byCve = useMemo(() => alertsByCve(alerts), [alerts])
   const syncing = useLiveFeeds((s) => s.syncing)
   const phase = useLiveFeeds((s) => s.phase)
   const liveMeta = useLiveFeeds((s) => s.meta)
@@ -158,7 +163,7 @@ export default function Cves() {
         q ? `${c.id} ${c.title} ${c.vendor} ${c.product} ${c.cwe.join(' ')}`.toLowerCase().includes(q) : true,
       )
       .map((c) => {
-        const exposure = exposureFor(c)
+        const exposure = exposureFor(c, byCve)
         return { cve: c, exposure, risk: primaryRisk(c, exposure) }
       })
       .sort((a, b) => {
@@ -170,7 +175,7 @@ export default function Cves() {
         }
         return (b.cve.cvss ?? 0) - (a.cve.cvss ?? 0) || (b.cve.epss ?? 0) - (a.cve.epss ?? 0)
       })
-  }, [chartEntries, bin, query, sort])
+  }, [chartEntries, bin, query, sort, byCve])
 
   const kevCount = liveCves.filter((c) => c.kev).length
   const medianEpss = median(liveCves.map((c) => c.epss ?? 0))
@@ -584,9 +589,10 @@ export default function Cves() {
 }
 
 function CveDetail({ cve, onClose }: { cve: Cve; onClose: () => void }) {
+  const alerts = useLiveAlerts()
   const related = alerts.filter((a) => a.cve.id === cve.id)
   const patch = useLiveFeeds((s) => s.patches[cve.id])
-  const exposure = exposureFor(cve)
+  const exposure = exposureFor(cve, alertsByCve(alerts))
   const risk = primaryRisk(cve, exposure)
   const liveRows = [
     {
