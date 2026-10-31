@@ -4,7 +4,7 @@ The landing page is its own committed visual world. The console and access pages
 
 ## World
 
-**Black-site operations room.** A version gate is staged as a physical event: hostile traffic crosses the room, strikes a shielded server monolith, and almost everything is filtered. A rare matched exploit breaks through in amber and lights the exact rack unit. The page reads as night-shift telemetry, not a SaaS landing page.
+**Editorial, not dashboard.** The page is built as a sequence of full-bleed fields — a warm pinstriped lilac gradient, a black spotlight stage, a petrol starfield, a pure-black numbers spread, a paper-white console index, and a lilac return — each handing off to the next through a converging hairline funnel. Threat filtering is staged as a physical event: a lamp lights a rack in the dark and a CVSS 9.8 counts itself down to 0.0 because the product is not installed on that host.
 
 Mode: **Persuade.** Audience: security leads and analysts evaluating the demo. Action: open the console.
 
@@ -12,54 +12,57 @@ Mode: **Persuade.** Audience: security leads and analysts evaluating the demo. A
 
 | Token | Value | Use |
 |---|---|---|
-| `--ink` | `#040607` | Landing field |
-| `--ink-2` / `--ink-3` | `#070a0b` / `#0a0e10` | Panels, nested surfaces |
-| `--bone` | `#e9e7de` | Primary text |
-| `--dim` | `#a8ada7` | Body copy |
-| `--mute` | `#8b928d` | Metadata |
-| `--teal` | `#53e3cb` | Shield, telemetry, filtered traffic |
-| `--amber` | `#f0a94a` | Matched danger, primary CTA, breach |
-| `--red` | `#ff5b4d` | Hostile origin and attack packets only |
+| `--paper` / `--paper-2` | `#f4f2ee` / `#e8e4dc` | Light fields, plate surfaces |
+| `--ink` / `--ink-soft` / `--ink-mute` | `#0c0d10` / `#4b4f56` / `#8a8f96` | Text on light fields |
+| `--night` / `--night-2` | `#08090c` / `#0e1014` | Dark bands, footer |
+| `--bone` / `--dim` / `--mute` | `#ece9e1` and alphas | Text on dark bands |
+| `--lilac-a/b/c` | `#c9b6f0` `#ece8fb` `#b3a2e4` | Hero and access gradient |
+| `--flame-a/b/c` | `#f0873c` `#f8cf9c` `#e2662b` | Slow amber cross-fade of the same gradient |
+| `--teal` | `#53e3cb` | Filtered traffic, card marks, queue language |
+| `--amber` | `#f0a94a` | Matched danger, focus ring, plate accents |
 
-Hairlines use bone at 5.5–10% alpha. No glassmorphism, no gradient text, no colored card shadows, no purple.
+Hairlines are bone at 9% on dark and ink at 10% on light. Gradient is reserved for the two ambient fields; headline text is never gradient-filled. The lilac here is a deliberate exception to the console's no-purple rule and does not travel into `/app`.
 
 ## Typography
 
-- **Display:** Archivo Variable, tight tracking (`-0.038em`), weights 560–640. The h1 and section h2s set the scale using `clamp`.
-- **Accent:** Instrument Serif italic for the second clause of every headline, in amber where it carries the argument.
-- **Data / UI:** JetBrains Mono Variable, uppercase, 8–11px, wide tracking, for ledgers, labels, terminals, and scores.
-- Body copy stays Inter at 15–17px with 1.65 line height.
+- **Display:** Instrument Serif at 400, `clamp`-scaled, with italic for the carried clause of every headline — "Filtering *Noise* *Threat* Early Warning", "Our *Vulnerability* Detection Services".
+- **Body:** Inter Variable at 12.8–17px, 1.55–1.72 line height.
+- **Metadata:** JetBrains Mono, uppercase, 10–11px, wide tracking, for indices, emails, data sources, and the footer register.
 
-Headline voice: two-clause declaratives. "The internet is loud. Your breach is specific." "The score keeps no secrets." No eyebrows, no badge pills.
+Headline voice stays two-clause and declarative. Numbers are always the real seeded ones, never invented.
 
 ## Layout
 
-- One 1320px content measure; edge token aligns fixed HUD, nav, and ledger to the same vertical line.
-- The hero is `100svh`: full-bleed attack scene, bottom-left copy, bottom-right incident terminal, a four-column telemetry ledger on the hero floor.
-- Section rhythm is asymmetric split columns (copy left, proof right) separated by 1px rules rather than cards. The console index is a 17-row two-column register; the roles section is a two-register spread.
-- Mobile collapses to one column at 390px with the ledger at 2×2 and the terminal hidden, keeping the scene and copy.
+- One 1320px measure; `--edge` aligns the fixed nav, every section, and both funnel bands to the same vertical line.
+- Fixed chrome is three floating pills — brand, centred links, light CTA — so the nav reads on both the lilac and the petrol worlds.
+- Section order: hero → gate stage → funnel → about spread → services starfield → numbers → funnel → console index → access → footer.
+- Capability cards staircase right by 17% per row on a translucent petrol panel; console tiles stagger vertically instead of gridding.
+- Breakpoints at 1180, 780 and 460. Below 780 the ambient glyph field and the about scribble drop out, the gate readout moves left and gets its own darkened field for legibility, and below 460 the nav links collapse to logo plus CTA.
 
-## The attack scene
+## The gate scene
 
-`src/scenes/ServerAttackScene.tsx` is a real-time Canvas 2D pseudo-3D scene, not an image or video.
+`src/scenes/GateScene.tsx` is a real-time Canvas 2D pseudo-3D composition, not an image or video.
 
-- Perspective projection with a fixed rack, two distant racks, floor grid, scan line, and dust.
-- Red hostile origins (screen-anchored, labelled with IPs and intent) fire dotted attack arcs and spurts of packets. Most packets are filtered at the teal shield; matched packets pass through, flash amber, spark, and light a rack unit.
-- Camera responds subtly to pointer and scroll; audio never plays.
-- The scene is canvas-only: no DOM HUD overlays the hero.
-- `prefers-reduced-motion` renders a single static composition; the DOM never animates.
+- Warm bloom, a volumetric cone from the lamp to the rack, rack silhouette with teal slot lines and amber LEDs, drifting packets (amber = match, teal = filtered), dust in the beam, vignette.
+- Scroll progress through the section drives the camera and counts the CVSS of CVE-2023-23397 from 9.8 to 0.0 in the DOM readout; pointer position eases the beam.
+- `prefers-reduced-motion` draws one static frame at the filtered end state and pins the counter at `0.0`.
+
+## Artwork
+
+`src/pages/LandingArt.tsx` carries the still-life plates — bell, rack, gauge, terminal, console, shield — as engraved SVG on a grain-textured plate, plus the about scribble and the line-art glyphs that sit inside each capability card. Photography is not used; the image generator was unavailable during this build.
 
 ## Interaction & accessibility
 
-- All interactive elements are real buttons/links; focus uses a 2px amber ring on the dark field.
-- Demo paths: **Open demo** signs in the analyst and opens `/app`; role rows sign in admin or analyst; console index rows route to `/login?next=…` when signed out.
-- Landing scrolls smoothly to anchors; nav gets a hairline and blur after 24px.
-- Text contrast: bone on ink > 15:1, dim > 8:1; micro labels are metadata and never the only carrier of an action.
-- Tested at 390, 1024, 1440, and 1600 widths, plus reduced motion. No horizontal overflow.
+- All interactive elements are real buttons/links; focus uses a 2px amber ring with offset.
+- Demo paths are unchanged: **Open demo** signs in the analyst and opens `/app`; role cards sign in as admin or analyst; console and capability rows route to `/login?next=…` when signed out.
+- Reveals run once per element through IntersectionObserver and never replay on scroll-up.
+- Text contrast: ink on paper and bone on night both exceed 12:1; micro labels are metadata and never the only carrier of an action.
+- Verified at 390, 1024 and 1440 widths plus reduced motion; `overflow-x: clip` on the root, no horizontal overflow.
 
 ## Files
 
-- `src/pages/Landing.tsx` — page, data composition, demo routing
-- `src/pages/Landing.css` — scoped `.lp` world and `.sa-*` scene HUD
-- `src/scenes/ServerAttackScene.tsx` — Canvas attack scene
+- `src/pages/Landing.tsx` — page, seeded data composition, demo routing
+- `src/pages/Landing.css` — the scoped `.lp` world
+- `src/pages/LandingArt.tsx` — SVG plates, scribble, glyphs
+- `src/scenes/GateScene.tsx` — Canvas gate scene
 - `PRODUCT.md` — product truth and surface map

@@ -20,7 +20,7 @@ const matchNodes: MatchNode[] = [
   { assetId: 'AST-HR-01', cveId: 'CVE-2021-44228', product: 'Log4j', version: '2.14.1', fix: '2.17.1' },
   { assetId: 'AST-FIN-04', cveId: 'CVE-2023-34362', product: 'MOVEit', version: '2023.0.1', fix: '2023.0.3' },
   { assetId: 'AST-ENG-09', cveId: 'CVE-2023-44487', product: 'nginx', version: '1.25.2', fix: '1.25.5' },
-  { assetId: 'AST-FIN-02', cveId: 'CVE-2023-20863', product: 'Spring', version: '5.3.17', fix: '5.3.27' },
+  { assetId: 'AST-FIN-02', cveId: 'CVE-2023-20862', product: 'Spring', version: '5.3.17', fix: '5.3.27' },
 ].map((node) => {
   const asset = assetById[node.assetId]
   const alert = alerts.find((a) => a.cve.id === node.cveId && a.relevance === 'MATCHED')
