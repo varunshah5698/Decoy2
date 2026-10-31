@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, useScroll, useSpring, useTransform } from 'framer-motion'
 import { Ambient } from '../components/Ambient'
@@ -47,7 +47,6 @@ export default function Landing() {
   const { theme, toggle } = useTheme()
   const { session, signIn } = useAuth()
   const [scrolled, setScrolled] = useState(false)
-  const [correlated, setCorrelated] = useState(counts.cves)
   const threadRef = useRef<HTMLDivElement>(null)
   const { scrollYProgress } = useScroll({
     target: threadRef,
@@ -56,7 +55,6 @@ export default function Landing() {
   const progress = useSpring(scrollYProgress, { stiffness: 90, damping: 24, mass: 0.4 })
   const lineWidth = useTransform(progress, [0, 1], ['0%', '100%'])
   const sparkLeft = useTransform(progress, [0, 1], ['0%', '100%'])
-  const onCorrelate = useCallback(() => setCorrelated((c) => c + 1), [])
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24)
@@ -123,7 +121,7 @@ export default function Landing() {
       </nav>
 
       <header className="hero" id="top">
-        <HeroScene onCorrelate={onCorrelate} />
+        <HeroScene />
         <div className="hero-scrim" />
         <div className="hero-vignette" />
 
@@ -172,14 +170,6 @@ export default function Landing() {
             </div>
           </div>
 
-          <div className="hero-counter" aria-live="off">
-            <span className="count">{correlated.toString().padStart(2, '0')}</span>
-            <small>
-              CVEs correlated
-              <br />
-              this session · animated illustration
-            </small>
-          </div>
         </div>
 
         <div className="scroll-cue" aria-hidden="true">
