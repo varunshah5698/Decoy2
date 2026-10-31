@@ -71,6 +71,7 @@ export const iconMap = {
   barChart: BarChart3,
   upload: Upload,
   sparkles: Sparkles,
+  shieldCheck: ShieldCheck,
 } as const
 
 export type IconName = keyof typeof iconMap

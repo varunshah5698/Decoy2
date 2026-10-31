@@ -2415,6 +2415,29 @@ svg {
   opacity: 1;
 }
 
+.nav-item .nav-count {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(255, 90, 31, 0.14);
+  color: #d9531e;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: center;
+}
+
+[data-theme='dark'] .nav-item .nav-count {
+  background: rgba(255, 116, 64, 0.18);
+  color: #ff9d6f;
+}
+
+.nav-item.active .nav-count {
+  background: rgba(255, 90, 31, 0.22);
+}
+
 .sidebar-foot {
   padding: 14px;
   border-top: 1px solid var(--line);

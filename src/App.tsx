@@ -18,6 +18,7 @@ import Intel from './pages/app/Intel'
 import Mitre from './pages/app/Mitre'
 import Provenance from './pages/app/Provenance'
 import RadarPage from './pages/app/Radar'
+import Recommendations from './pages/app/Recommendations'
 import Restricted from './pages/app/Restricted'
 import Scoring from './pages/app/Scoring'
 import Simulator from './pages/app/Simulator'
@@ -77,6 +78,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="ai" element={<AiAnalyst />} />
           <Route path="alerts" element={<Alerts />} />
+          <Route path="recommendations" element={<Recommendations />} />
           <Route path="scoring" element={<Scoring />} />
           <Route path="assets" element={<Assets />} />
           <Route path="cves" element={<Cves />} />

@@ -17,6 +17,7 @@ import {
   ExternalLink,
   Globe2,
   ShieldAlert,
+  ShieldCheck,
   Zap,
 } from '../../components/Icons'
 import {
@@ -34,6 +35,8 @@ import {
   useLiveSuppressedAlerts,
 } from '../../lib/liveData'
 import { useFilters, useTheme } from '../../lib/store'
+import { openActionCount, useActions } from '../../lib/actionStore'
+import { buildRecommendations } from '../../lib/warnings'
 import { allUploadedAssets, useUploads } from '../../lib/uploads'
 import { cx, fmtInt, fmtScore, timeAgo } from '../../lib/format'
 import { median, spearman, stdev, mean } from '../../lib/stats'
@@ -56,6 +59,11 @@ export default function Dashboard() {
   const activeAlerts = useLiveActiveAlerts()
   const suppressedAlerts = useLiveSuppressedAlerts()
   const counts = useLiveCounts()
+  const actionEntries = useActions((s) => s.entries)
+  const openActions = useMemo(
+    () => openActionCount(buildRecommendations(alerts), actionEntries),
+    [alerts, actionEntries],
+  )
   const posture = useLivePosture()
   const liveMl = useLiveMl()
 
@@ -611,6 +619,9 @@ export default function Dashboard() {
           {uploadDatasets.length > 0 && (
             <span className="badge upload">{uploadDatasets.length} upload{uploadDatasets.length === 1 ? '' : 's'} applied</span>
           )}
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/app/recommendations')}>
+            <ShieldCheck size={13} /> {openActions} open actions
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={() => navigate('/app/scoring')}>
             <Zap size={13} /> Scoring model
           </button>

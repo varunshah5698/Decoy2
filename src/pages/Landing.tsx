@@ -64,8 +64,8 @@ const pipeline = [
 const features = [
   {
     id: 2,
-    name: 'Alert Center',
-    desc: 'Version-aware, explained alerts with acknowledgement and evidence trail.',
+    name: 'Early Warning Centre',
+    desc: 'Version-aware warnings, staged from emerging signal to verified risk reduction.',
     icon: Bell,
     path: '/app/alerts',
   },

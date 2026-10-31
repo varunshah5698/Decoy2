@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Logo, LogoMark } from '../components/Logo'
 import { Ambient } from '../components/Ambient'
@@ -13,7 +13,9 @@ import {
   ShieldCheck,
 } from '../components/Icons'
 import { componentCatalog, DEMO_NOW } from '../data/seed'
-import { useLiveCounts } from '../lib/liveData'
+import { useLiveAlerts, useLiveCounts } from '../lib/liveData'
+import { openActionCount, useActions } from '../lib/actionStore'
+import { buildRecommendations } from '../lib/warnings'
 import { useAuth, useFilters, useTheme, useToast } from '../lib/store'
 import { useAiPanel } from '../lib/aiStore'
 import { allUploadedAssets, useUploads } from '../lib/uploads'
@@ -34,6 +36,12 @@ export default function AppShell() {
   const setQuery = useFilters((s) => s.setQuery)
   const showToast = useToast((s) => s.show)
   const counts = useLiveCounts()
+  const liveAlerts = useLiveAlerts()
+  const actionEntries = useActions((s) => s.entries)
+  const openActions = useMemo(
+    () => openActionCount(buildRecommendations(liveAlerts), actionEntries),
+    [liveAlerts, actionEntries],
+  )
   const aiStreaming = useAiPanel((s) => s.streaming)
   const uploadDatasets = useUploads((s) => s.datasets)
   const inventoryCount = 16 + allUploadedAssets(uploadDatasets).length
@@ -110,9 +118,15 @@ export default function AppShell() {
                   >
                     <CatalogIcon name={c.icon} size={15} />
                     <span>{c.name}</span>
-                    <span className="nav-num">
-                      {locked ? <Lock size={10} aria-label="Admin only" /> : String(id).padStart(2, '0')}
-                    </span>
+                    {id === 18 && openActions > 0 ? (
+                      <span className="nav-count" title={`${openActions} open preventive actions`}>
+                        {openActions}
+                      </span>
+                    ) : (
+                      <span className="nav-num">
+                        {locked ? <Lock size={10} aria-label="Admin only" /> : String(id).padStart(2, '0')}
+                      </span>
+                    )}
                   </NavLink>
                 )
               })}

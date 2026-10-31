@@ -1,5 +1,5 @@
 import { useMemo, useState, type CSSProperties } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Drawer, DrawerHead } from '../../components/Drawer'
 import { Panel } from '../../components/Panel'
 import { Chart, axisStyle, chartFont, chartTokens } from '../../components/Chart'
@@ -32,6 +32,14 @@ import { median } from '../../lib/stats'
 import { relevanceReason } from '../../lib/scoring'
 import { ML_BANDS, predict } from '../../lib/ml'
 import { useLiveActiveAlerts, useLiveAlerts, useLiveSuppressedAlerts } from '../../lib/liveData'
+import { entryStatus, useActions } from '../../lib/actionStore'
+import {
+  WARNING_STAGES,
+  buildRecommendations,
+  stageMeta,
+  warningStageFor,
+  type WarningStage,
+} from '../../lib/warnings'
 import { LEVEL_COLORS, hexA } from '../../lib/colors'
 import type { Alert, RelevanceStatus, RiskLevel } from '../../lib/types'
 
@@ -66,8 +74,21 @@ export default function Alerts() {
   const [showSuppressed, setShowSuppressed] = useState(true)
   const [kevOnly, setKevOnly] = useState(false)
 
+  const navigate = useNavigate()
+  const actionEntries = useActions((s) => s.entries)
+  const recommendations = useMemo(() => buildRecommendations(alerts), [alerts])
   const selectedId = params.get('alert')
   const selected = selectedId ? alerts.find((a) => a.id === selectedId) ?? null : null
+  const selectedActions = selected ? recommendations.filter((r) => r.alertId === selected.id) : []
+  const selectedStage: WarningStage = selected
+    ? warningStageFor(selected, {
+        acknowledged: Boolean(acks[selected.id]),
+        actionStatuses: selectedActions.map((r) => entryStatus(actionEntries, r.id)),
+      })
+    : 'EMERGING'
+  const selectedOpenActions = selectedActions.filter(
+    (r) => entryStatus(actionEntries, r.id) !== 'VERIFIED',
+  ).length
 
   const open = (a: Alert) => {
     const next = new URLSearchParams(params)
@@ -259,7 +280,7 @@ export default function Alerts() {
       <div className="xp-shell">
       <header className="mc-header">
         <div>
-          <span className="mono mc-eyebrow">ALERT CENTER · CORRELATED QUEUE</span>
+          <span className="mono mc-eyebrow">EARLY WARNING CENTRE · CORRELATED QUEUE</span>
           <h1>Every alert earns its place</h1>
           <p>
             Version-aware correlation first, deterministic scoring second, language last. Suppressed candidates
@@ -773,6 +794,10 @@ export default function Alerts() {
           <AlertDetail
             alert={selected}
             acks={acks}
+            stage={selectedStage}
+            actionCount={selectedActions.length}
+            openActions={selectedOpenActions}
+            onOpenActions={() => navigate(`/app/recommendations?cve=${selected.cve.id}`)}
             onClose={close}
             onAck={() => {
               ack(selected.id, session?.name ?? 'Analyst', 'Reviewed in demo session.')
@@ -908,11 +933,19 @@ const VERDICT: Record<RelevanceStatus, { title: string; body: string; tone: 'wat
 function AlertDetail({
   alert,
   acks,
+  stage,
+  actionCount,
+  openActions,
+  onOpenActions,
   onAck,
   onClose,
 }: {
   alert: Alert
   acks: Record<string, { by: string; at: string; note?: string }>
+  stage: WarningStage
+  actionCount: number
+  openActions: number
+  onOpenActions: () => void
   onAck: () => void
   onClose: () => void
 }) {
@@ -922,6 +955,7 @@ function AlertDetail({
   const verdict = VERDICT[alert.relevance]
   const VerdictIcon = alert.relevance === 'MATCHED' ? ShieldAlert : alert.relevance === 'VERSION_UNKNOWN' ? AlertTriangle : ShieldCheck
   const ack = acks[alert.id]
+  const stageIndex = WARNING_STAGES.findIndex((s) => s.key === stage)
   const heroLine =
     alert.relevance === 'MATCHED'
       ? `${alert.asset.name} runs ${alert.cve.product} ${alert.version}, which falls inside the affected range.`
@@ -978,6 +1012,49 @@ function AlertDetail({
                 <span className="bd-chip">{timeAgo(alert.createdAt, DEMO_NOW)}</span>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div className="drawer-section">
+          <h3>Early warning stage</h3>
+          <div className="bd-stage-strip" style={{ '--stage': stageIndex } as CSSProperties}>
+            <span className="bd-stage-line" aria-hidden="true" />
+            {WARNING_STAGES.map((s, i) => (
+              <div
+                key={s.key}
+                className={cx('bd-stage', i < stageIndex && 'is-done', i === stageIndex && 'is-current')}
+                title={s.description}
+              >
+                <span className="bd-stage-dot">{i < stageIndex ? <Check size={9} /> : null}</span>
+                <span className="bd-stage-label">{s.short}</span>
+              </div>
+            ))}
+          </div>
+          <p className="bd-stage-copy">{stageMeta(stage).description}</p>
+          <div className="bd-action">
+            <span className="bd-kicker">
+              Preventive actions
+              {actionCount > 0 && ` · ${actionCount} generated`}
+            </span>
+            <strong>
+              {openActions > 0
+                ? `${openActions} still open`
+                : actionCount > 0
+                  ? 'All actions verified'
+                  : stage === 'EMERGING'
+                    ? 'Verify before acting'
+                    : 'No action raised yet'}
+            </strong>
+            <p>
+              {actionCount === 0
+                ? 'This warning has no preventive action attached yet. Open the Recommendations Centre to see what the evidence requires.'
+                : openActions > 0
+                  ? 'The Recommendations Centre records who owns the fix, what “done” means, and whether fresh evidence proves it worked.'
+                  : 'Every action attached to this warning has been verified against fresh evidence.'}
+            </p>
+            <button className="bd-btn" onClick={onOpenActions}>
+              Open preventive actions <ArrowRight size={12} />
+            </button>
           </div>
         </div>
 

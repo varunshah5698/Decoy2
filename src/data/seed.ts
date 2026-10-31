@@ -1342,7 +1342,7 @@ export const attackProfiles: AttackProfile[] = [
 
 export const componentCatalog = [
   { id: 1, name: 'Security Dashboard', tagline: 'The command centre: posture, alerts, and exposure in one view.', group: 'Command', icon: 'gauge' },
-  { id: 2, name: 'Alert Center', tagline: 'Version-aware, explained alerts with acknowledgement.', group: 'Command', icon: 'bell' },
+  { id: 2, name: 'Early Warning Centre', tagline: 'Version-aware warnings, staged from emerging signal to verified reduction.', group: 'Command', icon: 'bell' },
   { id: 3, name: 'Risk Scoring', tagline: 'The exact formula, weights, and a live ranking preview.', group: 'Command', icon: 'sliders' },
   { id: 4, name: 'Network Graph', tagline: 'Follow the path from an exposed asset to a critical system.', group: 'Investigation', icon: 'network' },
   { id: 5, name: 'Attack Profiles', tagline: 'Lifecycle, techniques, and mitigations for ten attack types.', group: 'Investigation', icon: 'swords' },
@@ -1357,6 +1357,7 @@ export const componentCatalog = [
   { id: 15, name: 'Traffic Analytics', tagline: 'Requests, bursts, entropy, and protocol mix.', group: 'Operations & Analytics', icon: 'barChart' },
   { id: 16, name: 'Data Input Hub', tagline: 'Upload inventory and logs, map, validate, accept.', group: 'Data', icon: 'upload' },
   { id: 17, name: 'AI Analyst', tagline: 'A dedicated copilot page for workspace evidence and general questions.', group: 'Assistant', icon: 'sparkles' },
+  { id: 18, name: 'Recommendations', tagline: 'Evidence-backed preventive actions, from accepted to verified.', group: 'Command', icon: 'shieldCheck' },
 ]
 
 export const sampleAssetsCsv = `asset_name,asset_type,owner_department,criticality,business_function,internet_facing,data_sensitivity,software_vendor,software_product,software_version
