@@ -10,6 +10,7 @@ export function Panel({
   bodyClass,
   noPad,
   id,
+  spotlight,
 }: {
   title?: ReactNode
   sub?: ReactNode
@@ -19,9 +20,22 @@ export function Panel({
   bodyClass?: string
   noPad?: boolean
   id?: string
+  spotlight?: boolean
 }) {
   return (
-    <section className={cx('panel', className)} id={id}>
+    <section
+      className={cx('panel', spotlight && 'spotlight', className)}
+      id={id}
+      onPointerMove={
+        spotlight
+          ? (e) => {
+              const rect = e.currentTarget.getBoundingClientRect()
+              e.currentTarget.style.setProperty('--mx', `${e.clientX - rect.left}px`)
+              e.currentTarget.style.setProperty('--my', `${e.clientY - rect.top}px`)
+            }
+          : undefined
+      }
+    >
       <span className="panel-tick" aria-hidden="true" />
       {(title || action) && (
         <header className="panel-head">

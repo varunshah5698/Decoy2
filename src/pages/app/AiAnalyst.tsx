@@ -1,10 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { Copy } from 'lucide-react'
 import { AnalystMark } from '../../components/AnalystMark'
 import { AiMarkdown } from '../../components/AiMarkdown'
 import {
   Activity,
   ArrowRight,
+  Check,
+  ChevronDown,
   Database,
   Gauge,
   Info,
@@ -21,20 +24,20 @@ import { cx } from '../../lib/format'
 
 const SUGGESTIONS = [
   {
-    title: 'Hi — what can you do?',
+    title: 'What can you do?',
     detail: 'General questions plus workspace answers',
     prompt: 'Hi! What can you do?',
     icon: Sparkles,
   },
   {
-    title: 'What is happening right now?',
-    detail: 'Situation summary across the demo organisation',
+    title: 'What is happening now?',
+    detail: 'Situation summary for the demo org',
     prompt: 'What is happening right now? Give me the bottom line, what matters and what to do next.',
     icon: Activity,
   },
   {
     title: 'What should I patch first?',
-    detail: 'Ranked by score, exposure and XGBoost probability',
+    detail: 'Score, exposure and XGBoost probability',
     prompt: 'What should I patch first? Rank the assets by score, exposure and the XGBoost probability.',
     icon: Gauge,
   },
@@ -54,6 +57,44 @@ const QUICK_PROMPTS = [
 
 type PromptState = { prompt?: string; nonce?: number } | null
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<number | undefined>(undefined)
+
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      const area = document.createElement('textarea')
+      area.value = text
+      area.style.position = 'fixed'
+      area.style.opacity = '0'
+      document.body.appendChild(area)
+      area.select()
+      document.execCommand('copy')
+      area.remove()
+    }
+    setCopied(true)
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setCopied(false), 1600)
+  }
+
+  return (
+    <button
+      type="button"
+      className={cx('ai-copy', copied && 'copied')}
+      onClick={copy}
+      aria-label={copied ? 'Response copied' : 'Copy response'}
+      title={copied ? 'Copied' : 'Copy response'}
+    >
+      {copied ? <Check size={12} /> : <Copy size={12} />}
+      <span>{copied ? 'Copied' : 'Copy'}</span>
+    </button>
+  )
+}
+
 export default function AiAnalyst() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -71,6 +112,7 @@ export default function AiAnalyst() {
 
   const component = componentByPath('/app/ai')
   const [input, setInput] = useState('')
+  const [pinned, setPinned] = useState(true)
   const viewRef = useRef({ pathname: location.pathname, role: session?.role, name: session?.name })
   viewRef.current = { pathname: location.pathname, role: session?.role, name: session?.name }
 
@@ -80,9 +122,11 @@ export default function AiAnalyst() {
 
   const lastContent = messages[messages.length - 1]?.content ?? ''
   useEffect(() => {
+    if (!messages.length) return
     const el = threadRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [messages.length, lastContent, streaming])
+    if (!el || !pinned) return
+    el.scrollTop = el.scrollHeight
+  }, [messages.length, lastContent, streaming]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     inputRef.current?.focus()
@@ -109,6 +153,17 @@ export default function AiAnalyst() {
     navigate(location.pathname, { replace: true, state: null })
   }, [navState, send, navigate, location.pathname])
 
+  const scrollToLatest = () => {
+    setPinned(true)
+    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: 'smooth' })
+  }
+
+  const onThreadScroll = () => {
+    const el = threadRef.current
+    if (!el) return
+    setPinned(el.scrollHeight - el.scrollTop - el.clientHeight < 96)
+  }
+
   const submit = () => {
     if (!input.trim()) return
     send(input, viewRef.current)
@@ -122,7 +177,7 @@ export default function AiAnalyst() {
     <div className="page ai-page">
       <header className="ai-page-head">
         <div className="ai-page-id">
-          <AnalystMark size={48} live={streaming} />
+          <AnalystMark size={50} live={streaming} />
           <div>
             <span className="ai-kicker">ASSISTANT · WORKSPACE + GENERAL</span>
             <h1>Aegis Copilot</h1>
@@ -151,7 +206,9 @@ export default function AiAnalyst() {
       </header>
 
       <div className="ai-page-grid">
-        <section className="ai-page-chat" aria-label="Aegis Copilot chat">
+        <section className={cx('ai-page-chat', streaming && 'is-streaming')} aria-label="Aegis Copilot chat">
+          <span className="ai-page-progress" aria-hidden="true" />
+
           <div className="ai-context-bar ai-page-context">
             <span className="ai-context-page">
               <Sparkles size={10} />
@@ -162,99 +219,143 @@ export default function AiAnalyst() {
             </span>
           </div>
 
-          <div className="ai-thread ai-page-thread" ref={threadRef}>
-            {!hasMessages && (
-              <div className="ai-empty ai-empty-center">
-                <div className="ai-empty-mark">
-                  <AnalystMark size={58} live />
-                </div>
-                <span className="ai-kicker">GENERAL + WORKSPACE</span>
-                <h2>
-                  Ask anything.
-                  <br />
-                  <em>Get the evidence.</em>
-                </h2>
-                <p>
-                  I can answer general questions like any chatbot, or dig into the alerts, assets, scores and
-                  source health behind this workspace. When I use live demo data, I cite the same numbers on
-                  screen.
-                </p>
-                <div className="ai-suggestions">
-                  {SUGGESTIONS.map((s) => {
-                    const Icon = s.icon
-                    return (
-                      <button
-                        key={s.title}
-                        type="button"
-                        className="ai-suggestion"
-                        onClick={() => send(s.prompt, viewRef.current)}
-                      >
-                        <span className="ai-suggestion-icon">
-                          <Icon size={14} />
-                        </span>
-                        <span className="ai-suggestion-copy">
-                          <strong>{s.title}</strong>
-                          <span>{s.detail}</span>
-                        </span>
-                        <ArrowRight size={13} />
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            {messages.map((m, i) => {
-              if (m.role === 'user') {
-                return (
-                  <div className="ai-msg user" key={i}>
-                    <div className="ai-bubble">{m.content}</div>
+          <div className="ai-thread ai-page-thread" ref={threadRef} onScroll={onThreadScroll}>
+            <div className="ai-stream">
+              {!hasMessages && (
+                <div className="ai-empty ai-empty-center">
+                  <div className="ai-empty-mark">
+                    <AnalystMark size={58} live />
                   </div>
-                )
-              }
-              if (!m.content) {
-                if (!streaming || i !== messages.length - 1) return null
+                  <span className="ai-kicker">GENERAL + WORKSPACE</span>
+                  <h2>
+                    Ask anything.
+                    <br />
+                    <em>Get the evidence.</em>
+                  </h2>
+                  <p>
+                    I can answer general questions like any chatbot, or dig into the alerts, assets, scores and
+                    source health behind this workspace. When I use live demo data, I cite the same numbers on
+                    screen.
+                  </p>
+                  <div className="ai-suggestions ai-suggestion-grid">
+                    {SUGGESTIONS.map((s, idx) => {
+                      const Icon = s.icon
+                      return (
+                        <button
+                          key={s.title}
+                          type="button"
+                          className="ai-suggestion"
+                          style={{ '--i': idx } as CSSProperties}
+                          onClick={() => send(s.prompt, viewRef.current)}
+                        >
+                          <span className="ai-suggestion-icon">
+                            <Icon size={15} />
+                          </span>
+                          <span className="ai-suggestion-copy">
+                            <strong>{s.title}</strong>
+                            <span>{s.detail}</span>
+                          </span>
+                          <span className="ai-suggestion-arrow" aria-hidden="true">
+                            <ArrowRight size={13} />
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="ai-empty-hint">
+                    <Sparkles size={11} />
+                    <span>
+                      Tip — press <kbd>Ctrl</kbd> / <kbd>⌘</kbd> + <kbd>I</kbd> anywhere to jump back here.
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {messages.map((m, i) => {
+                const isLast = i === messages.length - 1
+                const isStreamingMsg = streaming && isLast
+
+                if (m.role === 'user') {
+                  return (
+                    <div className="ai-msg user" key={i}>
+                      <div className="ai-bubble">{m.content}</div>
+                    </div>
+                  )
+                }
+
+                if (!m.content) {
+                  if (!streaming || !isLast) return null
+                  return (
+                    <div className="ai-msg assistant" key={i}>
+                      <div className="ai-msg-gutter">
+                        <AnalystMark size={28} live />
+                      </div>
+                      <div className="ai-msg-body">
+                        <div className="ai-msg-head">
+                          <span className="ai-msg-name">Aegis Copilot</span>
+                          <span className="ai-msg-tag">Live</span>
+                        </div>
+                        <div className="ai-msg-card">
+                          <div className="ai-thinking">
+                            <span />
+                            <span />
+                            <span />
+                            <em>Thinking…</em>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }
+
                 return (
-                  <div className="ai-msg assistant" key={i}>
-                    <AnalystMark size={26} live />
-                    <div className="ai-thinking">
-                      <span />
-                      <span />
-                      <span />
-                      <em>Thinking…</em>
+                  <div className={cx('ai-msg', 'assistant', isStreamingMsg && 'is-streaming')} key={i}>
+                    <div className="ai-msg-gutter">
+                      <AnalystMark size={28} live={isStreamingMsg} />
+                    </div>
+                    <div className="ai-msg-body">
+                      <div className="ai-msg-head">
+                        <span className="ai-msg-name">Aegis Copilot</span>
+                        <span className="ai-msg-tag">Live</span>
+                        <span className="ai-msg-session">{roleLabel} session</span>
+                        {!isStreamingMsg && <CopyButton text={m.content} />}
+                      </div>
+                      <div className="ai-msg-card">
+                        <AiMarkdown text={m.content} />
+                        {isStreamingMsg && <span className="ai-caret" aria-hidden="true" />}
+                      </div>
                     </div>
                   </div>
                 )
-              }
-              return (
-                <div className="ai-msg assistant" key={i}>
-                  <AnalystMark size={26} live={streaming && i === messages.length - 1} />
-                  <div className="ai-msg-body">
-                    <AiMarkdown text={m.content} />
-                    {!(streaming && i === messages.length - 1) && (
-                      <div className="ai-msg-meta">
-                        <span>Aegis Copilot</span>
-                        <span>·</span>
-                        <span>{roleLabel.toLowerCase()} session</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+              })}
 
-            {error && (
-              <div className="ai-error" role="alert">
-                <Info size={15} />
-                <div>
-                  <strong>Copilot unavailable</strong>
-                  <p>{error.message}</p>
+              {error && (
+                <div className="ai-error" role="alert">
+                  <Info size={15} />
+                  <div>
+                    <strong>Copilot unavailable</strong>
+                    <p>{error.message}</p>
+                  </div>
+                  <button type="button" className="ai-retry" onClick={retryChat}>
+                    Retry
+                  </button>
                 </div>
-                <button type="button" className="ai-retry" onClick={retryChat}>
-                  Retry
+              )}
+
+              {hasMessages && (
+                <button
+                  type="button"
+                  className={cx('ai-scroll-btn', !pinned && 'show')}
+                  onClick={scrollToLatest}
+                  aria-label="Scroll to latest message"
+                  aria-hidden={pinned}
+                  tabIndex={pinned ? -1 : 0}
+                  title="Scroll to latest"
+                >
+                  <ChevronDown size={15} />
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           <form
@@ -264,55 +365,85 @@ export default function AiAnalyst() {
               submit()
             }}
           >
-            <div className="ai-input-wrap">
-              <textarea
-                ref={inputRef}
-                rows={1}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    submit()
-                  }
-                }}
-                placeholder="Ask anything — workspace or general…"
-                aria-label="Message Aegis Copilot"
-              />
-              {streaming ? (
-                <button type="button" className="ai-send stop" onClick={stop} aria-label="Stop response" title="Stop">
-                  <span className="ai-stop-square" />
-                </button>
-              ) : (
-                <button type="submit" className="ai-send" disabled={!input.trim()} aria-label="Send message" title="Send">
-                  <ArrowRight size={16} />
-                </button>
-              )}
-            </div>
-            <div className="ai-composer-meta">
-              <span>
-                <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline
-              </span>
-              <span>Demo workspace · general knowledge</span>
+            <div className="ai-composer-inner">
+              <div className="ai-input-wrap">
+                <Sparkles size={13} className="ai-input-spark" aria-hidden="true" />
+                <textarea
+                  ref={inputRef}
+                  rows={1}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      submit()
+                    }
+                  }}
+                  placeholder="Ask anything — workspace or general…"
+                  aria-label="Message Aegis Copilot"
+                />
+                {streaming ? (
+                  <button
+                    type="button"
+                    className="ai-send stop"
+                    onClick={stop}
+                    aria-label="Stop response"
+                    title="Stop"
+                  >
+                    <span className="ai-stop-square" />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    className="ai-send"
+                    disabled={!input.trim()}
+                    aria-label="Send message"
+                    title="Send"
+                  >
+                    <ArrowRight size={16} />
+                  </button>
+                )}
+              </div>
+              <div className="ai-composer-meta">
+                <span>
+                  <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline
+                </span>
+                <span>Demo workspace · general knowledge</span>
+              </div>
             </div>
           </form>
         </section>
 
         <aside className="ai-page-rail" aria-label="Copilot context">
-          <div className="ai-page-card">
+          <div className="ai-page-card" style={{ '--i': 0 } as CSSProperties}>
             <span className="ai-page-card-kicker">
               <Activity size={11} /> Live context
             </span>
             <h3>What I can see</h3>
-            <div className="ai-page-facts">
-              <div className="ai-page-fact">
+
+            <div className="ai-posture">
+              <div className="ai-posture-top">
                 <span>Posture</span>
-                <strong>{posture}/100</strong>
+                <strong>
+                  {posture}
+                  <em>/100</em>
+                </strong>
               </div>
+              <div
+                className="ai-posture-track"
+                role="img"
+                aria-label={`Posture ${posture} of 100`}
+              >
+                <span style={{ '--p': `${posture}%` } as CSSProperties} />
+              </div>
+            </div>
+
+            <div className="ai-page-facts">
               <div className="ai-page-fact">
                 <span>Active alerts</span>
                 <strong>
-                  {counts.active} · {counts.critical} critical
+                  {counts.active}
+                  <em className="ai-fact-crit"> · {counts.critical} critical</em>
                 </strong>
               </div>
               <div className="ai-page-fact">
@@ -350,7 +481,7 @@ export default function AiAnalyst() {
             </p>
           </div>
 
-          <div className="ai-page-card">
+          <div className="ai-page-card" style={{ '--i': 1 } as CSSProperties}>
             <span className="ai-page-card-kicker">
               <Sparkles size={11} /> Jump in
             </span>
@@ -358,13 +489,14 @@ export default function AiAnalyst() {
             <div className="ai-page-quick">
               {QUICK_PROMPTS.map((prompt) => (
                 <button key={prompt} type="button" onClick={() => send(prompt, viewRef.current)}>
-                  {prompt}
+                  <span>{prompt}</span>
+                  <ArrowRight size={12} aria-hidden="true" />
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="ai-page-card">
+          <div className="ai-page-card" style={{ '--i': 2 } as CSSProperties}>
             <span className="ai-page-card-kicker">
               <Database size={11} /> How it answers
             </span>

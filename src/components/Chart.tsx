@@ -10,7 +10,7 @@ export function chartTokens(theme: string) {
   return {
     dark,
     text: dark ? '#98a5b8' : '#596474',
-    muted: dark ? '#647184' : '#7d8796',
+    muted: dark ? '#7b8899' : '#6c7787',
     line: dark ? 'rgba(150,168,192,0.14)' : 'rgba(23,30,40,0.12)',
     grid: dark ? 'rgba(150,168,192,0.08)' : 'rgba(23,30,40,0.07)',
     tooltipBg: dark ? 'rgba(11,17,26,0.97)' : 'rgba(255,253,248,0.98)',
@@ -28,7 +28,8 @@ export function axisStyle(theme: string, opts: { split?: boolean } = {}) {
     axisTick: { show: false },
     axisLabel: {
       color: t.muted,
-      fontSize: 9,
+      fontSize: 9.5,
+      fontWeight: 500,
       fontFamily: chartFont,
       margin: 10,
     },
@@ -55,7 +56,10 @@ export function Chart({
     return {
       backgroundColor: 'transparent',
       animationDuration: 900,
+      animationDurationUpdate: 420,
       animationEasing: 'cubicOut',
+      animationEasingUpdate: 'cubicOut',
+      stateAnimation: { duration: 220, easing: 'cubicOut' },
       textStyle: {
         fontFamily: chartFont,
         color: t.text,
@@ -65,6 +69,8 @@ export function Chart({
         borderColor: t.tooltipBorder,
         borderWidth: 1,
         padding: [10, 12],
+        confine: true,
+        transitionDuration: 0.18,
         textStyle: {
           color: t.tooltipText,
           fontSize: 10.5,
