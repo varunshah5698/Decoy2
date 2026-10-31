@@ -1,6 +1,6 @@
-/* Asset Exposure board — all rules are scoped to .exposure-page. */
+/* Board system — tokens shared by the Asset Exposure and Emerging Radar boards. */
 
-.exposure-page {
+:is(.exposure-page, .radar-page) {
   --xp-canvas: #e9e5dc;
   --xp-shell: #f5f1e9;
   --xp-card: #fffdf9;
@@ -66,14 +66,14 @@
   color-scheme: light;
 }
 
-[data-theme='light'] .exposure-page {
+[data-theme='light'] :is(.exposure-page, .radar-page) {
   background:
     radial-gradient(1100px 460px at 82% -16%, rgba(255, 90, 31, 0.09), transparent 60%),
     radial-gradient(900px 500px at -8% 108%, rgba(20, 38, 62, 0.07), transparent 60%),
     var(--xp-canvas);
 }
 
-.exposure-page :focus-visible {
+:is(.exposure-page, .radar-page) :focus-visible {
   outline: 2px solid var(--xp-orange);
   outline-offset: 3px;
 }
@@ -1693,7 +1693,7 @@
 
 /* ---------- dark board ---------- */
 
-[data-theme='dark'] .exposure-page {
+[data-theme='dark'] :is(.exposure-page, .radar-page) {
   --xp-canvas: #070e17;
   --xp-shell: #0f1a26;
   --xp-card: #121f2c;
@@ -2179,9 +2179,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .exposure-page *,
-  .exposure-page *::before,
-  .exposure-page *::after {
+  :is(.exposure-page, .radar-page) *,
+  :is(.exposure-page, .radar-page) *::before,
+  :is(.exposure-page, .radar-page) *::after {
     animation-duration: 0.001ms !important;
     animation-delay: 0ms !important;
     transition-duration: 0.001ms !important;

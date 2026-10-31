@@ -3,7 +3,6 @@ import {
   assets,
   attackProfiles,
   DEMO_NOW,
-  geoPoints,
   intelItems,
   mitreTactics,
   techniques,
@@ -343,10 +342,6 @@ export function buildAnalystContext(
   if (component.id === 11) {
     pageData.tactics = mitreTactics
     pageData.observedTechniques = [...techniques].sort((a, b) => b.observed - a.observed).slice(0, 12)
-  }
-  if (component.id === 12) {
-    pageData.origins = geoPoints.map((g) => ({ country: g.country, category: g.category, events: g.count }))
-    pageData.note = 'Geolocation is demonstrative and is not derived from real logs. No real source IP is attributed.'
   }
   if (component.id === 13) {
     pageData.provenance = sorted.slice(0, 3).map((a) => ({

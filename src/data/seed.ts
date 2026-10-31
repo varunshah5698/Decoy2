@@ -3,7 +3,6 @@ import type {
   Asset,
   AttackProfile,
   Cve,
-  GeoPoint,
   IntelItem,
   LogWindow,
   RelevanceStatus,
@@ -1059,27 +1058,6 @@ export const intelItems: IntelItem[] = [
   },
 ]
 
-export const geoPoints: GeoPoint[] = [
-  { id: 'geo-us', country: 'United States', iso: 'US', numericId: '840', category: 'Scanning', count: 1840, longitude: -98, latitude: 39 },
-  { id: 'geo-cn', country: 'China', iso: 'CN', numericId: '156', category: 'Scanning', count: 1510, longitude: 104, latitude: 35 },
-  { id: 'geo-ru', country: 'Russia', iso: 'RU', numericId: '643', category: 'Brute force', count: 1205, longitude: 90, latitude: 60 },
-  { id: 'geo-in', country: 'India', iso: 'IN', numericId: '356', category: 'Phishing', count: 780, longitude: 78, latitude: 22 },
-  { id: 'geo-de', country: 'Germany', iso: 'DE', numericId: '276', category: 'Scanning', count: 690, longitude: 10, latitude: 51 },
-  { id: 'geo-nl', country: 'Netherlands', iso: 'NL', numericId: '528', category: 'Malware C2', count: 640, longitude: 5.5, latitude: 52 },
-  { id: 'geo-br', country: 'Brazil', iso: 'BR', numericId: '76', category: 'Brute force', count: 570, longitude: -51, latitude: -10 },
-  { id: 'geo-gb', country: 'United Kingdom', iso: 'GB', numericId: '826', category: 'Phishing', count: 520, longitude: -1.5, latitude: 52.5 },
-  { id: 'geo-fr', country: 'France', iso: 'FR', numericId: '250', category: 'Scanning', count: 460, longitude: 2.5, latitude: 46.5 },
-  { id: 'geo-sg', country: 'Singapore', iso: 'SG', numericId: '702', category: 'Malware C2', count: 430, longitude: 103.8, latitude: 1.35 },
-  { id: 'geo-jp', country: 'Japan', iso: 'JP', numericId: '392', category: 'Scanning', count: 390, longitude: 138, latitude: 36 },
-  { id: 'geo-ca', country: 'Canada', iso: 'CA', numericId: '124', category: 'Phishing', count: 350, longitude: -106, latitude: 56 },
-  { id: 'geo-au', country: 'Australia', iso: 'AU', numericId: '36', category: 'Scanning', count: 300, longitude: 134, latitude: -25 },
-  { id: 'geo-ua', country: 'Ukraine', iso: 'UA', numericId: '804', category: 'Brute force', count: 280, longitude: 32, latitude: 49 },
-  { id: 'geo-za', country: 'South Africa', iso: 'ZA', numericId: '710', category: 'Phishing', count: 210, longitude: 24, latitude: -29 },
-  { id: 'geo-mx', country: 'Mexico', iso: 'MX', numericId: '484', category: 'Brute force', count: 190, longitude: -102, latitude: 23 },
-  { id: 'geo-kr', country: 'South Korea', iso: 'KR', numericId: '410', category: 'Malware C2', count: 175, longitude: 127.5, latitude: 36 },
-  { id: 'geo-ng', country: 'Nigeria', iso: 'NG', numericId: '566', category: 'Phishing', count: 160, longitude: 8, latitude: 9 },
-]
-
 export const anomalyWindows: LogWindow[] = [
   { id: 'W-01', label: 'Mon 09:00', failedLogins: 3, distinctIps: 2, rps: 8, countryNovelty: 0, anomalyScore: -0.12, anomaly: false },
   { id: 'W-02', label: 'Mon 12:00', failedLogins: 2, distinctIps: 2, rps: 11, countryNovelty: 0, anomalyScore: -0.08, anomaly: false },
@@ -1374,7 +1352,6 @@ export const componentCatalog = [
   { id: 9, name: 'Anomaly Detection', tagline: 'Behaviour deviations in logs, with model evidence.', group: 'Operations & Analytics', icon: 'activity' },
   { id: 10, name: 'What-If Simulator', tagline: 'Patch, expose, or add assets without touching the base data.', group: 'Scenarios', icon: 'flask' },
   { id: 11, name: 'ATT&CK Matrix', tagline: 'Map observed behaviour to real ATT&CK techniques.', group: 'Operations & Analytics', icon: 'grid' },
-  { id: 12, name: 'Global Threat Map', tagline: 'Country-level patterns, clearly labelled as illustrative.', group: 'Threat Intelligence', icon: 'globe' },
   { id: 13, name: 'Provenance Graph', tagline: 'Every input that produced an alert, present or missing.', group: 'Investigation', icon: 'gitBranch' },
   { id: 14, name: 'Emerging Radar', tagline: 'EPSS movement, KEV additions, and acceleration.', group: 'Threat Intelligence', icon: 'radar' },
   { id: 15, name: 'Traffic Analytics', tagline: 'Requests, bursts, entropy, and protocol mix.', group: 'Operations & Analytics', icon: 'barChart' },

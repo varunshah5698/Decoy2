@@ -114,17 +114,6 @@ export interface IntelItem {
   simulated?: boolean
 }
 
-export interface GeoPoint {
-  id: string
-  country: string
-  iso: string
-  numericId: string
-  category: string
-  count: number
-  longitude: number
-  latitude: number
-}
-
 export interface LogWindow {
   id: string
   label: string

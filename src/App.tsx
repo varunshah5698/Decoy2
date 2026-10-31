@@ -21,7 +21,6 @@ import RadarPage from './pages/app/Radar'
 import Restricted from './pages/app/Restricted'
 import Scoring from './pages/app/Scoring'
 import Simulator from './pages/app/Simulator'
-import ThreatMap from './pages/app/ThreatMap'
 import Traffic from './pages/app/Traffic'
 import Uploads from './pages/app/Uploads'
 
@@ -94,7 +93,6 @@ export default function App() {
             }
           />
           <Route path="mitre" element={<Mitre />} />
-          <Route path="map" element={<ThreatMap />} />
           <Route path="provenance" element={<Provenance />} />
           <Route path="radar" element={<RadarPage />} />
           <Route path="traffic" element={<Traffic />} />
