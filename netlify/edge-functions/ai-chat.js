@@ -8,19 +8,19 @@ import {
 
 const allow = createRateLimiter()
 
-function json(status: number, code: string, message: string) {
+function json(status, code, message) {
   return new Response(JSON.stringify({ error: { code, message } }), {
     status,
     headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
   })
 }
 
-function readEnv(name: string) {
-  const netlify = (globalThis as any).Netlify
+function readEnv(name) {
+  const netlify = globalThis.Netlify
   return netlify?.env?.get?.(name) ?? ''
 }
 
-export default async function handler(request: Request) {
+export default async function handler(request) {
   if (request.method !== 'POST') return json(405, 'METHOD_NOT_ALLOWED', 'Use POST.')
 
   const env = normalizeEnv({
@@ -43,7 +43,7 @@ export default async function handler(request: Request) {
     'unknown'
   if (!allow(ip)) return json(429, 'RATE_LIMITED', 'Too many analyst requests. Wait a minute and retry.')
 
-  let payload: unknown
+  let payload
   try {
     payload = await request.json()
   } catch {
@@ -61,7 +61,7 @@ export default async function handler(request: Request) {
     signal: AbortSignal.timeout(120_000),
   })
 
-  let upstream: Response
+  let upstream
   try {
     upstream = await fetch(url, init)
   } catch {

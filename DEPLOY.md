@@ -1,12 +1,14 @@
 # Deploying Aegis Sentinel
 
+Live deployment: <https://aegis-sentinel-blush.vercel.app> (Vercel project `aegis-sentinel`).
+
 The app is a static Vite build plus one server-side endpoint, `POST /api/ai/chat`, which streams answers from River AI. The endpoint must run on a server: a static-only host would leave the copilot unavailable.
 
 The River key is read only from the server environment. Never put it in a `VITE_` variable, in client code, or in git. Locally it lives in `.env.local`, which is ignored.
 
 ## Option 1 — Vercel (recommended)
 
-`vercel.json` is already configured: Vite build, SPA fallback, and the Node function at `api/ai/chat.ts` with a 60 second limit.
+`vercel.json` is already configured: Vite build, SPA fallback, and the Node function at `api/ai/chat.js` with a 60 second limit.
 
 1. Push this repository to GitHub (already done).
 2. In Vercel, **Add New → Project → Import** the repository.
@@ -26,7 +28,7 @@ Set the key first with `vercel env add RIVER_API_KEY` (choose Production, Previe
 
 ## Option 2 — Netlify
 
-`netlify.toml` builds with Vite, publishes `dist`, rewrites unknown paths to `index.html`, and routes `/api/ai/chat` to the streaming Edge Function in `netlify/edge-functions/ai-chat.ts`.
+`netlify.toml` builds with Vite, publishes `dist`, rewrites unknown paths to `index.html`, and routes `/api/ai/chat` to the streaming Edge Function in `netlify/edge-functions/ai-chat.js`.
 
 1. **Add new site → Import an existing project** and pick the repository.
 2. Build command and publish directory come from `netlify.toml`.
