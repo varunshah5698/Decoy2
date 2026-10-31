@@ -32,6 +32,32 @@ const aiHandler = createNodeHandler(env)
 const port = Number(process.env.PORT || 4173)
 const host = process.env.HOST || '0.0.0.0'
 
+const KEV_URL = 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json'
+const KEV_TTL = 6 * 3600 * 1000
+let kevCache = { at: 0, body: '' }
+
+async function handleKevFeed(req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    sendJson(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Use GET.' } })
+    return
+  }
+  if (Date.now() - kevCache.at > KEV_TTL) {
+    const upstream = await fetch(KEV_URL, {
+      headers: { accept: 'application/json', 'user-agent': 'Aegis Sentinel demo' },
+    })
+    if (!upstream.ok) throw new Error(`CISA returned ${upstream.status}`)
+    kevCache = { at: Date.now(), body: await upstream.text() }
+  }
+  res.statusCode = 200
+  res.setHeader('Content-Type', 'application/json; charset=utf-8')
+  res.setHeader('Cache-Control', 'public, max-age=3600')
+  if (req.method === 'HEAD') {
+    res.end()
+    return
+  }
+  res.end(kevCache.body)
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -126,6 +152,20 @@ const server = createServer((req, res) => {
             hint: 'Add RIVER_API_KEY as an environment variable on this service, then redeploy.',
           },
     )
+    return
+  }
+
+  if (pathname === '/api/feeds/kev') {
+    handleKevFeed(req, res).catch((error) => {
+      console.error('[aegis-server]', error instanceof Error ? error.message : error)
+      if (!res.headersSent) {
+        sendJson(res, 502, {
+          error: { code: 'UPSTREAM_UNAVAILABLE', message: 'CISA feed is unavailable right now.' },
+        })
+      } else if (!res.writableEnded) {
+        res.end()
+      }
+    })
     return
   }
 

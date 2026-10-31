@@ -19,7 +19,8 @@ import { allUploadedAssets, useUploads } from '../lib/uploads'
 import { AnalystMark } from '../components/AnalystMark'
 import { navGroups, pageTitle, routeById } from './catalog'
 import { canAccess } from '../lib/access'
-import { cx, initials } from '../lib/format'
+import { latestLiveFetch, useLiveFeeds } from '../lib/liveFeeds'
+import { cx, initials, timeAgo } from '../lib/format'
 
 export default function AppShell() {
   const navigate = useNavigate()
@@ -34,11 +35,20 @@ export default function AppShell() {
   const aiStreaming = useAiPanel((s) => s.streaming)
   const uploadDatasets = useUploads((s) => s.datasets)
   const inventoryCount = 16 + allUploadedAssets(uploadDatasets).length
+  const liveMeta = useLiveFeeds((s) => s.meta)
+  const liveSyncing = useLiveFeeds((s) => s.syncing)
+  const livePhase = useLiveFeeds((s) => s.phase)
+  const liveError = useLiveFeeds((s) => s.lastError)
+  const lastLive = latestLiveFetch(liveMeta)
   const [mobileOpen, setMobileOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const title = pageTitle(location.pathname)
 
   useEffect(() => setMobileOpen(false), [location.pathname])
+
+  useEffect(() => {
+    void useLiveFeeds.getState().syncAll()
+  }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -110,8 +120,11 @@ export default function AppShell() {
 
         <div className="sidebar-foot">
           <div className="status-line">
-            <i className="status-dot" />
-            Demo seed · offline
+            <i
+              className="status-dot"
+              style={{ background: liveSyncing ? 'var(--amber)' : lastLive ? 'var(--teal)' : undefined }}
+            />
+            {liveSyncing ? `Live sync · ${livePhase ?? 'starting'}` : lastLive ? `Live feeds · ${timeAgo(lastLive)}` : 'Demo seed · offline'}
             <span style={{ marginLeft: 'auto', opacity: 0.7 }}>v1.1</span>
           </div>
           <div className="user-pill" style={{ cursor: 'default' }}>
@@ -172,13 +185,21 @@ export default function AppShell() {
               DEMO
             </span>
             <span className="topbar-chip hide-sm">
-              <RefreshCw size={11} />
-              Updated {DEMO_NOW.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}
+              <RefreshCw size={11} className={liveSyncing ? 'spin' : undefined} />
+              {lastLive ? `${liveSyncing ? 'Syncing' : 'Live'} · ${timeAgo(lastLive)}` : `Updated ${DEMO_NOW.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`}
             </span>
             <button
               className="icon-btn hide-sm"
               aria-label="Source health"
-              onClick={() => showToast('All demo sources healthy · CERT-In marked degraded')}
+              onClick={() =>
+                showToast(
+                  liveError
+                    ? `Live pull: ${liveError}`
+                    : lastLive
+                      ? `NVD, EPSS and KEV pulled ${timeAgo(lastLive)} · cached in this browser`
+                      : 'No live pull yet · showing demo seed values',
+                )
+              }
             >
               <ShieldCheck size={15} />
             </button>

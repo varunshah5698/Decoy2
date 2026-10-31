@@ -10,6 +10,12 @@
   path = "/api/ai/chat"
 
 [[redirects]]
+  from = "/api/feeds/kev"
+  to = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

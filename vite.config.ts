@@ -16,10 +16,19 @@ function aiProxy(env: { key: string; base: string; model: string }): Plugin {
   }
 }
 
+const kevFeedProxy = {
+  '/api/feeds/kev': {
+    target: 'https://www.cisa.gov',
+    changeOrigin: true,
+    rewrite: () => '/sites/default/files/feeds/known_exploited_vulnerabilities.json',
+  },
+}
+
 export default defineConfig(({ mode }) => {
   const env = normalizeEnv(loadEnv(mode, process.cwd(), ''))
   return {
     plugins: [react(), aiProxy(env)],
-    server: { port: 5173, host: true },
+    server: { port: 5173, host: true, proxy: kevFeedProxy },
+    preview: { proxy: kevFeedProxy },
   }
 })

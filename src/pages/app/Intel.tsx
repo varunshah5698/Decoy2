@@ -8,16 +8,28 @@ import { EmptyState } from '../../components/EmptyState'
 import { Database, ExternalLink, RefreshCw, Rss, ShieldCheck } from '../../components/Icons'
 import { DEMO_NOW, intelItems, sourceHealth } from '../../data/seed'
 import { useTheme } from '../../lib/store'
-import { fmtInt, fmtDate, timeAgo } from '../../lib/format'
+import { latestLiveFetch, useLiveFeeds, type LiveSource } from '../../lib/liveFeeds'
+import { fmtInt, fmtDate, fmtDateTime, timeAgo } from '../../lib/format'
 import { AMBER, SIMULATED, TEAL, hexA } from '../../lib/colors'
 import type { IntelItem } from '../../lib/types'
 
 const SOURCES = ['ALL', 'NVD', 'CISA KEV', 'FIRST EPSS', 'MITRE ATT&CK', 'CERT-In'] as const
 
+const LIVE_SOURCE_KEYS: Record<string, LiveSource | undefined> = {
+  NVD: 'NVD',
+  'CISA KEV': 'CISA KEV',
+  'FIRST EPSS': 'FIRST EPSS',
+}
+
 export default function Intel() {
   const theme = useTheme((s) => s.theme)
   const [source, setSource] = useState<(typeof SOURCES)[number]>('ALL')
   const [selected, setSelected] = useState<IntelItem | null>(null)
+  const syncing = useLiveFeeds((s) => s.syncing)
+  const syncPhase = useLiveFeeds((s) => s.phase)
+  const liveMeta = useLiveFeeds((s) => s.meta)
+  const syncAll = useLiveFeeds((s) => s.syncAll)
+  const lastLive = latestLiveFetch(liveMeta)
 
   const filtered = intelItems.filter((i) => (source === 'ALL' ? true : i.source === source))
   const realItems = intelItems.filter((i) => !i.simulated)
@@ -96,10 +108,19 @@ export default function Intel() {
     }
   }, [theme])
 
-  const freshness = sourceHealth.map((s) => ({
-    ...s,
-    age: (DEMO_NOW.getTime() - new Date(s.lastSuccess).getTime()) / 3600000,
-  }))
+  const freshness = sourceHealth.map((s) => {
+    const key = LIVE_SOURCE_KEYS[s.source]
+    const live = key ? liveMeta[key] : undefined
+    return {
+      ...s,
+      status: live ? (live.status === 'ok' ? 'OK' : 'DEGRADED') : s.status,
+      lastSuccess: live?.fetchedAt ?? s.lastSuccess,
+      live: Boolean(live),
+      age: live
+        ? (Date.now() - new Date(live.fetchedAt).getTime()) / 3600000
+        : (DEMO_NOW.getTime() - new Date(s.lastSuccess).getTime()) / 3600000,
+    }
+  })
   const freshMedian = [...freshness].map((f) => f.age).sort((a, b) => a - b)[Math.floor(freshness.length / 2)]
 
   return (
@@ -109,8 +130,14 @@ export default function Intel() {
         title="Intelligence with receipts"
         description="Every item carries its source, its timestamp, and a visible distinction between real public feeds and demonstration content."
         actions={
-          <button className="btn btn-ghost btn-sm" onClick={() => undefined}>
-            <RefreshCw size={13} /> Refresh (offline demo)
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => void syncAll({ force: true })}
+            disabled={syncing}
+            aria-busy={syncing}
+          >
+            <RefreshCw size={13} className={syncing ? 'spin' : undefined} />
+            {syncing ? `Syncing ${syncPhase ?? ''}` : 'Sync live feeds'}
           </button>
         }
       />
@@ -136,13 +163,23 @@ export default function Intel() {
         </div>
         <div className="kpi high-tone">
           <div className="kpi-label">Degraded sources</div>
-          <div className="kpi-value">{sourceHealth.filter((s) => s.status !== 'OK').length}</div>
-          <div className="kpi-delta">CERT-In sample feed · labelled</div>
+          <div className="kpi-value">{freshness.filter((s) => s.status !== 'OK').length}</div>
+          <div className="kpi-delta">live pull errors and sample feeds</div>
         </div>
       </div>
 
       <div className="dash-grid">
-        <Panel className="col-8" title="Source health" sub="Last successful update · record counts · provenance class" noPad>
+        <Panel
+          className="col-8"
+          title="Source health"
+          sub="Last successful update · record counts · provenance class"
+          action={
+            <span className={lastLive ? 'badge real' : 'badge simulated'}>
+              {lastLive ? `live ${timeAgo(lastLive)}` : 'seed snapshot'}
+            </span>
+          }
+          noPad
+        >
           <div style={{ padding: '14px 18px', display: 'grid', gap: 8 }}>
             {freshness.map((s) => (
               <div key={s.source} className="source-row">
@@ -158,6 +195,7 @@ export default function Intel() {
                   </div>
                   <div className="mono" style={{ marginTop: 3, fontSize: 8 }}>
                     {s.note}
+                    {s.live ? ' · browser pull' : ''}
                   </div>
                 </div>
                 <div className="source-bar">
@@ -180,9 +218,11 @@ export default function Intel() {
           </div>
           <div className="table-note" style={{ borderTop: '1px solid var(--line)' }}>
             <span className="inline-flex">
-              <ShieldCheck size={11} /> Health is a computed age check, not a live network probe.
+              <ShieldCheck size={11} /> NVD, KEV and EPSS show the last browser pull; sample sources stay on the demo clock.
             </span>
-            <span className="mono">demo clock {DEMO_NOW.toISOString().slice(11, 16)}Z</span>
+            <span className="mono">
+              {lastLive ? `last pull ${fmtDateTime(lastLive)}` : `demo clock ${DEMO_NOW.toISOString().slice(11, 16)}Z`}
+            </span>
           </div>
         </Panel>
 
@@ -206,7 +246,11 @@ export default function Intel() {
           className="col-12"
           title="Intelligence stream"
           sub={`${filtered.length} items · ${source === 'ALL' ? 'all sources' : source}`}
-          action={<span className="badge real">Live feeds · cached offline</span>}
+          action={
+            <span className={lastLive ? 'badge real' : 'badge simulated'}>
+              {lastLive ? 'Live pull · cached' : 'Demo stream'}
+            </span>
+          }
           noPad
         >
           <div className="filters-bar">
@@ -218,7 +262,7 @@ export default function Intel() {
               ))}
             </div>
             <div className="filters-spacer" />
-            <LiveDot label="offline cache" />
+            <LiveDot label={lastLive ? 'browser cache' : 'offline cache'} />
           </div>
           {filtered.length === 0 ? (
             <EmptyState title="No items from this source" />
