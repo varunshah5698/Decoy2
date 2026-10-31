@@ -12,10 +12,11 @@ import {
   Sparkles,
 } from '../../components/Icons'
 import { componentByPath } from '../../app/catalog'
-import { counts, posture, sourceHealth } from '../../data/seed'
+import { assets, counts, posture, sourceHealth } from '../../data/seed'
 import { mlPortfolio, MODEL_CARD } from '../../lib/ml'
 import { useAiPanel } from '../../lib/aiStore'
 import { useAuth } from '../../lib/store'
+import { allUploadedAssets, useUploads } from '../../lib/uploads'
 import { cx } from '../../lib/format'
 
 const SUGGESTIONS = [
@@ -64,6 +65,9 @@ export default function AiAnalyst() {
   const stop = useAiPanel((s) => s.stop)
   const resetChat = useAiPanel((s) => s.resetChat)
   const retryChat = useAiPanel((s) => s.retryChat)
+  const uploadDatasets = useUploads((s) => s.datasets)
+
+  const uploadedAssets = allUploadedAssets(uploadDatasets)
 
   const component = componentByPath('/app/ai')
   const [input, setInput] = useState('')
@@ -313,12 +317,21 @@ export default function AiAnalyst() {
               </div>
               <div className="ai-page-fact">
                 <span>Inventory</span>
-                <strong>16 assets</strong>
+                <strong>
+                  {assets.length + uploadedAssets.length} assets
+                  {uploadedAssets.length > 0 && <span className="dim"> · {uploadedAssets.length} uploaded</span>}
+                </strong>
               </div>
               <div className="ai-page-fact">
                 <span>Sources</span>
                 <strong>{sourceHealth.length} · 1 degraded</strong>
               </div>
+              {uploadDatasets.length > 0 && (
+                <div className="ai-page-fact">
+                  <span>Uploads</span>
+                  <strong>{uploadDatasets.length} accepted</strong>
+                </div>
+              )}
               <div className="ai-page-fact">
                 <span>XGBoost</span>
                 <strong>

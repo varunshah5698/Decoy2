@@ -15,6 +15,7 @@ import {
 import { componentCatalog, counts, DEMO_NOW } from '../data/seed'
 import { useAuth, useFilters, useTheme, useToast } from '../lib/store'
 import { useAiPanel } from '../lib/aiStore'
+import { allUploadedAssets, useUploads } from '../lib/uploads'
 import { AnalystMark } from '../components/AnalystMark'
 import { navGroups, pageTitle, routeById } from './catalog'
 import { canAccess } from '../lib/access'
@@ -31,6 +32,8 @@ export default function AppShell() {
   const setQuery = useFilters((s) => s.setQuery)
   const showToast = useToast((s) => s.show)
   const aiStreaming = useAiPanel((s) => s.streaming)
+  const uploadDatasets = useUploads((s) => s.datasets)
+  const inventoryCount = 16 + allUploadedAssets(uploadDatasets).length
   const [mobileOpen, setMobileOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const title = pageTitle(location.pathname)
@@ -74,7 +77,7 @@ export default function AppShell() {
           <span className="org-avatar">AS</span>
           <div style={{ minWidth: 0 }}>
             <strong>Aegis Demo Org</strong>
-            <span>{counts.active} active · 16 assets</span>
+            <span>{counts.active} active · {inventoryCount} assets</span>
           </div>
         </div>
 

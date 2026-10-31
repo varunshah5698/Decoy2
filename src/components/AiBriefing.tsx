@@ -4,7 +4,8 @@ import { AnalystMark } from './AnalystMark'
 import { AiMarkdown } from './AiMarkdown'
 import { Activity, ArrowRight, Database, Info, RefreshCw, ShieldAlert, Zap } from './Icons'
 import { useAiPanel } from '../lib/aiStore'
-import { activeAlerts, counts, sourceHealth } from '../data/seed'
+import { activeAlerts, assets, counts, sourceHealth } from '../data/seed'
+import { allUploadedAssets, useUploads } from '../lib/uploads'
 import { mlPortfolio, MODEL_CARD } from '../lib/ml'
 import { fmtScore, cx } from '../lib/format'
 
@@ -18,6 +19,8 @@ export default function AiBriefing() {
   const navigate = useNavigate()
   const generate = useAiPanel((s) => s.generateBriefing)
   const briefing = useAiPanel((s) => s.briefing)
+  const uploadDatasets = useUploads((s) => s.datasets)
+  const inventoryCount = assets.length + allUploadedAssets(uploadDatasets).length
 
   useEffect(() => {
     generate('/app')
@@ -73,7 +76,7 @@ export default function AiBriefing() {
                 <span style={{ width: '46%' }} />
               </div>
               <p>
-                Reading {counts.active} alerts, 16 assets and {sourceHealth.length} sources…
+                Reading {counts.active} alerts, {inventoryCount} assets and {sourceHealth.length} sources…
               </p>
             </div>
           ) : (
@@ -136,7 +139,7 @@ export default function AiBriefing() {
 
       <footer className="ai-brief-foot">
         <span className="ai-brief-provenance">
-          Generated from {counts.active} alerts · 16 assets · {sourceHealth.length} sources · deterministic scores · XGBoost v{MODEL_CARD.version} second opinion
+          Generated from {counts.active} alerts · {inventoryCount} assets · {sourceHealth.length} sources · deterministic scores · XGBoost v{MODEL_CARD.version} second opinion
         </span>
         <div className="ai-brief-prompts">
           <button type="button" onClick={() => ask('What changed in the last 24 hours that I should act on?')}>

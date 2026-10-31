@@ -20,6 +20,7 @@ import {
 import { componentByPath } from '../app/catalog'
 import { FORMULA_VERSION, WEIGHTS } from './scoring'
 import { mlFor, mlPortfolio, MODEL_CARD } from './ml'
+import { allUploadedAssets, useUploads } from './uploads'
 import type { Role } from './store'
 import type { Alert, Asset } from './types'
 
@@ -107,6 +108,38 @@ export interface AnalystContext {
     byCriticality: Record<string, number>
     internetFacing: number
     unverifiedSoftware: string[]
+  }
+  userUploads: {
+    datasetCount: number
+    assetsTotal: number
+    datasets: {
+      name: string
+      type: string
+      status: string
+      rows: number
+      accepted: number
+      rejected: number
+      uploadedAt: string
+    }[]
+    assets: {
+      name: string
+      type: string
+      department: string
+      criticality: string
+      internetFacing: boolean
+      software: string[]
+    }[]
+    logs: {
+      dataset: string
+      total: number
+      failedLogins: number
+      distinctIps: number
+      destinations: string[]
+      countries: string[]
+      firstTimestamp: string | null
+      lastTimestamp: string | null
+    }[]
+    note: string
   }
   pageData: Record<string, unknown>
   policy: string
@@ -204,6 +237,9 @@ export function buildAnalystContext(
 ): AnalystContext {
   const role: Role = viewer.role ?? 'ANALYST'
   const component = componentByPath(pathname)
+  const uploadDatasets = useUploads.getState().datasets
+  const uploadedAssets = allUploadedAssets(uploadDatasets)
+  const mergedAssets = [...uploadedAssets, ...assets]
   const sorted = [...activeAlerts].sort((a, b) => b.score - a.score)
   const top = sorted.slice(0, 8)
   const patchPlan = buildPatchPlan()
@@ -211,10 +247,11 @@ export function buildAnalystContext(
 
   const byType: Record<string, number> = {}
   const byCriticality: Record<string, number> = {}
-  for (const a of assets) {
+  for (const a of mergedAssets) {
     byType[a.type] = (byType[a.type] ?? 0) + 1
     byCriticality[a.criticality] = (byCriticality[a.criticality] ?? 0) + 1
   }
+  const verifiedAssets = mergedAssets.filter((a) => a.software.every((s) => s.version && s.version !== 'unknown')).length
 
   const pageData: Record<string, unknown> = {}
   if (component.id === 2) pageData.alerts = alerts.map(slimAlert)
@@ -262,7 +299,7 @@ export function buildAnalystContext(
       indicators: p.indicators,
     }))
   }
-  if (component.id === 6) pageData.assets = assets.map(slimAsset)
+  if (component.id === 6) pageData.assets = mergedAssets.slice(0, 80).map(slimAsset)
   if (component.id === 7) {
     pageData.cves = cves.map((c) => ({
       id: c.id,
@@ -322,14 +359,28 @@ export function buildAnalystContext(
     pageData.flaggedWindows = flagged
   }
   if (component.id === 16) {
-    pageData.datasets = uploadedDatasets.map((d) => ({
-      name: d.name,
-      type: d.type,
-      status: d.status,
-      rows: d.rows,
-      accepted: d.accepted,
-      rejected: d.rejected,
-    }))
+    pageData.datasets = [
+      ...uploadDatasets.map((d) => ({
+        name: d.name,
+        type: d.type,
+        status: d.status,
+        rows: d.rows,
+        accepted: d.accepted,
+        rejected: d.rejected,
+        uploadedAt: d.uploadedAt,
+        source: 'USER UPLOAD',
+      })),
+      ...uploadedDatasets.map((d) => ({
+        name: d.name,
+        type: d.type,
+        status: d.status,
+        rows: d.rows,
+        accepted: d.accepted,
+        rejected: d.rejected,
+        uploadedAt: d.uploadedAt,
+        source: d.source,
+      })),
+    ]
   }
 
   return {
@@ -363,9 +414,9 @@ export function buildAnalystContext(
       kevLinked: activeAlerts.filter((a) => a.cve.kev).length,
       internetFacingAlerting: activeAlerts.filter((a) => a.asset.internetFacing).length,
       versionUnknown: activeAlerts.filter((a) => a.relevance === 'VERSION_UNKNOWN').length,
-      inventoryCoverage: '16 assets, version-aware on 15 of 16',
-      assets: assets.length,
-      departments: [...new Set(assets.map((a) => a.department))],
+      inventoryCoverage: `${mergedAssets.length} assets${uploadedAssets.length ? ` (${uploadedAssets.length} from user uploads)` : ''}, version-aware on ${verifiedAssets} of ${mergedAssets.length}`,
+      assets: mergedAssets.length,
+      departments: [...new Set(mergedAssets.map((a) => a.department))],
     },
     scoring: {
       formulaVersion: FORMULA_VERSION,
@@ -438,10 +489,48 @@ export function buildAnalystContext(
     inventory: {
       byType,
       byCriticality,
-      internetFacing: assets.filter((a) => a.internetFacing).length,
-      unverifiedSoftware: assets
+      internetFacing: mergedAssets.filter((a) => a.internetFacing).length,
+      unverifiedSoftware: mergedAssets
         .filter((a) => a.software.some((s) => !s.version || s.version === 'unknown'))
         .map((a) => a.name),
+    },
+    userUploads: {
+      datasetCount: uploadDatasets.length,
+      assetsTotal: uploadedAssets.length,
+      datasets: uploadDatasets.slice(0, 20).map((d) => ({
+        name: d.name,
+        type: d.type,
+        status: d.status,
+        rows: d.rows,
+        accepted: d.accepted,
+        rejected: d.rejected,
+        uploadedAt: d.uploadedAt,
+      })),
+      assets: uploadedAssets.slice(0, 50).map((a) => ({
+        name: a.name,
+        type: a.type,
+        department: a.department,
+        criticality: a.criticality,
+        internetFacing: a.internetFacing,
+        software: a.software.map((s) => `${s.vendor} ${s.product} ${s.version}`),
+      })),
+      logs: uploadDatasets
+        .filter((d) => d.logs)
+        .slice(0, 20)
+        .map((d) => ({
+          dataset: d.name,
+          total: d.logs!.total,
+          failedLogins: d.logs!.failedLogins,
+          distinctIps: d.logs!.distinctIps,
+          destinations: d.logs!.destinations,
+          countries: d.logs!.countries,
+          firstTimestamp: d.logs!.firstTimestamp,
+          lastTimestamp: d.logs!.lastTimestamp,
+        })),
+      note:
+        uploadDatasets.length > 0
+          ? 'These datasets were accepted by an admin in the Data Input Hub and are included in inventory counts. Assets carry source USER UPLOAD. Log uploads are summarised, not replayed event by event.'
+          : 'No customer uploads have been accepted in this browser yet. Inventory is the seeded demo set.',
     },
     pageData,
     policy:
@@ -604,6 +693,12 @@ export function localBriefing(ctx: AnalystContext): string {
   lines.push(
     `XGBoost **${MODEL_CARD.version}** (${MODEL_CARD.rounds} trees, test AUC **${MODEL_CARD.test.auc.toFixed(3)}**) puts **${mlPortfolio.elevated} of ${mlPortfolio.coverage}** active alerts above 35% 30-day exploitation likelihood; the highest prior is **${(mlPortfolio.max * 100).toFixed(0)}%**. The deterministic score stays authoritative — the model is a cross-check, not a replacement.`,
   )
+  if (ctx.userUploads.datasetCount > 0) {
+    lines.push('')
+    lines.push(
+      `**Customer data.** ${ctx.userUploads.assetsTotal} uploaded asset${ctx.userUploads.assetsTotal === 1 ? '' : 's'} from ${ctx.userUploads.datasetCount} accepted dataset${ctx.userUploads.datasetCount === 1 ? '' : 's'} are included in inventory counts and correlation context.`,
+    )
+  }
   lines.push('')
   lines.push(
     `**Data note.** Posture and telemetry are simulated demo data${degraded.length ? `; ${degraded.map((d) => d.source).join(', ')} is marked degraded` : ''}. Scores are deterministic.`,

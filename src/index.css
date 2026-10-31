@@ -1842,6 +1842,30 @@ svg {
   margin-top: 1px;
 }
 
+.form-success {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 11px 13px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--teal) 32%, transparent);
+  background: color-mix(in srgb, var(--teal) 9%, transparent);
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.form-success svg {
+  flex-shrink: 0;
+  color: var(--teal);
+}
+
+.form-success .panel-link {
+  margin-left: auto;
+  color: var(--teal);
+}
+
 .demo-block {
   margin-top: 28px;
   padding-top: 24px;

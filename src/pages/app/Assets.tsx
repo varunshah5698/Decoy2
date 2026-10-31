@@ -4,11 +4,12 @@ import { Chart, axisStyle } from '../../components/Chart'
 import { PageHeader, Panel } from '../../components/Panel'
 import { Drawer, DrawerHead } from '../../components/Drawer'
 import { StatsPanel } from '../../components/StatsPanel'
-import { CriticalityBadge, SeverityBadge, SimulatedBadge } from '../../components/Badges'
+import { CriticalityBadge, SeverityBadge, SimulatedBadge, UploadBadge } from '../../components/Badges'
 import { EmptyState } from '../../components/EmptyState'
 import { ArrowRight, Globe2, Network, Search, Server, Upload } from '../../components/Icons'
-import { activeAlerts, alerts, assets, departments } from '../../data/seed'
+import { activeAlerts, alerts, assets as seedAssets } from '../../data/seed'
 import { useAuth, useFilters, useTheme } from '../../lib/store'
+import { allUploadedAssets, useUploads } from '../../lib/uploads'
 import { fmtScore, timeAgo } from '../../lib/format'
 import { mean, median } from '../../lib/stats'
 import { LEVEL_COLORS, TEAL, hexA } from '../../lib/colors'
@@ -30,9 +31,14 @@ export default function Assets() {
   const [exposure, setExposure] = useState<'ALL' | 'EXPOSED' | 'INTERNAL'>('ALL')
   const [selected, setSelected] = useState<Asset | null>(null)
 
+  const uploadDatasets = useUploads((s) => s.datasets)
+  const uploadedAssets = useMemo(() => allUploadedAssets(uploadDatasets), [uploadDatasets])
+  const inventory = useMemo(() => [...uploadedAssets, ...seedAssets], [uploadedAssets])
+  const departments = useMemo(() => [...new Set(inventory.map((a) => a.department))], [inventory])
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return assets
+    return inventory
       .filter((a) => (dept === 'ALL' ? true : a.department === dept))
       .filter((a) => (criticality === 'ALL' ? true : a.criticality === criticality))
       .filter((a) => (exposure === 'ALL' ? true : exposure === 'EXPOSED' ? a.internetFacing : !a.internetFacing))
@@ -48,10 +54,10 @@ export default function Assets() {
         const bm = Math.max(0, ...assetAlerts(b.id).map((x) => x.score))
         return bm - am
       })
-  }, [dept, criticality, exposure, query])
+  }, [dept, criticality, exposure, query, inventory])
 
   const exposureOption = useMemo(() => {
-    const sorted = [...assets]
+    const sorted = [...inventory]
       .map((a) => ({ asset: a, alerts: assetAlerts(a.id), top: topLevel(assetAlerts(a.id)) }))
       .sort(
         (a, b) =>
@@ -97,10 +103,10 @@ export default function Assets() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, inventory])
 
   const typeOption = useMemo(() => {
-    const types = [...new Set(assets.map((a) => a.type))]
+    const types = [...new Set(inventory.map((a) => a.type))]
     const colors: Record<string, string> = {
       server: TEAL,
       app: '#e3a455',
@@ -130,25 +136,25 @@ export default function Assets() {
           labelLine: { lineStyle: { color: theme === 'dark' ? 'rgba(150,168,192,.3)' : 'rgba(23,30,40,.2)' } },
           data: types.map((t) => ({
             name: t,
-            value: assets.filter((a) => a.type === t).length,
+            value: inventory.filter((a) => a.type === t).length,
             itemStyle: { color: colors[t] ?? TEAL },
           })),
         },
       ],
     }
-  }, [theme])
+  }, [theme, inventory])
 
-  const criticalAssets = assets.filter((a) => a.criticality === 'HIGH')
-  const exposed = assets.filter((a) => a.internetFacing)
-  const versioned = assets.filter((a) => a.software.every((s) => s.version !== 'unknown'))
-  const perAsset = assets.map((a) => assetAlerts(a.id).length)
+  const criticalAssets = inventory.filter((a) => a.criticality === 'HIGH')
+  const exposed = inventory.filter((a) => a.internetFacing)
+  const versioned = inventory.filter((a) => a.software.every((s) => s.version !== 'unknown'))
+  const perAsset = inventory.map((a) => assetAlerts(a.id).length)
 
   return (
     <div className="page">
       <PageHeader
         eyebrow="COMPONENT 06 · ASSET EXPOSURE"
         title="Your side of the correlation"
-        description="Sixteen demo systems, their software versions, and exactly which alerts land on each. Version is the hinge: a product name alone is not a match."
+        description="Seeded demo systems plus every inventory accepted in the Data Input Hub, with the software versions that drive correlation. Version is the hinge: a product name alone is not a match."
         actions={
           <>
             <button className="btn btn-ghost btn-sm" onClick={() => navigate('/app/cves')}>
@@ -169,9 +175,10 @@ export default function Assets() {
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(5, minmax(0,1fr))' }}>
         <div className="kpi">
           <div className="kpi-label">Assets inventoried</div>
-          <div className="kpi-value">{assets.length}</div>
+          <div className="kpi-value">{inventory.length}</div>
           <div className="kpi-delta">
-            <SimulatedBadge /> seeded inventory
+            {uploadedAssets.length ? <UploadBadge /> : <SimulatedBadge />}
+            {uploadedAssets.length ? `${uploadedAssets.length} from uploads` : 'seeded inventory'}
           </div>
         </div>
         <div className="kpi teal-tone">
@@ -188,9 +195,9 @@ export default function Assets() {
           <div className="kpi-label">Version known</div>
           <div className="kpi-value">
             {versioned.length}
-            <small>/ {assets.length}</small>
+            <small>/ {inventory.length}</small>
           </div>
-          <div className="kpi-delta">{assets.length - versioned.length} needs verification</div>
+          <div className="kpi-delta">{inventory.length - versioned.length} needs verification</div>
         </div>
         <div className="kpi amber-tone">
           <div className="kpi-label">Department spread</div>
@@ -213,7 +220,7 @@ export default function Assets() {
           <Chart option={typeOption} height={300} />
           <div className="chart-legend" style={{ justifyContent: 'center' }}>
             <span className="legend-item">
-              <i style={{ background: TEAL }} /> {assets.length} systems
+              <i style={{ background: TEAL }} /> {inventory.length} systems
             </span>
             <span className="legend-item dim">Version-aware on {versioned.length}</span>
           </div>
@@ -222,8 +229,14 @@ export default function Assets() {
         <Panel
           className="col-12"
           title="Asset register"
-          sub={`${filtered.length} of ${assets.length} assets · sorted by maximum score`}
-          action={<span className="badge simulated">Simulated inventory</span>}
+          sub={`${filtered.length} of ${inventory.length} assets · sorted by maximum score`}
+          action={
+            uploadedAssets.length ? (
+              <span className="badge upload">Mixed · {uploadedAssets.length} uploaded</span>
+            ) : (
+              <span className="badge simulated">Simulated inventory</span>
+            )
+          }
           noPad
         >
           <div className="filters-bar">
@@ -285,7 +298,14 @@ export default function Assets() {
                     return (
                       <tr key={a.id} className="clickable" onClick={() => setSelected(a)}>
                         <td>
-                          <div className="cell-title">{a.name}</div>
+                          <div className="cell-title">
+                            {a.name}
+                            {a.source === 'USER UPLOAD' && (
+                              <span className="badge upload" style={{ marginLeft: 7 }}>
+                                upload
+                              </span>
+                            )}
+                          </div>
                           <div className="cell-sub">
                             {a.id} · {a.businessFunction}
                           </div>
@@ -320,7 +340,7 @@ export default function Assets() {
           )}
           <div className="table-note">
             <span className="inline-flex">
-              <Server size={11} /> Every row is seed data labelled SIMULATED. Replace it with a USER UPLOAD in the Data Input Hub.
+              <Server size={11} /> Seeded rows are labelled SIMULATED; accepted uploads carry USER UPLOAD and persist in this browser.
             </span>
             <span className="mono">{activeAlerts.length} active alerts mapped</span>
           </div>
@@ -329,11 +349,11 @@ export default function Assets() {
         <StatsPanel
           className="col-12"
           stats={[
-            { name: 'Mean alerts per asset', value: mean(perAsset).toFixed(2), formula: 'active alerts ÷ 16 assets', n: assets.length },
-            { name: 'Median alerts per asset', value: median(perAsset).toFixed(1), formula: 'median', n: assets.length },
-            { name: 'Internet-facing share', value: `${((exposed.length / assets.length) * 100).toFixed(0)}%`, formula: 'exposed ÷ total assets', n: assets.length },
-            { name: 'High-criticality share', value: `${((criticalAssets.length / assets.length) * 100).toFixed(0)}%`, formula: 'HIGH ÷ total assets', n: assets.length },
-            { name: 'Version certainty', value: `${((versioned.length / assets.length) * 100).toFixed(1)}%`, formula: 'assets with every version known', n: assets.length },
+            { name: 'Mean alerts per asset', value: mean(perAsset).toFixed(2), formula: 'active alerts ÷ total assets', n: inventory.length },
+            { name: 'Median alerts per asset', value: median(perAsset).toFixed(1), formula: 'median', n: inventory.length },
+            { name: 'Internet-facing share', value: `${((exposed.length / Math.max(1, inventory.length)) * 100).toFixed(0)}%`, formula: 'exposed ÷ total assets', n: inventory.length },
+            { name: 'High-criticality share', value: `${((criticalAssets.length / Math.max(1, inventory.length)) * 100).toFixed(0)}%`, formula: 'HIGH ÷ total assets', n: inventory.length },
+            { name: 'Version certainty', value: `${((versioned.length / Math.max(1, inventory.length)) * 100).toFixed(1)}%`, formula: 'assets with every version known', n: inventory.length },
           ]}
         />
       </div>
@@ -358,7 +378,7 @@ function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) 
           <span className="inline-flex" style={{ flexWrap: 'wrap', gap: 8 }}>
             <CriticalityBadge level={asset.criticality} />
             {asset.internetFacing ? <span className="badge high">Internet-facing</span> : <span className="badge suppressed">Internal</span>}
-            <span className="badge simulated">Simulated</span>
+            {asset.source === 'USER UPLOAD' ? <UploadBadge /> : <SimulatedBadge />}
           </span>
         }
       />

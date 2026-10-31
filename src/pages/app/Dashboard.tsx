@@ -13,6 +13,7 @@ import {
   activeAlerts,
   alertDaily,
   alerts,
+  assets as seedAssets,
   counts,
   DEMO_NOW,
   posture,
@@ -20,6 +21,7 @@ import {
   threatDaily,
 } from '../../data/seed'
 import { useFilters, useTheme } from '../../lib/store'
+import { allUploadedAssets, useUploads } from '../../lib/uploads'
 import { fmtInt, fmtScore, timeAgo } from '../../lib/format'
 import { median, spearman, stdev, mean } from '../../lib/stats'
 import { mlFor, mlPortfolio, MODEL_CARD } from '../../lib/ml'
@@ -35,6 +37,12 @@ export default function Dashboard() {
   const theme = useTheme((s) => s.theme)
   const query = useFilters((s) => s.query)
   const severity = useFilters((s) => s.severity)
+
+  const uploadDatasets = useUploads((s) => s.datasets)
+  const uploadedAssets = useMemo(() => allUploadedAssets(uploadDatasets), [uploadDatasets])
+  const inventory = useMemo(() => [...uploadedAssets, ...seedAssets], [uploadedAssets])
+  const versioned = inventory.filter((a) => a.software.every((s) => s.version && s.version !== 'unknown')).length
+  const coverage = Math.round((versioned / Math.max(1, inventory.length)) * 100)
 
   const kevActive = activeAlerts.filter((a) => a.cve.kev)
   const exposureActive = activeAlerts.filter((a) => a.asset.internetFacing)
@@ -303,6 +311,9 @@ export default function Dashboard() {
         description="Threats correlated to your inventory, ranked by what could actually reach a system you run."
         actions={
           <>
+            {uploadDatasets.length > 0 && (
+              <span className="badge upload">{uploadDatasets.length} upload{uploadDatasets.length === 1 ? '' : 's'} applied</span>
+            )}
             <button className="btn btn-ghost btn-sm" onClick={() => navigate('/app/scoring')}>
               <Zap size={13} /> Scoring model
             </button>
@@ -383,9 +394,12 @@ export default function Dashboard() {
             <ShieldCheck size={11} /> Inventory coverage
           </div>
           <div className="kpi-value">
-            100<small>% · 16 assets</small>
+            {coverage}<small>% · {inventory.length} assets</small>
           </div>
-          <div className="kpi-delta down">version-aware on 15 of 16</div>
+          <div className="kpi-delta down">
+            version-aware on {versioned} of {inventory.length}
+            {uploadedAssets.length ? ` · ${uploadedAssets.length} uploaded` : ''}
+          </div>
           <div className="kpi-spark">
             <Sparkline values={[88, 92, 92, 96, 96, 100, 100, 100]} width={60} height={22} color="#3fae74" />
           </div>
@@ -594,7 +608,7 @@ export default function Dashboard() {
 
       <div className="page-foot">
         <span className="mono">
-          Demo window {DEMO_NOW.toISOString().slice(0, 16).replace('T', ' ')}Z · {fmtInt(18)} CVEs · 16 simulated assets · 15 correlation candidates
+          Demo window {DEMO_NOW.toISOString().slice(0, 16).replace('T', ' ')}Z · {fmtInt(18)} CVEs · {inventory.length} assets · 15 correlation candidates
         </span>
         <span className="mono">Labels: NVD / CISA KEV / FIRST EPSS = real · SIMULATED = seeded · USER UPLOAD = customer data</span>
       </div>

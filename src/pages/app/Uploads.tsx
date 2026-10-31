@@ -1,11 +1,13 @@
 import { useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Chart } from '../../components/Chart'
 import { PageHeader, Panel } from '../../components/Panel'
 import { StatsPanel } from '../../components/StatsPanel'
 import { UploadBadge } from '../../components/Badges'
-import { AlertTriangle, Check, Download, FileSearch, Lock, ShieldCheck, Upload, X } from '../../components/Icons'
+import { AlertTriangle, ArrowRight, Check, Download, FileSearch, Lock, ShieldCheck, Upload, X } from '../../components/Icons'
 import { sampleAssetsCsv, sampleLogsCsv, uploadedDatasets } from '../../data/seed'
 import { useAuth, useTheme, useToast } from '../../lib/store'
+import { parseObjects, rowsToAssets, rowsToLogSummary, useUploads, type UploadedDataset } from '../../lib/uploads'
 import { fmtInt, timeAgo } from '../../lib/format'
 import { TEAL, UPLOAD, hexA } from '../../lib/colors'
 
@@ -79,39 +81,35 @@ function parseDelimited(text: string, delimiter: string) {
   return rows
 }
 
-function parseObjects(text: string): string[][] {
-  const trimmed = text.trim()
-  let arr: Record<string, unknown>[] = []
-  if (trimmed.startsWith('[')) {
-    arr = JSON.parse(trimmed)
-  } else {
-    arr = trimmed
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => JSON.parse(line))
-  }
-  const headers = [...new Set(arr.flatMap((o) => Object.keys(o)))]
-  return [headers, ...arr.map((o) => headers.map((h) => (o[h] == null ? '' : String(o[h]))))]
-}
+const LOG_SIGNALS = [
+  'event_type',
+  'event',
+  'action',
+  'timestamp',
+  'time',
+  'ts',
+  'datetime',
+  'event_time',
+  'source_ip',
+  'src_ip',
+  'client_ip',
+  'dest_asset',
+  'destination',
+  'user_agent',
+]
 
-interface Uploaded {
-  id: string
-  name: string
-  type: string
-  status: string
-  rows: number
-  accepted: number
-  rejected: number
-  uploadedBy: string
-  uploadedAt: string
-  source: string
-}
+const detectKind = (head: string[]): Kind =>
+  head.some((h) => LOG_SIGNALS.includes(normalize(h))) ? 'logs' : 'assets'
 
 export default function Uploads() {
   const theme = useTheme((s) => s.theme)
   const session = useAuth((s) => s.session)
   const toast = useToast((s) => s.show)
+  const navigate = useNavigate()
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const datasets = useUploads((s) => s.datasets)
+  const addDataset = useUploads((s) => s.add)
 
   const [file, setFile] = useState<File | null>(null)
   const [headers, setHeaders] = useState<string[]>([])
@@ -120,7 +118,7 @@ export default function Uploads() {
   const [mapping, setMapping] = useState<Record<string, string>>({})
   const [drag, setDrag] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [accepted, setAccepted] = useState<Uploaded[]>([])
+  const [lastAccepted, setLastAccepted] = useState<UploadedDataset | null>(null)
 
   const role = session?.role ?? 'ANALYST'
   const canUpload = role === 'ADMIN'
@@ -128,7 +126,10 @@ export default function Uploads() {
   const load = async (f: File) => {
     setError(null)
     setFile(f)
-    setAccepted([])
+    setLastAccepted(null)
+    setHeaders([])
+    setRows([])
+    setMapping({})
     if (f.size > MAX_BYTES) {
       setError('File exceeds the 10 MB demo limit.')
       return
@@ -154,9 +155,9 @@ export default function Uploads() {
         setError('The file needs a header row and at least one data row.')
         return
       }
-      const head = parsed[0].map((h) => h.trim())
+      const head = parsed[0].map((h) => h.trim().replace(/^\uFEFF/, ''))
       const body = parsed.slice(1)
-      const detected: Kind = head.some((h) => ['event_type', 'timestamp'].includes(normalize(h))) ? 'logs' : 'assets'
+      const detected = detectKind(head)
       const auto: Record<string, string> = {}
       FIELDS[detected].forEach((field) => {
         const hit = head.find((h) => {
@@ -169,8 +170,12 @@ export default function Uploads() {
       setRows(body)
       setKind(detected)
       setMapping(auto)
-    } catch {
-      setError('Could not parse this file. Check that it is valid CSV or JSONL.')
+    } catch (err) {
+      setError(
+        err instanceof Error && err.message === 'No records found'
+          ? 'No JSON records found. Upload an array of objects or a { "data": [...] } wrapper.'
+          : 'Could not parse this file. Check that it is valid CSV, JSON, or JSONL.',
+      )
     }
   }
 
@@ -182,6 +187,7 @@ export default function Uploads() {
     let rejected = 0
     let sanitized = 0
     const rejectedRows: { row: number; reason: string }[] = []
+    const acceptedRows: string[][] = []
     rows.forEach((r, idx) => {
       const get = (key: string) => {
         const col = mapping[key]
@@ -190,40 +196,44 @@ export default function Uploads() {
       r.forEach((c) => {
         if (/^[=+\-@]/.test(c.trim())) sanitized += 1
       })
-      if (required.some((f) => !get(f.key))) {
-        rejected += 1
-        rejectedRows.push({ row: idx + 2, reason: `missing ${required.filter((f) => !get(f.key)).map((f) => f.label).join(', ')}` })
-        return
-      }
-      if (kind === 'assets' && get('criticality')) {
+
+      let reason: string | null = null
+      const missing = required.filter((f) => !get(f.key))
+      if (missing.length) {
+        reason = `missing ${missing.map((f) => f.label).join(', ')}`
+      } else if (kind === 'assets' && get('criticality')) {
         const c = get('criticality').toUpperCase()
         if (!['HIGH', 'MEDIUM', 'LOW'].includes(c)) {
-          rejected += 1
-          rejectedRows.push({ row: idx + 2, reason: `criticality "${get('criticality')}" not in HIGH/MEDIUM/LOW` })
+          reason = `criticality "${get('criticality')}" not in HIGH/MEDIUM/LOW`
         }
-      }
-      if (kind === 'logs') {
+      } else if (kind === 'logs') {
         const ts = get('timestamp')
         if (Number.isNaN(Date.parse(ts)) && Number.isNaN(Number(ts))) {
-          rejected += 1
-          rejectedRows.push({ row: idx + 2, reason: 'timestamp is not ISO-8601 or epoch' })
+          reason = 'timestamp is not ISO-8601 or epoch'
         } else if (!EVENT_TYPES.includes(get('event_type').toUpperCase())) {
-          rejected += 1
-          rejectedRows.push({ row: idx + 2, reason: `event_type "${get('event_type')}" not recognised` })
+          reason = `event_type "${get('event_type')}" not recognised`
         }
+      }
+
+      if (reason) {
+        rejected += 1
+        rejectedRows.push({ row: idx + 2, reason })
+      } else {
+        acceptedRows.push(r)
       }
     })
     return {
       total: rows.length,
-      accepted: rows.length - rejected,
+      accepted: acceptedRows.length,
       rejected,
       sanitized,
       missingColumns,
       rejectedRows: rejectedRows.slice(0, 5),
+      acceptedRows,
     }
   }, [headers, rows, mapping, kind])
 
-  const history: Uploaded[] = [...accepted, ...(uploadedDatasets as Uploaded[])]
+  const history = useMemo(() => [...datasets, ...uploadedDatasets], [datasets])
 
   const accept = () => {
     if (!file || !validation || validation.missingColumns.length) return
@@ -231,8 +241,12 @@ export default function Uploads() {
       toast('Only the ADMIN role can accept uploads in this demo')
       return
     }
-    const entry: Uploaded = {
-      id: `DS-${1100 + accepted.length}`,
+    const used = history.map((h) => Number(String(h.id).replace(/\D/g, '')) || 0)
+    const id = `DS-${Math.max(1103, ...used) + 1}`
+    const assets = kind === 'assets' ? rowsToAssets(validation.acceptedRows, headers, mapping, id) : []
+    const logs = kind === 'logs' ? rowsToLogSummary(validation.acceptedRows, headers, mapping) : undefined
+    const entry: UploadedDataset = {
+      id,
       name: file.name,
       type: kind === 'assets' ? 'Assets' : 'Logs',
       status: validation.rejected > 0 ? 'PARTIAL' : 'ACCEPTED',
@@ -242,9 +256,16 @@ export default function Uploads() {
       uploadedBy: session?.email ?? 'admin@aegis.demo',
       uploadedAt: new Date().toISOString(),
       source: 'USER UPLOAD',
+      assets,
+      logs,
     }
-    setAccepted((a) => [entry, ...a])
-    toast(`${entry.accepted} rows accepted from ${file.name}`)
+    addDataset(entry)
+    setLastAccepted(entry)
+    toast(
+      kind === 'assets'
+        ? `${assets.length} assets added to the workspace from ${file.name}`
+        : `${entry.accepted} log rows accepted from ${file.name}`,
+    )
   }
 
   const download = (name: string, content: string) => {
@@ -312,7 +333,7 @@ export default function Uploads() {
           { n: 1, label: 'Upload', done: Boolean(file) },
           { n: 2, label: 'Map columns', done: Boolean(Object.keys(mapping).length) },
           { n: 3, label: 'Validate', done: Boolean(validation && validation.missingColumns.length === 0) },
-          { n: 4, label: 'Accept', done: accepted.length > 0 },
+          { n: 4, label: 'Accept', done: datasets.length > 0 },
         ].map((s) => (
           <div className={`upload-step${s.done ? ' done' : ''}`} key={s.n}>
             <span className="upload-step-num">{s.done ? <Check size={11} /> : String(s.n).padStart(2, '0')}</span>
@@ -320,6 +341,22 @@ export default function Uploads() {
           </div>
         ))}
       </div>
+
+      {lastAccepted && (
+        <div className="form-success" role="status">
+          <Check size={14} />
+          {lastAccepted.type === 'Assets' ? (
+            <>
+              <span>{lastAccepted.assets.length} assets are now in the workspace inventory.</span>
+              <button className="panel-link" onClick={() => navigate('/app/assets')}>
+                Open asset register <ArrowRight size={11} />
+              </button>
+            </>
+          ) : (
+            <span>{lastAccepted.accepted} log rows accepted and summarised for the Ask Aegis context.</span>
+          )}
+        </div>
+      )}
 
       <div className="dash-grid">
         <Panel
@@ -591,7 +628,7 @@ export default function Uploads() {
           </div>
           <div className="table-note">
             <span className="inline-flex">
-              <FileSearch size={11} /> Accepted rows become the inventory and log context used by correlation.
+              <FileSearch size={11} /> Accepted assets appear in the asset register, dashboard, and Ask Aegis context.
             </span>
             <span className="mono">quarantine never auto-promotes</span>
           </div>
@@ -624,7 +661,7 @@ export default function Uploads() {
 
       <div className="page-foot">
         <span className="inline-flex">
-          <Lock size={11} /> Uploaded data stays in this deployment; the demo parses locally and persists nothing.
+          <Lock size={11} /> Files are parsed in your browser. Accepted inventory is kept in this browser's local storage and never sent to a server.
         </span>
         <span className="mono" style={{ color: TEAL }}>provenance: USER UPLOAD</span>
       </div>

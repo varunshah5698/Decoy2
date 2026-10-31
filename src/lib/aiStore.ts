@@ -3,6 +3,7 @@ import { buildAnalystContext, localBriefing, streamAnalyst, type ChatMessage } f
 import { localChatReply, type ChatView } from './chat'
 import { counts, posture } from '../data/seed'
 import { useAuth } from './store'
+import { useUploads } from './uploads'
 
 const BRIEFING_REQUEST = `Write today's situation briefing for the dashboard. Use the attached context only.`
 
@@ -36,7 +37,7 @@ let chatController: AbortController | null = null
 let queuedChat: { text: string; view: ChatView } | null = null
 
 const briefingKey = (pathname: string) =>
-  `briefing:${pathname}:${posture}:${counts.active}:${counts.critical}`
+  `briefing:${pathname}:${posture}:${counts.active}:${counts.critical}:${useUploads.getState().datasets.length}`
 
 const withoutEmptyTail = (messages: ChatMessage[]) => {
   const next = messages.slice()
