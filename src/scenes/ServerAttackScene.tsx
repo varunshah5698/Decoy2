@@ -722,7 +722,7 @@ export function ServerAttackScene() {
       ctx.fillStyle = `rgba(${color}, ${(0.6 + packet.depth * 0.4) * fade})`
       ctx.arc(px, py, isMatch ? 3.2 : 1.1 + packet.depth * 1.7, 0, TAU)
       ctx.fill()
-      if (packet.label && w >= 1280) {
+      if (packet.label && isMatch && w >= 1280) {
         ctx.font = '8.5px "JetBrains Mono Variable", ui-monospace, monospace'
         ctx.textAlign = 'left'
         ctx.fillStyle = `rgba(${color}, ${(isMatch ? 0.95 : 0.55) * fade})`
