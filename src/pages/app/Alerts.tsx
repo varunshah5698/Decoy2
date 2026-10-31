@@ -1,22 +1,50 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState, type CSSProperties } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Drawer, DrawerHead } from '../../components/Drawer'
-import { PageHeader, Panel } from '../../components/Panel'
+import { Panel } from '../../components/Panel'
+import { Chart, axisStyle, chartFont, chartTokens } from '../../components/Chart'
+import { Counter } from '../../components/Counter'
+import { McHead, MoonGauge } from '../../components/MoonCards'
 import { Waterfall } from '../../components/Waterfall'
 import { StatsPanel } from '../../components/StatsPanel'
 import { SeverityBadge, ConfidenceBadge, RelevanceBadge, SourceBadge, UploadBadge } from '../../components/Badges'
 import { EmptyState } from '../../components/EmptyState'
-import { AlertTriangle, Check, Download, Lock, Search, ShieldAlert, Sparkles, X } from '../../components/Icons'
+import {
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  Check,
+  Download,
+  Gauge,
+  Globe2,
+  Layers,
+  Lock,
+  Search,
+  ShieldAlert,
+  Sparkles,
+  X,
+} from '../../components/Icons'
 import { DEMO_NOW } from '../../data/seed'
-import { useAcks, useAuth, useFilters, useToast } from '../../lib/store'
-import { fmtDate, fmtPct, fmtScore, timeAgo } from '../../lib/format'
-import { mean } from '../../lib/stats'
+import { useAcks, useAuth, useFilters, useTheme, useToast } from '../../lib/store'
+import { cx, fmtDate, fmtPct, fmtScore, timeAgo } from '../../lib/format'
+import { median } from '../../lib/stats'
 import { relevanceLabel, relevanceReason } from '../../lib/scoring'
 import { predict, topFeatureImportance, featureValueLabel, FEATURE_LABELS, ML_BANDS, MODEL_CARD } from '../../lib/ml'
 import { useLiveActiveAlerts, useLiveAlerts, useLiveSuppressedAlerts } from '../../lib/liveData'
+import { LEVEL_COLORS, hexA } from '../../lib/colors'
 import type { Alert, RelevanceStatus, RiskLevel } from '../../lib/types'
 
 type RelevanceFilter = 'ALL' | RelevanceStatus
+
+const LEVELS: RiskLevel[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
+
+const AGE_BANDS = [
+  { label: '≤ 6h', min: -Infinity, max: 6 },
+  { label: '6–24h', min: 6, max: 24 },
+  { label: '24–48h', min: 24, max: 48 },
+  { label: '48–72h', min: 48, max: 72 },
+  { label: '72h+', min: 72, max: Infinity },
+]
 
 export default function Alerts() {
   const [params, setParams] = useSearchParams()
@@ -64,60 +92,485 @@ export default function Alerts() {
       .sort((a, b) => Number(a.suppressed) - Number(b.suppressed) || b.score - a.score)
   }, [alerts, level, relevance, showSuppressed, kevOnly, query])
 
-  return (
-    <div className="page">
-      <PageHeader
-        eyebrow="COMPONENT 02 · ALERT CENTER"
-        title="Every alert earns its place"
-        description="Version-aware correlation first, deterministic scoring second, language last. Suppressed candidates stay visible and explain why they were hidden."
-        actions={
-          <>
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() =>
-                toast(admin ? 'CSV export is disabled in demo mode' : 'Export requires an admin account')
-              }
-              disabled={!admin}
-              title={admin ? 'Export the alert queue' : 'Admin access required'}
-            >
-              {admin ? <Download size={13} /> : <Lock size={13} />} Export
-            </button>
-            <span className="chip">
-              <Sparkles size={12} /> {acks ? Object.keys(acks).length : 0} acknowledged
-            </span>
-          </>
-        }
-      />
+  const theme = useTheme((s) => s.theme)
+  const gaugeColors =
+    theme === 'dark'
+      ? ['#ff7440', '#6d86c8', '#8b93a8', '#3b4457']
+      : ['#f4602a', '#1d2b4f', '#b9bccd', '#e6e6ef']
 
-      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
-        <div className="kpi high-tone">
-          <div className="kpi-label">Active alerts</div>
-          <div className="kpi-value">{activeAlerts.length}</div>
-          <div className="kpi-delta">version-relevant and scored</div>
+  const levelCounts = LEVELS.map((level) => ({
+    level,
+    value: activeAlerts.filter((a) => a.level === level).length,
+  }))
+  const levelShares = levelCounts.map((l) => ({
+    ...l,
+    share: (l.value / Math.max(1, activeAlerts.length)) * 100,
+  }))
+  const matchedCount = activeAlerts.filter((a) => a.relevance === 'MATCHED').length
+  const kevActive = activeAlerts.filter((a) => a.cve.kev).length
+  const ackedActive = activeAlerts.filter((a) => Boolean(acks[a.id])).length
+
+  const relevanceRows = [
+    { label: 'Version confirmed', value: matchedCount, color: gaugeColors[0] },
+    { label: 'Version unverified', value: alerts.filter((a) => a.relevance === 'VERSION_UNKNOWN').length, color: gaugeColors[1] },
+    { label: 'Not affected', value: alerts.filter((a) => a.relevance === 'NOT_AFFECTED').length, color: gaugeColors[2] },
+    { label: 'Product absent', value: alerts.filter((a) => a.relevance === 'PRODUCT_ABSENT').length, color: gaugeColors[3] },
+  ].map((r) => ({ ...r, share: (r.value / Math.max(1, alerts.length)) * 100 }))
+
+  const deptRows = useMemo(() => {
+    const map = new Map<string, { count: number; level: RiskLevel }>()
+    activeAlerts.forEach((a) => {
+      const current = map.get(a.asset.department)
+      if (!current) map.set(a.asset.department, { count: 1, level: a.level })
+      else {
+        current.count += 1
+        if (LEVELS.indexOf(a.level) < LEVELS.indexOf(current.level)) current.level = a.level
+      }
+    })
+    const palette = [...gaugeColors, theme === 'dark' ? '#46c08a' : '#2fa978', '#e0a12f']
+    return [...map.entries()]
+      .map(([name, v], i) => ({
+        name,
+        count: v.count,
+        share: (v.count / Math.max(1, activeAlerts.length)) * 100,
+        color: palette[i % palette.length],
+      }))
+      .sort((a, b) => b.count - a.count)
+  }, [activeAlerts, gaugeColors, theme])
+
+  const { cohortMatrix, medianAge, oldestAge } = useMemo(() => {
+    const ages = activeAlerts.map((a) => ({
+      level: a.level,
+      hours: (DEMO_NOW.getTime() - new Date(a.createdAt).getTime()) / 3_600_000,
+    }))
+    return {
+      cohortMatrix: AGE_BANDS.map((band) =>
+        LEVELS.map(
+          (level) => ages.filter((e) => e.level === level && e.hours > band.min && e.hours <= band.max).length,
+        ),
+      ),
+      medianAge: ages.length ? Math.round(median(ages.map((e) => e.hours))) : 0,
+      oldestAge: ages.length ? Math.round(Math.max(...ages.map((e) => e.hours))) : 0,
+    }
+  }, [activeAlerts])
+
+  const riskOption = useMemo(() => {
+    const ax = axisStyle(theme, { split: true })
+    const t = chartTokens(theme)
+    const ranked = activeAlerts.slice().sort((a, b) => b.score - a.score)
+    const line = theme === 'dark' ? '#ff8a5c' : '#f4602a'
+    const bar = theme === 'dark' ? '#5b79c9' : '#1d2b4f'
+    const tipBg = theme === 'dark' ? 'rgba(12,18,30,0.97)' : '#1d2b4f'
+    return {
+      grid: { left: 34, right: 18, top: 26, bottom: 26 },
+      xAxis: {
+        type: 'category',
+        data: ranked.map((_, i) => `#${i + 1}`),
+        ...ax,
+        axisLabel: { ...ax.axisLabel, interval: 0, fontSize: 9 },
+        axisPointer: { label: { show: false } },
+      },
+      yAxis: { type: 'value', max: 100, ...ax, splitNumber: 4, axisLabel: { ...ax.axisLabel, fontSize: 9 } },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: tipBg,
+        borderWidth: 0,
+        padding: [10, 12],
+        textStyle: { color: '#ffffff', fontSize: 10.5, fontFamily: chartFont, lineHeight: 18 },
+        extraCssText: 'border-radius:12px;box-shadow:0 20px 40px -18px rgba(16,24,40,.45);',
+        axisPointer: {
+          type: 'cross',
+          lineStyle: { color: hexA(line, 0.45), width: 1, type: 'dashed' },
+          crossStyle: { color: hexA(line, 0.45), width: 1, type: 'dashed' },
+          label: { show: false },
+        },
+        formatter: (params: any[]) => {
+          const i = params[0]?.dataIndex ?? 0
+          const a = ranked[i]
+          if (!a) return ''
+          return `<div style="font-weight:600;margin-bottom:6px">${a.cve.id} · ${a.asset.name}</div>
+            <div style="display:flex;gap:16px;justify-content:space-between"><span>Risk score</span><b>${fmtScore(a.score)}</b></div>
+            <div style="display:flex;gap:16px;justify-content:space-between"><span>EPSS</span><b>${a.cve.epss == null ? '—' : fmtPct(a.cve.epss)}</b></div>
+            <div style="display:flex;gap:16px;justify-content:space-between"><span>Level</span><b>${a.level}</b></div>`
+        },
+      },
+      series: [
+        {
+          name: 'EPSS',
+          type: 'bar',
+          data: ranked.map((a) => Number((((a.cve.epss ?? 0) * 100).toFixed(1)))),
+          barWidth: '36%',
+          z: 1,
+          itemStyle: { borderRadius: [5, 5, 0, 0], color: hexA(bar, theme === 'dark' ? 0.42 : 0.16) },
+          emphasis: { itemStyle: { color: hexA(bar, theme === 'dark' ? 0.7 : 0.34) } },
+          animationDelay: (idx: number) => idx * 24,
+        },
+        {
+          name: 'Risk score',
+          type: 'line',
+          smooth: 0.35,
+          symbol: 'circle',
+          showSymbol: false,
+          symbolSize: 6,
+          data: ranked.map((a) => Number(a.score.toFixed(1))),
+          z: 3,
+          lineStyle: { width: 2.4, color: line, shadowBlur: 14, shadowColor: hexA(line, 0.35) },
+          itemStyle: { color: line, borderColor: theme === 'dark' ? '#0e1522' : '#ffffff', borderWidth: 2 },
+          areaStyle: {
+            color: {
+              type: 'linear',
+              x: 0,
+              y: 0,
+              x2: 0,
+              y2: 1,
+              colorStops: [
+                { offset: 0, color: hexA(line, 0.26) },
+                { offset: 0.6, color: hexA(line, 0.07) },
+                { offset: 1, color: hexA(line, 0) },
+              ],
+            },
+          },
+          emphasis: { focus: 'series', lineStyle: { width: 2.8 } },
+          markLine: {
+            silent: true,
+            symbol: 'none',
+            lineStyle: { color: hexA(t.muted, 0.55), type: 'dashed', width: 1 },
+            label: {
+              formatter: `KEV band ${(ML_BANDS.elevated * 100).toFixed(0)}`,
+              position: 'insideMiddleTop',
+              color: t.muted,
+              fontSize: 8,
+              fontFamily: chartFont,
+            },
+            data: [{ yAxis: ML_BANDS.elevated * 100 }],
+          },
+        },
+      ],
+    }
+  }, [activeAlerts, theme])
+
+  const focusQueue = () => {
+    document.getElementById('alert-queue')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  return (
+    <div className="page dashboard-page alerts-page">
+      <header className="mc-header">
+        <div>
+          <span className="mono mc-eyebrow">ALERT CENTER · CORRELATED QUEUE</span>
+          <h1>Every alert earns its place</h1>
+          <p>
+            Version-aware correlation first, deterministic scoring second, language last. Suppressed candidates
+            stay visible and explain why they were hidden.
+          </p>
         </div>
-        <div className="kpi critical-tone">
-          <div className="kpi-label">Critical</div>
-          <div className="kpi-value">{activeAlerts.filter((a) => a.level === 'CRITICAL').length}</div>
-          <div className="kpi-delta up">patch window this week</div>
+        <div className="mc-header-actions">
+          <span className="mc-chip">
+            <Sparkles size={12} /> {ackedActive} acknowledged
+          </span>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() =>
+              toast(admin ? 'CSV export is disabled in demo mode' : 'Export requires an admin account')
+            }
+            disabled={!admin}
+            title={admin ? 'Export the alert queue' : 'Admin access required'}
+          >
+            {admin ? <Download size={13} /> : <Lock size={13} />} Export
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={focusQueue}>
+            Review queue <ArrowRight size={13} />
+          </button>
         </div>
-        <div className="kpi">
-          <div className="kpi-label">Supressed candidates</div>
-          <div className="kpi-value">{suppressedAlerts.length}</div>
-          <div className="kpi-delta">kept visible, never deleted</div>
+      </header>
+
+      <div className="mc-shell">
+        <div className="mc-col-left">
+          <section className="mc-card mc-posture-card">
+            <McHead icon={<ShieldAlert size={17} />} tone="orange" title="Queue load" sub="Correlated candidates · live" />
+            <div className="mc-posture-body">
+              <MoonGauge
+                value={activeAlerts.length}
+                label="active alerts"
+                ariaLabel="Active alerts"
+                segments={levelCounts.map((l, i) => ({ value: l.value, color: gaugeColors[i], label: l.level }))}
+              />
+              <div className="mc-gauge-legend">
+                {levelCounts.map((l, i) => (
+                  <span className="mc-legend-dot" key={l.level}>
+                    <i style={{ background: gaugeColors[i] }} />
+                    {l.value} {l.level.toLowerCase()}
+                  </span>
+                ))}
+              </div>
+              <div className="mc-deduct">
+                {activeAlerts.length} of {alerts.length} scored · {suppressedAlerts.length} gated
+              </div>
+            </div>
+            <div className="mc-trio">
+              <div>
+                <span className="ic">
+                  <AlertTriangle size={12} />
+                </span>
+                <strong>{levelCounts[0].value}</strong>
+                <span>Critical</span>
+              </div>
+              <div>
+                <span className="ic">
+                  <Sparkles size={12} />
+                </span>
+                <strong>{kevActive}</strong>
+                <span>KEV-linked</span>
+              </div>
+              <div>
+                <span className="ic">
+                  <Check size={12} />
+                </span>
+                <strong>{ackedActive}</strong>
+                <span>Acknowledged</span>
+              </div>
+            </div>
+          </section>
+
+          <section className="mc-card mc-signal-card">
+            <McHead
+              icon={<Gauge size={16} />}
+              tone="navy"
+              title="Signal mix"
+              sub="Kept vs gated candidates"
+              action={<span className="mc-chip">n={alerts.length}</span>}
+            />
+            <div className="mc-signal-list">
+              {relevanceRows.map((r) => (
+                <div className="mc-signal-row" key={r.label}>
+                  <div className="mc-signal-top">
+                    <span className="mc-sev">
+                      <i style={{ background: r.color }} />
+                      {r.label}
+                    </span>
+                    <span className="mc-signal-share">{r.share.toFixed(0)}%</span>
+                    <b>{r.value}</b>
+                  </div>
+                  <span className="mc-signal-track" aria-hidden="true">
+                    <i style={{ width: `${Math.max(2, r.share)}%`, background: r.color }} />
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="mc-signal-foot">
+              <div>
+                <b>{matchedCount}</b>
+                <span>scored &amp; ranked</span>
+              </div>
+              <div>
+                <b>{suppressedAlerts.length}</b>
+                <span>gated · audit kept</span>
+              </div>
+            </div>
+          </section>
         </div>
-        <div className="kpi teal-tone">
-          <div className="kpi-label">Mean score</div>
-          <div className="kpi-value">{fmtScore(mean(activeAlerts.map((a) => a.score)))}</div>
-          <div className="kpi-delta">six-factor deterministic</div>
+
+        <div className="mc-col-main">
+          <section className="mc-card mc-hero-card">
+            <McHead
+              icon={<Activity size={17} />}
+              tone="soft"
+              title="Queue risk curve"
+              sub="Six-factor score against exploitation probability"
+              action={
+                <span className="mc-chip">
+                  {activeAlerts.length} ranked · {suppressedAlerts.length} gated
+                </span>
+              }
+            />
+            <div className="mc-hero-body">
+              <div className="mc-hero-left">
+                <div className="mc-big">
+                  <span className="mc-big-num">
+                    <Counter to={activeAlerts.length} />
+                  </span>
+                  <button className="mc-details" onClick={focusQueue}>
+                    Details
+                  </button>
+                </div>
+                <div className="mc-big-label">
+                  Active alerts <span className="dim">· {suppressedAlerts.length} suppressed kept for audit</span>
+                </div>
+                <div className="mc-break">
+                  {levelShares.map((s) => (
+                    <div
+                      className="mc-break-row"
+                      key={s.level}
+                      style={{ '--tone': LEVEL_COLORS[s.level] } as CSSProperties}
+                    >
+                      <div className="top">
+                        <span>{s.level.charAt(0) + s.level.slice(1).toLowerCase()}</span>
+                        <b>{s.share.toFixed(1)}%</b>
+                      </div>
+                      <div className="mc-break-track">
+                        <i style={{ width: `${Math.max(2, s.share)}%` }} />
+                      </div>
+                      <div className="sub">{s.value} alerts in the queue</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mc-hero-chart">
+                <Chart option={riskOption} height={286} />
+              </div>
+            </div>
+            <div className="mc-hero-foot">
+              <div>
+                <span className="lab">Version-confirmed</span>
+                <span className="val">
+                  {matchedCount} of {activeAlerts.length} alerts
+                </span>
+              </div>
+              <div>
+                <span className="lab">KEV-linked</span>
+                <span className="val">{kevActive} in the live queue</span>
+              </div>
+              <div>
+                <span className="lab">Acknowledged</span>
+                <span className="val">{ackedActive} by analysts</span>
+              </div>
+            </div>
+          </section>
+
+          <div className="mc-lower">
+            <section className="mc-card mc-exposure-card">
+              <McHead
+                icon={<Globe2 size={16} />}
+                tone="soft"
+                title="Top exposure"
+                sub="Departments carrying the active queue"
+                action={<span className="mc-chip">n={activeAlerts.length}</span>}
+              />
+              <div className="mc-table" role="table" aria-label="Active alerts by department">
+                <div className="mc-table-head" role="row">
+                  <span role="columnheader">Department</span>
+                  <span className="num" role="columnheader">
+                    Share
+                  </span>
+                  <span className="num" role="columnheader">
+                    Alerts
+                  </span>
+                </div>
+                <div className="mc-table-body" role="rowgroup">
+                  {deptRows.slice(0, 5).map((d) => (
+                    <div className="mc-row" role="row" key={d.name}>
+                      <span role="cell">
+                        <span className="mc-sev">
+                          <i style={{ background: d.color }} />
+                          {d.name}
+                        </span>
+                      </span>
+                      <span className="num pct" role="cell">
+                        {d.share.toFixed(0)}%
+                      </span>
+                      <span className="num" role="cell">
+                        {d.count}
+                      </span>
+                    </div>
+                  ))}
+                  {deptRows.length > 5 && (
+                    <div className="mc-row" role="row">
+                      <span role="cell">
+                        <span className="mc-sev">
+                          <i style={{ background: gaugeColors[3] }} />
+                          Other
+                        </span>
+                      </span>
+                      <span className="num pct" role="cell">
+                        {deptRows
+                          .slice(5)
+                          .reduce((sum, d) => sum + d.share, 0)
+                          .toFixed(0)}
+                        %
+                      </span>
+                      <span className="num" role="cell">
+                        {deptRows.slice(5).reduce((sum, d) => sum + d.count, 0)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <section className="mc-card mc-cohort-card">
+              <McHead
+                icon={<Layers size={16} />}
+                tone="navy"
+                title="Alert aging"
+                sub="Open queue by age and severity"
+                action={<span className="mc-chip">n={activeAlerts.length}</span>}
+              />
+              <div className="mc-cohort-body">
+                <div className="mc-cohort-summary">
+                  <div className="num">
+                    <Counter to={medianAge} />
+                    <small>h</small>
+                  </div>
+                  <div className="lab">median age</div>
+                  <p>
+                    oldest {oldestAge}h · {activeAlerts.length} open
+                  </p>
+                  <ul className="mc-cohort-legend">
+                    {LEVELS.map((l, i) => (
+                      <li key={l}>
+                        <i style={{ background: gaugeColors[i] }} />
+                        {l.charAt(0) + l.slice(1).toLowerCase()}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="mc-cohort-grid" role="table" aria-label="Active alerts by age band and severity">
+                  <span className="corner" aria-hidden="true" />
+                  {LEVELS.map((level) => (
+                    <span className="col-head" key={`col-${level}`} role="columnheader">
+                      {level.slice(0, 4)}
+                    </span>
+                  ))}
+                  {AGE_BANDS.flatMap((band, bi) => [
+                    <span className="row-head" key={`h-${band.label}`}>
+                      {band.label}
+                    </span>,
+                    ...LEVELS.map((level, li) => {
+                      const v = cohortMatrix[bi][li]
+                      return (
+                        <span
+                          key={`${band.label}-${level}`}
+                          className={cx('mc-cohort-cell', v > 0 && 'filled')}
+                          style={
+                            {
+                              '--i': bi * 4 + li,
+                              ...(v > 0 ? { background: hexA(gaugeColors[li], 0.18 + Math.min(v, 3) * 0.24) } : {}),
+                            } as CSSProperties
+                          }
+                          title={`${v} ${level.toLowerCase()} · ${band.label}`}
+                          role="cell"
+                        >
+                          {v > 0 ? v : ''}
+                        </span>
+                      )
+                    }),
+                  ])}
+                </div>
+              </div>
+            </section>
+          </div>
         </div>
       </div>
 
-      <Panel
-        title="Alert queue"
-        sub={`${rows.length} of ${alerts.length} candidates after filters · suppression never deletes the record`}
-        action={<span className="badge real">NVD · KEV · EPSS</span>}
-        noPad
-      >
+      <div className="mc-stack alerts-stack">
+        <Panel
+          id="alert-queue"
+          className="col-12 alerts-queue"
+          title="Alert queue"
+          sub={`${rows.length} of ${alerts.length} candidates after filters · suppression never deletes the record`}
+          action={<span className="badge real">NVD · KEV · EPSS</span>}
+          noPad
+        >
         <div className="filters-bar">
           <div className="topbar-search" style={{ maxWidth: 300 }}>
             <Search size={13} />
@@ -186,12 +639,13 @@ export default function Alerts() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((a) => {
+                {rows.map((a, index) => {
                   const isAcked = Boolean(acks[a.id])
                   return (
                     <tr
                       key={a.id}
-                      className={`clickable${a.suppressed ? ' suppressed-row' : ''}`}
+                      className={`clickable row-enter${a.suppressed ? ' suppressed-row' : ''}`}
+                      style={{ '--i': Math.min(index, 12) } as CSSProperties}
                       onClick={() => open(a)}
                       aria-label={`Open ${a.cve.id} alert`}
                     >
@@ -242,9 +696,8 @@ export default function Alerts() {
           </span>
           <span className="mono">{rows.length} records · {DEMO_NOW.toISOString().slice(0, 10)}</span>
         </div>
-      </Panel>
+        </Panel>
 
-      <div className="dash-grid mt-16">
         <StatsPanel
           className="col-7"
           stats={[
@@ -281,36 +734,26 @@ export default function Alerts() {
           ]}
         />
         <Panel
-          className="col-5"
+          className="col-5 mc-suppress-card"
           title="Why suppression exists"
           sub="A severity-only queue cannot tell these apart"
-          bodyClass="panel-body"
+          bodyClass="mc-suppress-body"
         >
-          <div style={{ display: 'grid', gap: 12 }}>
+          <div className="mc-suppress-list">
             {suppressedAlerts.map((a) => (
-              <button
-                key={a.id}
-                onClick={() => open(a)}
-                style={{
-                  textAlign: 'left',
-                  padding: 14,
-                  borderRadius: 10,
-                  border: '1px solid var(--line)',
-                  background: 'rgba(255,255,255,0.015)',
-                }}
-              >
-                <div className="inline-flex" style={{ justifyContent: 'space-between', width: '100%' }}>
+              <button key={a.id} className="mc-suppress-row" onClick={() => open(a)}>
+                <div className="mc-suppress-top">
                   <span className="mono">{a.cve.id}</span>
                   <span className="badge suppressed">would have scored {fmtScore(a.wouldHaveScored ?? 0)}</span>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-dim)', marginTop: 6 }}>
+                <div className="mc-suppress-sub">
                   {a.asset.name} · {relevanceReason[a.relevance]}
                 </div>
               </button>
             ))}
-            <p className="dim" style={{ fontSize: 11.5, lineHeight: 1.6 }}>
-              Each row keeps its original CVSS, EPSS, and KEV inputs. The relevance gate sets the score to
-              zero but stores <span className="mono">suppressed_would_have_scored</span> for review.
+            <p className="mc-suppress-note">
+              Each row keeps its original CVSS, EPSS, and KEV inputs. The relevance gate sets the score to zero
+              but stores <span className="mono">suppressed_would_have_scored</span> for review.
             </p>
           </div>
         </Panel>
