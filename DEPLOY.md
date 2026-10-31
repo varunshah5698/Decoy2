@@ -1,6 +1,6 @@
 # Deploying Aegis Sentinel
 
-Live deployment: <https://aegis-sentinel-blush.vercel.app> (Vercel project `aegis-sentinel`).
+Live deployment: <https://aegis-sentinel-blush.vercel.app> (Vercel project `aegis-sentinel`). The project is connected to the Decoy2 repository, so pushes to `main` deploy production automatically.
 
 The app is a static Vite build plus one server-side endpoint, `POST /api/ai/chat`, which streams answers from River AI. The endpoint must run on a server: a static-only host would leave the copilot unavailable.
 
