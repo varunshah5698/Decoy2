@@ -1,17 +1,25 @@
 import { useMemo, useState } from 'react'
-import { PageHeader, Panel } from '../../components/Panel'
+import { Panel } from '../../components/Panel'
 import { Waterfall } from '../../components/Waterfall'
 import { StatsPanel } from '../../components/StatsPanel'
 import { SeverityBadge, SourceBadge } from '../../components/Badges'
-import { Drawer, DrawerHead } from '../../components/Drawer'
-import { AlertTriangle, Check, Database, GitBranch, Info, RefreshCw, Sparkles } from '../../components/Icons'
-import { DEMO_NOW } from '../../data/seed'
+import { EvidenceChain, EV_LANES, buildEvidenceGraph, type Truth } from '../../components/EvidenceChain'
+import {
+  AlertTriangle,
+  BarChart3,
+  Check,
+  Database,
+  GitBranch,
+  Info,
+  Layers,
+  RefreshCw,
+  Sparkles,
+} from '../../components/Icons'
+import { DEMO_NOW, sourceHealth } from '../../data/seed'
 import { useLiveAlerts } from '../../lib/liveData'
 import { latestLiveFetch, useLiveFeeds } from '../../lib/liveFeeds'
-import { useTheme } from '../../lib/store'
-import { fmtDate, fmtDateTime, fmtScore } from '../../lib/format'
-import { relevanceLabel } from '../../lib/scoring'
-import type { Alert } from '../../lib/types'
+import { fmtDate, fmtDateTime } from '../../lib/format'
+import './provenance.css'
 
 const fnv = (input: string) => {
   let h = 0x811c9dc5
@@ -22,11 +30,33 @@ const fnv = (input: string) => {
   return (h >>> 0).toString(16).padStart(8, '0')
 }
 
+const arc = (cx: number, cy: number, r: number, a0: number, a1: number) => {
+  const at = (a: number) => [cx + r * Math.cos((a * Math.PI) / 180), cy + r * Math.sin((a * Math.PI) / 180)]
+  const [x0, y0] = at(a0)
+  const [x1, y1] = at(a1)
+  return `M${x0} ${y0} A${r} ${r} 0 ${Math.abs(a1 - a0) > 180 ? 1 : 0} 1 ${x1} ${y1}`
+}
+
+const hoursSince = (iso: string) => Math.max(0, (DEMO_NOW.getTime() - new Date(iso).getTime()) / 3_600_000)
+
+const FILTERS: { key: 'all' | Truth; label: string }[] = [
+  { key: 'all', label: 'All nodes' },
+  { key: 'public', label: 'Public' },
+  { key: 'simulated', label: 'Simulated' },
+  { key: 'gap', label: 'Gaps' },
+]
+
+const TRUTH_TONE: Record<Truth, { bg: string; fg: string; label: string }> = {
+  public: { bg: 'rgba(15,143,131,.12)', fg: '#0f8f83', label: 'PUBLIC RECORD' },
+  simulated: { bg: 'rgba(114,87,204,.14)', fg: '#7257cc', label: 'SIMULATED' },
+  gap: { bg: 'rgba(217,58,65,.12)', fg: '#d93a41', label: 'MISSING INPUT' },
+}
+
 export default function Provenance() {
-  const theme = useTheme((s) => s.theme)
   const alerts = useLiveAlerts()
   const [selectedId, setSelectedId] = useState(alerts[0].id)
-  const [inspect, setInspect] = useState<{ label: string; value: string; note: string } | null>(null)
+  const [filter, setFilter] = useState<'all' | Truth>('all')
+  const [activeId, setActiveId] = useState<string | null>('alert')
   const alert = alerts.find((a) => a.id === selectedId) ?? alerts[0]
   const patch = useLiveFeeds((s) => s.patches[alert.cve.id])
   const lastFetch = latestLiveFetch(useLiveFeeds((s) => s.meta))
@@ -44,63 +74,14 @@ export default function Provenance() {
     [alert],
   )
 
-  const chain = [
-    {
-      icon: <Database size={15} />,
-      label: 'NVD record',
-      meta: `${alert.cve.id} · rev ${fmtDate(alert.cve.modified)}`,
-      tone: 'real',
-      note: 'Public record with CVSS vector, weaknesses, references, and CPE configurations.',
-    },
-    {
-      icon: <Database size={15} />,
-      label: 'CPE normalize',
-      meta: `${alert.cve.vendor} ${alert.cve.product}`,
-      tone: 'real',
-      note: 'Vendor and product are canonicalized; the version range is extracted from CPE match rows.',
-    },
-    {
-      icon: <Sparkles size={15} />,
-      label: 'EPSS + KEV',
-      meta: `${alert.cve.epss == null ? 'EPSS missing' : `${(alert.cve.epss * 100).toFixed(1)}% EPSS`} · ${alert.cve.kev ? 'KEV' : 'no KEV'}`,
-      tone: 'real',
-      note: 'Exploitation likelihood and known-exploited membership are attached to the CVE.',
-    },
-    {
-      icon: <Database size={15} />,
-      label: 'Inventory',
-      meta: `${alert.asset.name} · ${alert.version}`,
-      tone: 'simulated',
-      note: 'Installed software and asset context. Demo inventory is SIMULATED; production uses USER UPLOAD.',
-    },
-    {
-      icon: <GitBranch size={15} />,
-      label: 'Relevance gate',
-      meta: relevanceLabel[alert.relevance],
-      tone: alert.suppressed ? 'muted' : 'teal',
-      note: 'Version comparison decides whether the record survives. Suppression never deletes.',
-    },
-    {
-      icon: <Check size={15} />,
-      label: 'Deterministic score',
-      meta: `${fmtScore(alert.score)} · ${alert.level}`,
-      tone: 'amber',
-      note: 'Six factors, fixed weights, formula v1.1. No model is permitted to change this number.',
-    },
-  ]
+  const { nodes, edges } = useMemo(() => buildEvidenceGraph(alert), [alert])
+  const active = nodes.find((n) => n.id === activeId) ?? null
 
-  const fields = [
-    { key: 'alert_id', value: alert.id, from: 'system' },
-    { key: 'cve_id', value: alert.cve.id, from: 'NVD' },
-    { key: 'cvss_base', value: alert.cve.cvss?.toFixed(1) ?? 'missing', from: 'NVD' },
-    { key: 'epss', value: alert.cve.epss == null ? 'missing' : alert.cve.epss.toFixed(4), from: 'FIRST EPSS' },
-    { key: 'in_kev', value: String(alert.cve.kev), from: 'CISA KEV' },
-    { key: 'installed_version', value: alert.version, from: 'SIMULATED inventory' },
-    { key: 'relevance_status', value: alert.relevance, from: 'correlation engine' },
-    { key: 'risk_score', value: fmtScore(alert.score), from: 'scoreAlert()' },
-    { key: 'risk_level', value: alert.level, from: 'scoreAlert()' },
-    { key: 'summary_text', value: alert.summary.slice(0, 58) + '…', from: 'template writer' },
-  ]
+  const counts = {
+    public: nodes.filter((n) => n.truth === 'public').length,
+    simulated: nodes.filter((n) => n.truth === 'simulated').length,
+    gap: nodes.filter((n) => n.truth === 'gap').length,
+  }
 
   const present = [
     alert.cve.cvss != null,
@@ -110,88 +91,316 @@ export default function Provenance() {
     Boolean(alert.cve.range.endExcluding || alert.cve.range.endIncluding),
   ]
   const presentCount = present.filter(Boolean).length
+  const completeness = Math.round((presentCount / present.length) * 100)
+  const missing = present.length - presentCount
 
-  const missing = present.filter((p) => !p).length
+  /* Semicircle split by how much of the chain rests on a public record. */
+  const sweep = 178
+  let cursor = 181
+  const gaugeArcs = (['public', 'simulated', 'gap'] as const).flatMap((key) => {
+    const share = counts[key] / nodes.length
+    if (!share) return []
+    const span = share * sweep - 3
+    const d = arc(100, 104, 82, cursor, cursor + Math.max(1, span))
+    cursor += share * sweep
+    return [{ key, d }]
+  })
+
+  const fields = [
+    { key: 'alert_id', value: alert.id, from: 'system' },
+    { key: 'cve_id', value: alert.cve.id, from: 'NVD' },
+    { key: 'cvss_base', value: alert.cve.cvss?.toFixed(1) ?? 'missing', from: 'NVD' },
+    { key: 'epss', value: alert.cve.epss == null ? 'missing' : alert.cve.epss.toFixed(4), from: 'FIRST EPSS' },
+    { key: 'in_kev', value: String(alert.cve.kev), from: 'CISA KEV' },
+    { key: 'installed_version', value: alert.version, from: 'SIMULATED inventory' },
+    { key: 'relevance_status', value: alert.relevance, from: 'correlation engine' },
+    { key: 'risk_score', value: String(alert.score), from: 'scoreAlert()' },
+    { key: 'risk_level', value: alert.level, from: 'scoreAlert()' },
+    { key: 'summary_text', value: alert.summary.slice(0, 30) + '…', from: 'template writer' },
+  ]
+
+  const laneStats = EV_LANES.map((lane, i) => {
+    const inLane = nodes.filter((n) => n.lane === i)
+    const live = inLane.filter((n) => n.truth === 'public').length
+    return {
+      name: lane.label,
+      total: inLane.length,
+      live,
+      share: inLane.length ? Math.round((live / inLane.length) * 100) : 0,
+    }
+  })
 
   return (
-    <div className="page">
-      <PageHeader
-        eyebrow="COMPONENT 13 · PROVENANCE GRAPH"
-        title="Every alert can be traced"
-        description="Open the chain from public record to installed version to computed score. Missing inputs stay visible instead of being smoothed over."
-        actions={
-          <select className="select" style={{ width: 300 }} value={selectedId} onChange={(e) => setSelectedId(e.target.value)} aria-label="Choose alert">
+    <div className="page prov-root">
+      <header className="prov-head">
+        <div>
+          <span className="prov-head-eyebrow">
+            <GitBranch size={12} /> Component 13 · Provenance graph
+          </span>
+          <h1>Every alert can be traced</h1>
+          <p>
+            Open the chain from the public record to the installed version to the computed score. Missing inputs stay
+            visible instead of being smoothed over.
+          </p>
+          <div className="prov-identity">
+            <span className="prov-identity-record">
+              {alert.id} · {alert.cve.id} <span className="dim">→</span> {alert.asset.name}
+              <span className="prov-identity-time"> · {fmtDate(alert.createdAt)}</span>
+            </span>
+            <span className="inline-flex" style={{ flexWrap: 'wrap', gap: 7 }}>
+              <SourceBadge source="NVD" />
+              <SourceBadge source="FIRST EPSS" />
+              {alert.cve.kev && <SourceBadge source="CISA KEV" />}
+              <SourceBadge source="SIMULATED" />
+              <SeverityBadge level={alert.level} suppressed={alert.suppressed} />
+            </span>
+          </div>
+        </div>
+        <div className="prov-head-side">
+          <select className="select" style={{ width: 320 }} value={selectedId} onChange={(e) => setSelectedId(e.target.value)} aria-label="Choose alert">
             {alerts.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.id} · {a.cve.id} · {a.asset.name}
               </option>
             ))}
           </select>
-        }
-      />
+          <span className="prov-pill" title="FNV-1a over the demo payload · not a signature">
+            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--teal)' }}>{hash}</span>
+          </span>
+        </div>
+      </header>
 
-      <div className="provenance-head">
-        <div>
-          <span className="mono">ALERT {alert.id}</span>
-          <h2>
-            {alert.cve.id} <span className="dim">→</span> {alert.asset.name}
-          </h2>
-          <div className="inline-flex" style={{ flexWrap: 'wrap', gap: 7, marginTop: 8 }}>
-            <SourceBadge source="NVD" />
-            <SourceBadge source="FIRST EPSS" />
-            {alert.cve.kev && <SourceBadge source="CISA KEV" />}
-            <SourceBadge source="SIMULATED" />
-            <SeverityBadge level={alert.level} suppressed={alert.suppressed} />
+      <div className="dash-grid">
+        <Panel
+          className="col-12"
+          title={
+            <>
+              <span className="prov-ico">
+                <GitBranch size={13} />
+              </span>
+              Evidence chain
+            </>
+          }
+          sub={`${nodes.length} nodes · hover to trace the path, click to inspect`}
+          action={
+            <div className="prov-seg" role="group" aria-label="Filter nodes by origin">
+              {FILTERS.map((f) => (
+                <button
+                  type="button"
+                  key={f.key}
+                  className={filter === f.key ? 'on' : undefined}
+                  onClick={() => setFilter(f.key)}
+                  aria-pressed={filter === f.key}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          }
+          bodyClass="panel-body"
+        >
+          <EvidenceChain nodes={nodes} edges={edges} activeId={activeId} onSelect={setActiveId} filter={filter} />
+
+          <div className="prov-lanes">
+            {laneStats.map((l) => (
+              <div className="prov-lane" key={l.name}>
+                <span className="prov-lane-name">
+                  <i
+                    style={{
+                      background:
+                        l.name === 'SOURCE'
+                          ? '#131f35'
+                          : l.name === 'INTELLIGENCE'
+                            ? '#f2622e'
+                            : l.name === 'RULE'
+                              ? '#0f8f83'
+                              : l.name === 'WARNING'
+                                ? '#d93a41'
+                                : '#7257cc',
+                    }}
+                  />
+                  {l.name}
+                </span>
+                <span className="prov-lane-stat">
+                  {l.share}% <small>{l.live} of {l.total} public</small>
+                </span>
+              </div>
+            ))}
           </div>
-        </div>
-        <div style={{ textAlign: 'right' }}>
-          <div className="mono">PAYLOAD HASH</div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 18, color: 'var(--teal)', letterSpacing: '0.08em' }}>
-            {hash}
-          </div>
-          <div className="mono" style={{ fontSize: 8, marginTop: 4 }}>
-            FNV-1a over the demo payload · not a signature
-          </div>
-        </div>
+        </Panel>
       </div>
 
-      <Panel
-        title="Derivation chain"
-        sub="Six nodes · each is clickable for its evidence"
-        action={<span className="mono">formula v{alert.breakdown.formula_version}</span>}
-        bodyClass="panel-body"
-      >
-        <div className="flow-grid">
-          {chain.map((c, i) => (
-            <div className="flow-step" key={c.label}>
-              <button
-                className="flow-node"
-                onClick={() =>
-                  setInspect({
-                    label: c.label,
-                    value: c.meta,
-                    note: c.note,
-                  })
-                }
-              >
-                <span className={`flow-icon ${c.tone}`}>{c.icon}</span>
-                <strong>{c.label}</strong>
-                <span className="mono">{c.meta}</span>
-              </button>
-              {i < chain.length - 1 && <span className="flow-arrow" aria-hidden="true">→</span>}
+      <div className="dash-grid" style={{ marginTop: 14 }}>
+        <div className="col-3 prov-stack">
+          <Panel
+            title={
+              <>
+                <span className="prov-ico">
+                  <BarChart3 size={13} />
+                </span>
+                Evidence completeness
+              </>
+            }
+            sub={`${alert.id} · ${alert.cve.id}`}
+            bodyClass="panel-body"
+          >
+            <div className="prov-gauge">
+              <svg viewBox="0 0 200 118" role="img" aria-label={`${completeness}% of key inputs present`}>
+                <path d={arc(100, 104, 82, 181, 359)} fill="none" stroke="#eef1f5" strokeWidth={18} strokeLinecap="round" />
+                {gaugeArcs.map((a) => (
+                  <path
+                    key={a.key}
+                    d={a.d}
+                    fill="none"
+                    stroke={a.key === 'public' ? '#131f35' : a.key === 'simulated' ? '#7257cc' : '#f2622e'}
+                    strokeWidth={18}
+                    strokeLinecap="round"
+                  />
+                ))}
+                <text className="prov-gauge-value" x="100" y="96" textAnchor="middle">
+                  {completeness}%
+                </text>
+                <text className="prov-gauge-caption" x="100" y="114" textAnchor="middle">
+                  key inputs present
+                </text>
+              </svg>
+              <div className="prov-gauge-legend">
+                {(['public', 'simulated', 'gap'] as const).map((key) => (
+                  <button
+                    type="button"
+                    key={key}
+                    className={filter === key ? 'on' : undefined}
+                    onClick={() => setFilter((cur) => (cur === key ? 'all' : key))}
+                    aria-pressed={filter === key}
+                  >
+                    <span>{key === 'gap' ? 'Gaps' : key === 'public' ? 'Public' : 'Simulated'}</span>
+                    <b>{counts[key]}</b>
+                  </button>
+                ))}
+              </div>
             </div>
-          ))}
-        </div>
-        <div className="table-note">
-          <span className="inline-flex">
-            <Info size={11} /> Red or grey nodes indicate a gate or a missing input. Nothing is silently zero-filled.
-          </span>
-          <span className="mono">{presentCount}/5 key inputs present</span>
-        </div>
-      </Panel>
+          </Panel>
 
-      <div className="dash-grid mt-16">
-        <Panel className="col-7" title="Field lineage" sub="Every stored field, and who produced it" noPad>
+          <Panel
+            title={
+              <>
+                <span className="prov-ico">
+                  <Database size={13} />
+                </span>
+                Sources &amp; freshness
+              </>
+            }
+            sub="Recording feeds behind this chain"
+            action={
+              <span className="mono" style={{ color: 'var(--pv-accent)' }}>
+                <RefreshCw size={10} style={{ verticalAlign: -1 }} /> 1h
+              </span>
+            }
+            bodyClass="panel-body"
+          >
+            <div className="prov-rows">
+              {sourceHealth.map((s) => (
+                <div className="prov-row" key={s.source}>
+                  <span className="prov-row-label">
+                    <i
+                      className="prov-tick"
+                      style={{ background: s.kind === 'real' ? 'var(--teal)' : s.status === 'DEGRADED' ? 'var(--critical)' : 'var(--simulated)' }}
+                    />
+                    {s.source}
+                  </span>
+                  <span className="prov-row-num">{s.records.toLocaleString('en-US')}</span>
+                  <span className="prov-row-count">{hoursSince(s.lastSuccess).toFixed(1)}h</span>
+                </div>
+              ))}
+            </div>
+            <div className="table-note" style={{ padding: '12px 0 0' }}>
+              <span className="inline-flex">
+                <Info size={11} /> {sourceHealth.filter((s) => s.kind === 'real').length} of {sourceHealth.length} feeds
+                are live public data.
+              </span>
+            </div>
+          </Panel>
+        </div>
+
+        <Panel
+          className="col-9"
+          title={
+            <>
+              <span className="prov-ico">
+                <Layers size={13} />
+              </span>
+              Node inspector
+            </>
+          }
+          sub="What this node contributes"
+          bodyClass="panel-body"
+        >
+          {active ? (
+            <>
+              <div className="prov-inspect-kicker">
+                <span className="prov-inspect-title">{active.title}</span>
+                <span
+                  className="prov-inspect-kind"
+                  style={{ background: TRUTH_TONE[active.truth].bg, color: TRUTH_TONE[active.truth].fg }}
+                >
+                  {TRUTH_TONE[active.truth].label}
+                </span>
+              </div>
+              <div className="mono" style={{ color: 'var(--text-dim)' }}>
+                {active.value}
+              </div>
+              <p className="prov-inspect-note">{active.note}</p>
+
+              {active.segments && (
+                <div className="prov-bars">
+                  {active.segments.map((s) => (
+                    <div className="prov-bar-row" key={s.label}>
+                      <span className="prov-bar-top">
+                        <span>{s.label}</span>
+                        <b>{Math.round(s.share * 100)}%</b>
+                      </span>
+                      <span className="prov-bar-track">
+                        <span
+                          className="prov-bar-fill"
+                          style={{
+                            width: `${Math.max(2, s.share * 100)}%`,
+                            background: s.tone === 'accent' ? 'var(--pv-accent)' : s.tone === 'navy' ? 'var(--pv-navy)' : '#a8b1c0',
+                          }}
+                        />
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="prov-rows" style={{ marginTop: 16 }}>
+                {[
+                  ['Alert', alert.id],
+                  ['CVE', alert.cve.id],
+                  ['Asset', alert.asset.name],
+                  ['Formula', `v${alert.breakdown.formula_version}`],
+                ].map(([k, v]) => (
+                  <div className="prov-row" key={k}>
+                    <span className="prov-row-label">
+                      <Check size={12} style={{ color: 'var(--teal)' }} />
+                      {k}
+                    </span>
+                    <span className="prov-row-count" style={{ gridColumn: 'span 2' }}>
+                      {v}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="prov-empty">
+              <Sparkles size={16} />
+              Click any node on the chain to read its evidence.
+            </div>
+          )}
+        </Panel>
+
+        <Panel className="col-5" title="Field lineage" sub="Every stored field, and who produced it" noPad>
           <div className="table-wrap">
             <table className="data-table">
               <thead>
@@ -204,11 +413,15 @@ export default function Provenance() {
               <tbody>
                 {fields.map((f) => (
                   <tr key={f.key}>
-                    <td className="mono">{f.key}</td>
-                    <td className="mono" style={{ color: f.value === 'missing' ? 'var(--high)' : undefined }}>
+                    <td className="mono" style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--text)' }}>
+                      {f.key}
+                    </td>
+                    <td className="mono" style={{ textTransform: 'none', letterSpacing: 0, color: f.value === 'missing' ? 'var(--critical)' : 'var(--text-dim)' }}>
                       {f.value}
                     </td>
-                    <td className="cell-sub">{f.from}</td>
+                    <td className="cell-sub" style={{ marginTop: 0 }}>
+                      {f.from}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -218,13 +431,6 @@ export default function Provenance() {
             <span className="inline-flex">
               <Sparkles size={11} /> Only text fields come from the writer. Numeric fields are frozen after scoring.
             </span>
-          </div>
-        </Panel>
-
-        <Panel className="col-5" title="Score provenance" sub="Recomputed from the stored breakdown" bodyClass="panel-body">
-          <Waterfall alert={alert} compact />
-          <div className="table-note" style={{ borderTop: '1px solid var(--line)', marginTop: 8 }}>
-            <span className="mono">inputs: CVSS · EPSS · KEV · criticality · exposure · relevance</span>
           </div>
         </Panel>
 
@@ -249,19 +455,19 @@ export default function Provenance() {
                   { name: 'Installed version', ok: alert.version !== 'unknown' && alert.version !== 'not installed', time: DEMO_NOW.toISOString(), source: 'SIMULATED' },
                 ].map((r) => (
                   <tr key={r.name}>
-                    <td>{r.name}</td>
+                    <td className="cell-title">{r.name}</td>
                     <td>
                       {r.ok ? (
                         <span className="badge low">
                           <Check size={9} /> present
                         </span>
                       ) : (
-                        <span className="badge high">
+                        <span className="badge critical">
                           <AlertTriangle size={9} /> missing
                         </span>
                       )}
                     </td>
-                    <td className="mono">{fmtDateTime(r.time)}</td>
+                    <td className="mono" style={{ textTransform: 'none', letterSpacing: 0 }}>{fmtDateTime(r.time)}</td>
                     <td>
                       <SourceBadge source={r.source} simulated={r.source === 'SIMULATED'} />
                     </td>
@@ -276,90 +482,51 @@ export default function Provenance() {
           </div>
         </Panel>
 
-        <Panel className="col-5" title="Writer boundary" sub="What the language layer may and may not touch" bodyClass="panel-body">
-          <div style={{ display: 'grid', gap: 10 }}>
-            <div className="action-box" style={{ borderColor: 'rgba(62,210,193,.28)' }}>
+        <Panel className="col-5" title="Score provenance" sub="Recomputed from the stored breakdown" bodyClass="panel-body">
+          <Waterfall alert={alert} compact />
+          <div className="table-note" style={{ borderTop: '1px solid var(--line)', marginTop: 8, padding: '12px 0 0' }}>
+            <span className="mono">inputs: CVSS · EPSS · KEV · criticality · exposure · relevance</span>
+          </div>
+        </Panel>
+
+        <Panel className="col-7" title="Writer boundary" sub="What the language layer may and may not touch" bodyClass="panel-body">
+          <div className="prov-writer">
+            <div className="action-box" style={{ borderColor: 'rgba(15,143,131,.3)', borderRadius: 16 }}>
               <div className="inline-flex">
                 <Check size={13} className="check" />
-                <strong style={{ fontSize: 12 }}>May write</strong>
+                <strong style={{ fontSize: 12.5 }}>May write</strong>
               </div>
-              <p style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 5 }}>
+              <p style={{ fontSize: 12.5, lineHeight: 1.65, color: 'var(--text-dim)', marginTop: 5 }}>
                 Summary, impact statement, recommended action, and the reasoning paragraph. The demo uses a
                 deterministic template provider; Ollama or Gemini can replace it behind the same interface.
               </p>
             </div>
-            <div className="action-box" style={{ borderColor: 'rgba(229,84,90,.25)' }}>
+            <div className="action-box" style={{ borderColor: 'rgba(217,58,65,.28)', borderRadius: 16 }}>
               <div className="inline-flex">
                 <AlertTriangle size={13} className="miss" />
-                <strong style={{ fontSize: 12 }}>May never write</strong>
+                <strong style={{ fontSize: 12.5 }}>May never write</strong>
               </div>
-              <p style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 5 }}>
-                relevance_status, risk_level, numeric score, or suppression state. Those belong to the
-                deterministic engine and are verified by tests.
+              <p style={{ fontSize: 12.5, lineHeight: 1.65, color: 'var(--text-dim)', marginTop: 5 }}>
+                relevance_status, risk_level, numeric score, or suppression state. Those belong to the deterministic
+                engine and are verified by tests.
               </p>
-            </div>
-            <div className="form-alert" style={{ margin: 0 }}>
-              <RefreshCw size={13} />
-              <span>
-                Cached LLM output is keyed by (cve, asset, formula version) and falls back to the template on any
-                failure.
-              </span>
             </div>
           </div>
         </Panel>
 
         <StatsPanel
           className="col-12"
+          title="Chain statistics"
+          sub="Recomputed from the selected record"
           stats={[
-            { name: 'Inputs present', value: `${presentCount}/5`, formula: 'required input completeness flags', n: 5 },
-            { name: 'Field rows', value: String(fields.length), formula: 'stored fields in this record', n: fields.length },
-            { name: 'Score integrity', value: alert.breakdown.total_capped === alert.score ? 'verified' : 'mismatch', formula: 'stored score = recomputed breakdown', n: alert.breakdown.formula_version === '1.1' ? 1 : 0 },
+            { name: 'Inputs present', value: `${presentCount}/${present.length}`, formula: 'required input completeness flags', n: present.length },
+            { name: 'Chain nodes', value: String(nodes.length), formula: 'source, intelligence, rule, warning, inventory', n: nodes.length },
+            { name: 'Public records', value: String(counts.public), formula: 'nodes backed by a live public feed', n: counts.public },
+            { name: 'Score integrity', value: alert.breakdown.total_capped === alert.score ? 'verified' : 'mismatch', formula: 'stored score = recomputed breakdown', n: 1 },
             { name: 'Suppression', value: alert.suppressed ? 'applied' : 'not applied', formula: 'relevance gate state', n: 1 },
-            { name: 'Payload hash', value: hash, formula: 'FNV-1a over {cve, asset, score, breakdown}', n: 1 },
           ]}
         />
       </div>
-
-      <Drawer open={Boolean(inspect)} onClose={() => setInspect(null)} label="Provenance node">
-        {inspect && (
-          <>
-            <DrawerHead overline="PROVENANCE NODE" title={inspect.label} onClose={() => setInspect(null)} />
-            <div className="drawer-body">
-              <div className="drawer-section">
-                <div className="action-box">
-                  <div className="mono" style={{ fontSize: 11, color: 'var(--teal)' }}>{inspect.value}</div>
-                  <p style={{ fontSize: 12.5, color: 'var(--text-dim)', marginTop: 8 }}>{inspect.note}</p>
-                </div>
-              </div>
-              <div className="drawer-section">
-                <h3>Record context</h3>
-                <div className="provenance-list">
-                  <div className="provenance-row">
-                    <span className="check">✓</span>
-                    <span>Alert</span>
-                    <span className="time">{alert.id}</span>
-                  </div>
-                  <div className="provenance-row">
-                    <span className="check">✓</span>
-                    <span>CVE</span>
-                    <span className="time">{alert.cve.id}</span>
-                  </div>
-                  <div className="provenance-row">
-                    <span className="check">✓</span>
-                    <span>Asset</span>
-                    <span className="time">{alert.asset.name}</span>
-                  </div>
-                  <div className="provenance-row">
-                    <span className="check">✓</span>
-                    <span>Formula version</span>
-                    <span className="time">{alert.breakdown.formula_version}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-      </Drawer>
     </div>
   )
 }
