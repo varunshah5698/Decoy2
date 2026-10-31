@@ -12,7 +12,7 @@ import type {
   Technique,
   TrafficPoint,
 } from '../lib/types'
-import { postureFromCounts, relevanceReason, round1, scoreAlert } from '../lib/scoring'
+import { relevanceReason, round1, scoreAlert } from '../lib/scoring'
 import { mulberry32 } from '../lib/stats'
 
 export const DEMO_NOW = new Date('2026-10-31T09:42:00Z')
@@ -110,7 +110,7 @@ export const cves: Cve[] = [
     refs: [{ url: 'https://nvd.nist.gov/vuln/detail/CVE-2022-22965', source: 'NVD' }],
   },
   {
-    id: 'CVE-2023-20863',
+    id: 'CVE-2023-20862',
     title: 'Spring Framework SpEL denial of service',
     description:
       'A maliciously crafted Spring Expression Language expression can cause denial of service in applications parsing user-supplied expressions.',
@@ -127,7 +127,7 @@ export const cves: Cve[] = [
     product: 'Spring Framework',
     range: { startIncluding: '5.3.0', endExcluding: '5.3.27' },
     fixVersion: '5.3.27 or 6.0.8',
-    refs: [{ url: 'https://nvd.nist.gov/vuln/detail/CVE-2023-20863', source: 'NVD' }],
+    refs: [{ url: 'https://nvd.nist.gov/vuln/detail/CVE-2023-20862', source: 'NVD' }],
   },
   {
     id: 'CVE-2023-34362',
@@ -401,6 +401,11 @@ export const cves: Cve[] = [
   },
 ]
 
+/* Overlapping package stacks are deliberate: the same Log4j, nginx, OpenSSH and Chrome
+   builds reappear across platforms, so one CVE reaches several assets and one asset
+   answers to several records. That fan-out is what turns the graph into a mesh instead
+   of a list of pairs, and it is also what the relevance gate has to sort out — patched
+   peers of a widely deployed package are suppressed, not dropped. */
 export const assets: Asset[] = [
   {
     id: 'AST-HR-01',
@@ -415,6 +420,7 @@ export const assets: Asset[] = [
     software: [
       { vendor: 'Apache', product: 'Log4j', version: '2.14.1' },
       { vendor: 'NGINX', product: 'nginx', version: '1.24.0' },
+      { vendor: 'VMware', product: 'Spring Framework', version: '5.3.18' },
     ],
   },
   {
@@ -427,7 +433,11 @@ export const assets: Asset[] = [
     internetFacing: false,
     sensitivity: 'HIGH',
     source: 'SIMULATED',
-    software: [{ vendor: 'VMware', product: 'Spring Framework', version: '5.3.17' }],
+    software: [
+      { vendor: 'VMware', product: 'Spring Framework', version: '5.3.17' },
+      { vendor: 'Apache', product: 'Log4j', version: '2.14.1' },
+      { vendor: 'PostgreSQL', product: 'PostgreSQL', version: '15.4' },
+    ],
   },
   {
     id: 'AST-NET-03',
@@ -439,7 +449,10 @@ export const assets: Asset[] = [
     internetFacing: true,
     sensitivity: 'HIGH',
     source: 'SIMULATED',
-    software: [{ vendor: 'Citrix', product: 'NetScaler ADC', version: '13.1.47' }],
+    software: [
+      { vendor: 'Citrix', product: 'NetScaler ADC', version: '13.1.47' },
+      { vendor: 'OpenBSD', product: 'OpenSSH', version: '9.6' },
+    ],
   },
   {
     id: 'AST-FIN-04',
@@ -451,7 +464,11 @@ export const assets: Asset[] = [
     internetFacing: true,
     sensitivity: 'HIGH',
     source: 'SIMULATED',
-    software: [{ vendor: 'Progress', product: 'MOVEit Transfer', version: '2023.0.1' }],
+    software: [
+      { vendor: 'Progress', product: 'MOVEit Transfer', version: '2023.0.1' },
+      { vendor: 'Microsoft', product: 'Windows Server', version: '10.0.17763' },
+      { vendor: 'OpenBSD', product: 'OpenSSH', version: '9.8' },
+    ],
   },
   {
     id: 'AST-ENG-05',
@@ -463,7 +480,10 @@ export const assets: Asset[] = [
     internetFacing: false,
     sensitivity: 'MEDIUM',
     source: 'SIMULATED',
-    software: [{ vendor: 'Tukaani', product: 'XZ Utils', version: '5.6.1' }],
+    software: [
+      { vendor: 'Tukaani', product: 'XZ Utils', version: '5.6.1' },
+      { vendor: 'OpenBSD', product: 'OpenSSH', version: '9.6' },
+    ],
   },
   {
     id: 'AST-IT-06',
@@ -487,7 +507,10 @@ export const assets: Asset[] = [
     internetFacing: true,
     sensitivity: 'HIGH',
     source: 'SIMULATED',
-    software: [{ vendor: 'Palo Alto Networks', product: 'PAN-OS', version: 'unknown' }],
+    software: [
+      { vendor: 'Palo Alto Networks', product: 'PAN-OS', version: 'unknown' },
+      { vendor: 'OpenBSD', product: 'OpenSSH', version: '9.5' },
+    ],
   },
   {
     id: 'AST-IT-08',
@@ -499,7 +522,10 @@ export const assets: Asset[] = [
     internetFacing: false,
     sensitivity: 'HIGH',
     source: 'SIMULATED',
-    software: [{ vendor: 'OpenBSD', product: 'OpenSSH', version: '8.9' }],
+    software: [
+      { vendor: 'OpenBSD', product: 'OpenSSH', version: '8.9' },
+      { vendor: 'Tukaani', product: 'XZ Utils', version: '5.6.1' },
+    ],
   },
   {
     id: 'AST-ENG-09',
@@ -511,7 +537,10 @@ export const assets: Asset[] = [
     internetFacing: true,
     sensitivity: 'MEDIUM',
     source: 'SIMULATED',
-    software: [{ vendor: 'NGINX', product: 'nginx', version: '1.25.2' }],
+    software: [
+      { vendor: 'NGINX', product: 'nginx', version: '1.25.2' },
+      { vendor: 'Tukaani', product: 'XZ Utils', version: '5.4.5' },
+    ],
   },
   {
     id: 'AST-IT-10',
@@ -523,7 +552,10 @@ export const assets: Asset[] = [
     internetFacing: true,
     sensitivity: 'MEDIUM',
     source: 'SIMULATED',
-    software: [{ vendor: 'Microsoft', product: 'Exchange Server', version: '15.1.2507.6' }],
+    software: [
+      { vendor: 'Microsoft', product: 'Exchange Server', version: '15.1.2507.6' },
+      { vendor: 'Apache', product: 'Log4j', version: '2.15.0' },
+    ],
   },
   {
     id: 'AST-CX-11',
@@ -538,6 +570,7 @@ export const assets: Asset[] = [
     software: [
       { vendor: 'Apache', product: 'Log4j', version: '2.17.1' },
       { vendor: 'NGINX', product: 'nginx', version: '1.24.0' },
+      { vendor: 'VMware', product: 'Spring Framework', version: '5.3.25' },
     ],
   },
   {
@@ -550,7 +583,11 @@ export const assets: Asset[] = [
     internetFacing: false,
     sensitivity: 'HIGH',
     source: 'SIMULATED',
-    software: [{ vendor: 'PostgreSQL', product: 'PostgreSQL', version: '15.4' }],
+    software: [
+      { vendor: 'PostgreSQL', product: 'PostgreSQL', version: '15.4' },
+      { vendor: 'Tukaani', product: 'XZ Utils', version: '5.6.1' },
+      { vendor: 'OpenBSD', product: 'OpenSSH', version: '9.9' },
+    ],
   },
   {
     id: 'AST-IT-13',
@@ -562,7 +599,10 @@ export const assets: Asset[] = [
     internetFacing: false,
     sensitivity: 'LOW',
     source: 'SIMULATED',
-    software: [{ vendor: 'Microsoft', product: 'Windows', version: '10.0.19045' }],
+    software: [
+      { vendor: 'Microsoft', product: 'Windows', version: '10.0.19045' },
+      { vendor: 'Google', product: 'Chrome', version: '117.0.5938.99' },
+    ],
   },
   {
     id: 'AST-IT-14',
@@ -574,7 +614,11 @@ export const assets: Asset[] = [
     internetFacing: false,
     sensitivity: 'HIGH',
     source: 'SIMULATED',
-    software: [{ vendor: 'Google', product: 'Chrome', version: '118.0.5993.88' }],
+    software: [
+      { vendor: 'Google', product: 'Chrome', version: '118.0.5993.88' },
+      { vendor: 'Microsoft', product: 'Windows', version: '10.0.19042' },
+      { vendor: 'Microsoft', product: 'Outlook', version: '16.0.14327' },
+    ],
   },
   {
     id: 'AST-FAC-15',
@@ -586,7 +630,10 @@ export const assets: Asset[] = [
     internetFacing: false,
     sensitivity: 'LOW',
     source: 'SIMULATED',
-    software: [{ vendor: 'Google', product: 'Chrome', version: '116.0.5845.96' }],
+    software: [
+      { vendor: 'Google', product: 'Chrome', version: '116.0.5845.96' },
+      { vendor: 'Microsoft', product: 'Windows', version: '10.0.19041' },
+    ],
   },
   {
     id: 'AST-IT-16',
@@ -598,7 +645,10 @@ export const assets: Asset[] = [
     internetFacing: false,
     sensitivity: 'HIGH',
     source: 'SIMULATED',
-    software: [{ vendor: 'Synology', product: 'DSM', version: '7.2.1' }],
+    software: [
+      { vendor: 'Synology', product: 'DSM', version: '7.2.1' },
+      { vendor: 'OpenBSD', product: 'OpenSSH', version: '8.2' },
+    ],
   },
 ]
 
@@ -623,11 +673,52 @@ const alertSpecs: AlertSpec[] = [
   { cveId: 'CVE-2024-6387', assetId: 'AST-IT-08', relevance: 'MATCHED', hours: 47 },
   { cveId: 'CVE-2024-3094', assetId: 'AST-ENG-05', relevance: 'MATCHED', hours: 52 },
   { cveId: 'CVE-2021-45105', assetId: 'AST-HR-01', relevance: 'MATCHED', hours: 61 },
-  { cveId: 'CVE-2023-20863', assetId: 'AST-FIN-02', relevance: 'MATCHED', hours: 72 },
+  { cveId: 'CVE-2023-20862', assetId: 'AST-FIN-02', relevance: 'MATCHED', hours: 72 },
   { cveId: 'CVE-2023-7024', assetId: 'AST-IT-14', relevance: 'MATCHED', hours: 84 },
   { cveId: 'CVE-2023-5217', assetId: 'AST-FAC-15', relevance: 'MATCHED', hours: 96 },
   { cveId: 'CVE-2021-34527', assetId: 'AST-IT-13', relevance: 'NOT_AFFECTED', hours: 106 },
   { cveId: 'CVE-2023-23397', assetId: 'AST-IT-10', relevance: 'PRODUCT_ABSENT', hours: 118 },
+
+  /* Lateral spread: the packages that recur across the estate reach several platforms,
+     so each of these records fans out instead of pairing with a single host. Versions
+     outside the affected range stay in the set as suppressed candidates. */
+  { cveId: 'CVE-2021-44228', assetId: 'AST-FIN-02', relevance: 'MATCHED', hours: 5 },
+  { cveId: 'CVE-2021-44228', assetId: 'AST-IT-10', relevance: 'NOT_AFFECTED', hours: 24 },
+  { cveId: 'CVE-2021-44228', assetId: 'AST-CX-11', relevance: 'NOT_AFFECTED', hours: 33 },
+  { cveId: 'CVE-2021-45046', assetId: 'AST-HR-01', relevance: 'MATCHED', hours: 9 },
+  { cveId: 'CVE-2021-45046', assetId: 'AST-FIN-02', relevance: 'MATCHED', hours: 14 },
+  { cveId: 'CVE-2022-22965', assetId: 'AST-FIN-02', relevance: 'MATCHED', hours: 44 },
+  { cveId: 'CVE-2022-22965', assetId: 'AST-HR-01', relevance: 'NOT_AFFECTED', hours: 49 },
+  { cveId: 'CVE-2022-22965', assetId: 'AST-CX-11', relevance: 'NOT_AFFECTED', hours: 55 },
+  { cveId: 'CVE-2023-20862', assetId: 'AST-CX-11', relevance: 'MATCHED', hours: 63 },
+  { cveId: 'CVE-2023-44487', assetId: 'AST-HR-01', relevance: 'MATCHED', hours: 66 },
+  { cveId: 'CVE-2023-44487', assetId: 'AST-CX-11', relevance: 'MATCHED', hours: 74 },
+  { cveId: 'CVE-2024-6387', assetId: 'AST-ENG-05', relevance: 'MATCHED', hours: 79 },
+  { cveId: 'CVE-2024-6387', assetId: 'AST-NET-07', relevance: 'MATCHED', hours: 86 },
+  { cveId: 'CVE-2024-6387', assetId: 'AST-IT-16', relevance: 'MATCHED', hours: 92 },
+  { cveId: 'CVE-2024-6387', assetId: 'AST-FIN-04', relevance: 'NOT_AFFECTED', hours: 97 },
+  { cveId: 'CVE-2023-38408', assetId: 'AST-NET-07', relevance: 'NOT_AFFECTED', hours: 104 },
+  { cveId: 'CVE-2023-38408', assetId: 'AST-FIN-04', relevance: 'NOT_AFFECTED', hours: 108 },
+  { cveId: 'CVE-2024-3094', assetId: 'AST-IT-08', relevance: 'MATCHED', hours: 133 },
+  { cveId: 'CVE-2024-3094', assetId: 'AST-FIN-12', relevance: 'MATCHED', hours: 141 },
+  { cveId: 'CVE-2024-3094', assetId: 'AST-ENG-09', relevance: 'NOT_AFFECTED', hours: 148 },
+  { cveId: 'CVE-2021-26855', assetId: 'AST-IT-10', relevance: 'MATCHED', hours: 153 },
+  { cveId: 'CVE-2023-23397', assetId: 'AST-IT-14', relevance: 'MATCHED', hours: 159 },
+  { cveId: 'CVE-2021-34527', assetId: 'AST-IT-14', relevance: 'MATCHED', hours: 165 },
+  { cveId: 'CVE-2021-34527', assetId: 'AST-FAC-15', relevance: 'MATCHED', hours: 171 },
+  { cveId: 'CVE-2020-1472', assetId: 'AST-FIN-04', relevance: 'NOT_AFFECTED', hours: 176 },
+  { cveId: 'CVE-2023-5217', assetId: 'AST-IT-13', relevance: 'MATCHED', hours: 181 },
+  { cveId: 'CVE-2023-7024', assetId: 'AST-IT-13', relevance: 'MATCHED', hours: 187 },
+  { cveId: 'CVE-2023-7024', assetId: 'AST-FAC-15', relevance: 'MATCHED', hours: 193 },
+
+  /* Second-degree spread: the platforms that looked like single-hazard hosts carry the same
+     shared builds as the rest of the estate, so their fan-out is authored in too. Each of
+     these is version-consistent with its record's affected range. */
+  { cveId: 'CVE-2024-6387', assetId: 'AST-NET-03', relevance: 'MATCHED', hours: 38 },
+  { cveId: 'CVE-2021-34527', assetId: 'AST-IT-06', relevance: 'MATCHED', hours: 74 },
+  { cveId: 'CVE-2024-6387', assetId: 'AST-FIN-12', relevance: 'NOT_AFFECTED', hours: 108 },
+  { cveId: 'CVE-2023-38408', assetId: 'AST-IT-16', relevance: 'MATCHED', hours: 126 },
+  { cveId: 'CVE-2021-45105', assetId: 'AST-FIN-02', relevance: 'MATCHED', hours: 160 },
 ]
 
 function buildAlert(spec: AlertSpec, index: number): Alert {
@@ -640,7 +731,12 @@ function buildAlert(spec: AlertSpec, index: number): Alert {
     relevance: spec.relevance,
   })
 
-  const installed = asset.software.find((s) => s.product.toLowerCase() === cve.product.toLowerCase())
+  const installed = asset.software.find((s) => {
+    const have = s.product.toLowerCase()
+    const wanted = cve.product.toLowerCase()
+    // "Windows" records also cover the "Windows Server" build in inventory.
+    return have === wanted || have.startsWith(`${wanted} `)
+  })
   const version = installed?.version ?? (spec.relevance === 'PRODUCT_ABSENT' ? 'not installed' : 'unknown')
   const confidence = spec.relevance === 'MATCHED' ? 'HIGH' : spec.relevance === 'VERSION_UNKNOWN' ? 'MEDIUM' : 'LOW'
 
@@ -707,7 +803,22 @@ export const counts = {
   cves: cves.length,
 }
 
-export const posture = postureFromCounts(counts)
+/* Posture is the mean worst-path load carried per platform, not a flat penalty per alert.
+   The estate now carries 43 correlation paths instead of 15, and a formula that charged a
+   fixed weight per critical path floors at zero the moment the graph becomes a mesh —
+   which would read as a broken KPI rather than an exposed estate. */
+export const postureFor = (rows: Alert[], estate: Asset[] = assets) => {
+  const worstByAsset = new Map<string, number>()
+  for (const alert of rows) {
+    if (alert.suppressed) continue
+    worstByAsset.set(alert.asset.id, Math.max(worstByAsset.get(alert.asset.id) ?? 0, alert.score))
+  }
+  const load =
+    estate.reduce((sum, entry) => sum + (worstByAsset.get(entry.id) ?? 0), 0) / Math.max(1, estate.length)
+  return Math.max(0, Math.round(100 - load))
+}
+
+export const posture = postureFor(activeAlerts)
 
 export const riskLevels: RiskLevel[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
 
@@ -756,6 +867,15 @@ export const alertDaily: AlertDay[] = Array.from({ length: 8 }, (_, i) => {
     medium: inDay.filter((a) => a.level === 'MEDIUM').length,
     low: inDay.filter((a) => a.level === 'LOW').length,
   }
+})
+
+/* Cumulative posture as each day's paths landed: the KPI trend line. The last point is the
+   whole estate, so the sparkline and the headline posture number always agree. */
+export const postureTrend: number[] = Array.from({ length: 8 }, (_, i) => {
+  const dayStart = new Date(DEMO_NOW.getTime() - (7 - i) * 86400000)
+  dayStart.setUTCHours(0, 0, 0, 0)
+  const raisedBy = alerts.filter((a) => new Date(a.createdAt).getTime() < dayStart.getTime() + 86400000)
+  return postureFor(raisedBy)
 })
 
 export const activityHeatmap = Array.from({ length: 7 }, (_, day) =>

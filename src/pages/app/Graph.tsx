@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Panel } from '../../components/Panel'
 import { SeverityBadge, RelevanceBadge, SimulatedBadge } from '../../components/Badges'
@@ -13,7 +13,6 @@ import {
   Info,
   LayoutGrid,
   Network,
-  Radar,
   RefreshCw,
   Search,
   Server,
@@ -22,14 +21,15 @@ import {
   Sparkles,
   Zap,
 } from '../../components/Icons'
-import { IsoGraph } from '../../components/IsoGraph'
+import { ForceGraph } from '../../components/ForceGraph'
 import { NodeWorkbench } from '../../components/NodeWorkbench'
 import { DEMO_NOW } from '../../data/seed'
 import { RISK_ORDER, useCorrelationModel } from '../../lib/correlation'
 import { LIVE_SOURCES, latestLiveFetch, useLiveFeeds } from '../../lib/liveFeeds'
-import { useFilters } from '../../lib/store'
+import { useFilters, useTheme } from '../../lib/store'
 import { cx, fmtPct, fmtScore, timeAgo } from '../../lib/format'
 import { LEVEL_COLORS, levelColor } from '../../lib/colors'
+import './graph.css'
 
 const ASSET_ICONS = {
   app: Boxes,
@@ -59,6 +59,7 @@ const relativeTime = (iso: string) => {
 
 export default function Graph() {
   const navigate = useNavigate()
+  const setTheme = useTheme((s) => s.setTheme)
   const query = useFilters((s) => s.query)
   const setQuery = useFilters((s) => s.setQuery)
   const [hover, setHover] = useState<string | null>(null)
@@ -79,6 +80,20 @@ export default function Graph() {
     setSelected(id)
     setWorkbenchOpen(true)
   }
+
+  // The graph is a light-skin surface: the cool-white canvas is what makes the
+  // severity edges legible, and the workbench drawer portals to <body>, so the
+  // skin has to live on the root element rather than inside this page.
+  useEffect(() => {
+    const root = document.documentElement
+    const previous = useTheme.getState().theme
+    root.setAttribute('data-skin', 'moonrow')
+    if (previous !== 'light') setTheme('light')
+    return () => {
+      root.removeAttribute('data-skin')
+      if (previous !== 'light') setTheme(previous)
+    }
+  }, [setTheme])
 
   const activeAlerts = useMemo(() => model.alerts.filter((alert) => !alert.suppressed), [model.alerts])
 
@@ -137,7 +152,7 @@ export default function Graph() {
     : 0
   const railScore = worst ? worst.score : meanActive
   const railLevel = worst?.level ?? activeAlerts[0]?.level ?? 'LOW'
-  const railScoreLabel = worst ? (focusedAsset ? 'worst path' : 'highest linked') : 'mesh mean'
+  const railScoreLabel = worst ? (focusedAsset ? 'worst path' : 'highest linked') : 'graph mean'
 
   const AssetIcon = focusedAsset ? ASSET_ICONS[focusedAsset.type] : Server
   const FocusIcon = focusedAsset ? AssetIcon : focusedCve ? Bug : Network
@@ -180,11 +195,11 @@ export default function Graph() {
             <i className="graph-eyebrow-dot" /> Component 04 · Network graph
           </span>
           <h1>
-            The mesh behind <span>every alert.</span>
+            The graph behind <span>every alert.</span>
           </h1>
           <p>
-            A simulated estate rendered as an isometric exposure mesh. Every asset is wired to live CVE
-            records through version-gated correlation edges, then scored with NVD, CISA KEV and FIRST EPSS.
+            A simulated estate laid out as a live force-directed graph: assets and CVE records settle
+            themselves through version-gated correlation edges, then score against NVD, CISA KEV and FIRST EPSS.
             <strong> Tap any node for its full workbench.</strong>
           </p>
         </div>
@@ -238,10 +253,10 @@ export default function Graph() {
           className="col-8 deck-mesh"
           title={
             <span className="deck-title">
-              <Radar size={14} /> Exposure mesh
+              <Network size={14} /> Exposure graph
             </span>
           }
-          sub="Inner ring · critical systems      Outer ring · supporting estate"
+          sub="Assets · severity-stroked      CVEs · dashed when unmapped"
           action={
             <span className="deck-beta">
               <i /> {scopedAlerts.length} of {model.alerts.length} paths
@@ -275,7 +290,7 @@ export default function Graph() {
             </div>
           </div>
           <div className="deck-canvas">
-            <IsoGraph
+            <ForceGraph
               alerts={scopedAlerts}
               allAlerts={model.alerts}
               assets={model.assets}
@@ -297,7 +312,7 @@ export default function Graph() {
               <div className="deck-empty">
                 <Crosshair size={18} />
                 <strong>No paths in this scope</strong>
-                <span>Switch the scope filter to repopulate the mesh.</span>
+                <span>Switch the scope filter to repopulate the graph.</span>
                 <button className="btn btn-ghost btn-sm" onClick={() => setScope('all')}>
                   Reset to all paths
                 </button>
@@ -663,7 +678,7 @@ export default function Graph() {
         </div>
         <div className="table-note">
           <span className="inline-flex">
-            <Info size={11} /> Suppressed hazards remain drawn on the mesh so the relevance gate stays auditable.
+            <Info size={11} /> Suppressed hazards stay drawn as dashed edges so the relevance gate stays auditable.
           </span>
           <span className="mono">
             <ShieldAlert size={10} style={{ display: 'inline', marginRight: 4 }} />

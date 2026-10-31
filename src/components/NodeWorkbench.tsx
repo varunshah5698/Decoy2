@@ -3,11 +3,28 @@ import { useNavigate } from 'react-router-dom'
 import { Drawer, DrawerHead } from './Drawer'
 import { RelevanceBadge, SeverityBadge, SimulatedBadge } from './Badges'
 import { ArrowRight, ExternalLink, Info, RefreshCw, ShieldAlert } from './Icons'
+import {
+  ChartCard,
+  EgoGraph,
+  ExploitQuadrant,
+  FactorRadar,
+  GateCompare,
+  IntelTimeline,
+  RelevanceDonut,
+  RiskDial,
+  ScoreLadder,
+  SlaLadder,
+  VectorBars,
+  type EgoNode,
+  type QuadrantPoint,
+  type SlaRow,
+} from './WbCharts'
 import { fmtDate, fmtDateTime, fmtPct, fmtScore, timeAgo } from '../lib/format'
-import { levelColor } from '../lib/colors'
+import { levelColor, AMBER, LEVEL_COLORS, SIMULATED, SUPPRESSED, TEAL } from '../lib/colors'
 import { latestLiveFetch, useLiveFeeds, type LiveCvePatch, type LiveSource, type LiveSourceMeta } from '../lib/liveFeeds'
 import { rangeText, type CorrelationModel } from '../lib/correlation'
 import { FORMULA_VERSION, WEIGHTS } from '../lib/scoring'
+import { DEMO_NOW } from '../data/seed'
 import { cx } from '../lib/format'
 import type { Alert, Cve, RiskLevel } from '../lib/types'
 
@@ -115,6 +132,259 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
           { label: 'KEV paths', value: String(model.counts.kev) },
         ]
 
+  const analytics = useMemo(() => {
+    const DAY = 86_400_000
+    const SLA_DAYS: Record<RiskLevel, number> = { CRITICAL: 7, HIGH: 14, MEDIUM: 30, LOW: 60 }
+    const clampPct = (value: number, max: number) => (max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0)
+    const mean = (rows: number[]) => (rows.length ? rows.reduce((sum, v) => sum + v, 0) / rows.length : 0)
+    const estateActive = model.alerts.filter((alert) => !alert.suppressed)
+    const estateCritical = estateActive.filter((alert) => alert.level === 'CRITICAL')
+
+    const factorProfile = (rows: Alert[]) => [
+      clampPct(mean(rows.map((alert) => alert.breakdown.severity_points)), WEIGHTS.severity),
+      clampPct(mean(rows.map((alert) => alert.breakdown.exploit_points)), WEIGHTS.epss),
+      clampPct(mean(rows.map((alert) => alert.breakdown.kev_points)), WEIGHTS.kev),
+      clampPct(mean(rows.map((alert) => alert.breakdown.criticality_points)), WEIGHTS.criticality),
+      clampPct(mean(rows.map((alert) => alert.breakdown.exposure_points)), WEIGHTS.exposure),
+      clampPct(mean(rows.map((alert) => alert.breakdown.relevance_points)), WEIGHTS.relevance),
+    ]
+
+    const linkedAssets = new Set(nodeAlerts.map((alert) => alert.asset.id))
+    const internetLinked = new Set(
+      nodeAlerts.filter((alert) => alert.asset.internetFacing).map((alert) => alert.asset.id),
+    )
+
+    const radarAxes = asset
+      ? ['Severity', 'Exploit', 'KEV', 'Criticality', 'Exposure', 'Relevance']
+      : cve
+        ? ['Severity', 'Exploit', 'KEV', 'Blast radius', 'Internet reach', 'Active share']
+        : ['Severity', 'Exploit', 'KEV', 'Coverage', 'Exposure', 'Gate pass']
+
+    const radarNode = asset
+      ? factorProfile(activeNodeAlerts.length ? activeNodeAlerts : nodeAlerts)
+      : cve
+        ? [
+            clampPct(cve.cvss ?? 0, 10),
+            clampPct((cve.epss ?? 0) * 100, 100),
+            cve.kev ? 100 : 0,
+            clampPct(linkedAssets.size, model.assets.length),
+            clampPct(internetLinked.size, Math.max(1, linkedAssets.size)),
+            clampPct(activeNodeAlerts.length, Math.max(1, nodeAlerts.length)),
+          ]
+        : [
+            clampPct(mean(estateActive.map((alert) => alert.cve.cvss ?? 0)), 10),
+            clampPct(mean(estateActive.map((alert) => (alert.cve.epss ?? 0) * 100)), 100),
+            clampPct(model.counts.kev, Math.max(1, model.counts.active)),
+            clampPct(model.counts.linkedCves, Math.max(1, model.cves.length)),
+            clampPct(model.counts.assetsWithHazards, model.assets.length),
+            clampPct(model.counts.active, Math.max(1, model.counts.total)),
+          ]
+
+    const radarBaseline = asset
+      ? factorProfile(estateActive)
+      : cve
+        ? [
+            clampPct(mean(model.cves.map((entry) => entry.cvss ?? 0)), 10),
+            clampPct(mean(model.cves.map((entry) => (entry.epss ?? 0) * 100)), 100),
+            clampPct(model.cves.filter((entry) => entry.kev).length, model.cves.length),
+            clampPct(mean(model.cves.map((entry) => (model.alertsByCve.get(entry.id)?.length ?? 0))), model.assets.length),
+            clampPct(
+              mean(
+                model.cves.map((entry) => {
+                  const list = model.alertsByCve.get(entry.id) ?? []
+                  return list.length ? (list.filter((alert) => alert.asset.internetFacing).length / list.length) * 100 : 0
+                }),
+              ),
+              100,
+            ),
+            clampPct(model.counts.active, model.counts.total),
+          ]
+        : factorProfile(estateCritical.length ? estateCritical : estateActive)
+
+    const egoNodes: EgoNode[] = asset
+      ? nodeAlerts.slice(0, 6).map((alert) => ({
+          id: alert.cve.id,
+          label: alert.cve.id.replace('CVE-', ''),
+          value: alert.score,
+          level: alert.level,
+          suppressed: alert.suppressed,
+        }))
+      : cve
+        ? nodeAlerts.slice(0, 8).map((alert) => ({
+            id: alert.asset.id,
+            label: alert.asset.name,
+            value: alert.score,
+            level: alert.level,
+            suppressed: alert.suppressed,
+          }))
+        : assetRows.slice(0, 8).map(({ asset: entry, worst }) => ({
+            id: entry.id,
+            label: entry.name,
+            value: worst?.score ?? 0,
+            level: worst?.level ?? 'LOW',
+            suppressed: Boolean(worst?.suppressed),
+          }))
+
+    /* The other relationship the graph draws: platforms running the same build. A host with a
+       single hazard still sits in a spread, and the ring is where that shows. */
+    const peerNodes: EgoNode[] = asset
+      ? model.assets
+          .filter((entry) => entry.id !== asset.id)
+          .map((entry) => {
+            const mine = new Set(asset.software.map((s) => s.product.toLowerCase()))
+            return {
+              entry,
+              shared: entry.software.filter((s) => mine.has(s.product.toLowerCase())),
+            }
+          })
+          .filter((row) => row.shared.length)
+          .sort((a, b) => b.shared.length - a.shared.length || a.entry.name.localeCompare(b.entry.name))
+          .slice(0, 4)
+          .map(({ entry, shared }) => ({
+            id: entry.id,
+            label: entry.name,
+            sub: shared.length > 1 ? `${shared[0].product} +${shared.length - 1}` : shared[0].product,
+            value: 0,
+            level: 'LOW' as RiskLevel,
+            suppressed: false,
+            peer: true,
+          }))
+      : []
+
+    const ladderRows = (asset || cve ? nodeAlerts : assetRows.map((row) => row.worst).filter(Boolean) as Alert[])
+      .slice()
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
+      .map((alert) => ({
+        label: asset ? alert.cve.id : alert.asset.name,
+        sub: asset ? alert.cve.product : alert.asset.department,
+        value: alert.score,
+        color: levelColor(alert.level, alert.suppressed),
+        id: asset ? alert.cve.id : alert.asset.id,
+      }))
+
+    const relevanceOrder = ['MATCHED', 'VERSION_UNKNOWN', 'NOT_AFFECTED', 'PRODUCT_ABSENT'] as const
+    const relevanceColors: Record<string, string> = {
+      MATCHED: TEAL,
+      VERSION_UNKNOWN: AMBER,
+      NOT_AFFECTED: SUPPRESSED,
+      PRODUCT_ABSENT: SIMULATED,
+    }
+    const sourceAlerts = asset || cve ? nodeAlerts : model.alerts
+    const donutSlices = relevanceOrder
+      .map((key) => ({
+        label: key.replace(/_/g, ' ').toLowerCase(),
+        value: sourceAlerts.filter((alert) => alert.relevance === key).length,
+        color: relevanceColors[key],
+      }))
+      .filter((slice) => slice.value > 0)
+
+    const gateRows = (asset || cve ? nodeAlerts : estateActive)
+      .slice()
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6)
+      .map((alert) => ({
+        label: asset ? alert.cve.id.replace('CVE-', '') : alert.asset.name,
+        aegis: alert.score,
+        cvssOnly: alert.wouldHaveScored ?? alert.score,
+        suppressed: alert.suppressed,
+      }))
+
+    const slaRows: SlaRow[] = activeNodeAlerts
+      .slice()
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6)
+      .map((alert) => {
+        const raisedAt = new Date(alert.createdAt).getTime()
+        const kevDue = alert.cve.kev && alert.cve.kevDue ? new Date(alert.cve.kevDue).getTime() : null
+        const governed = raisedAt + SLA_DAYS[alert.level] * DAY
+        // A KEV listing date that already passed before this path was raised can't
+        // be the team's deadline; it only tightens the window when it lies ahead.
+        const kevAhead = kevDue != null && kevDue > raisedAt ? kevDue : null
+        const deadline = kevAhead == null ? governed : Math.min(kevAhead, governed)
+        const windowDays = Math.max(1, (deadline - raisedAt) / DAY)
+        const elapsedDays = Math.min(windowDays, Math.max(0, (DEMO_NOW.getTime() - raisedAt) / DAY))
+        const remainingDays = (deadline - DEMO_NOW.getTime()) / DAY
+        return {
+          id: asset ? alert.cve.id : alert.asset.id,
+          label: asset ? alert.cve.id : alert.asset.name,
+          sub: `${alert.level.toLowerCase()} · ${kevAhead != null && deadline === kevAhead ? 'KEV' : `${SLA_DAYS[alert.level]}d`} · due ${fmtDate(
+            new Date(deadline).toISOString(),
+          )}`,
+          elapsedDays,
+          windowDays,
+          remainingDays,
+          level: alert.level,
+          suppressed: alert.suppressed,
+        }
+      })
+
+    const quadrantPoints: QuadrantPoint[] = model.cves
+      .filter((entry) => entry.cvss != null && entry.epss != null)
+      .map((entry) => ({
+        id: entry.id,
+        cvss: entry.cvss ?? 0,
+        epss: entry.epss ?? 0,
+        level: entry.severity,
+        suppressed: false,
+        label: `${entry.id} · ${entry.product}`,
+      }))
+
+    const timelineCve = provenanceCve
+    const timelineEvents = timelineCve
+      ? [
+          { at: timelineCve.published, label: 'published', tone: TEAL },
+          ...(timelineCve.modified && timelineCve.modified !== timelineCve.published
+            ? [{ at: timelineCve.modified, label: 'last modified', tone: AMBER }]
+            : []),
+          ...(timelineCve.kev && timelineCve.kevDue
+            ? [{ at: timelineCve.kevDue, label: 'KEV patch due', tone: LEVEL_COLORS.CRITICAL }]
+            : []),
+          ...(worstAlert ? [{ at: worstAlert.createdAt, label: 'path raised', tone: SIMULATED }] : []),
+        ].filter((event) => Number.isFinite(new Date(event.at).getTime()))
+      : []
+
+    return {
+      dial: {
+        value: worstAlert?.score ?? mean(estateActive.map((alert) => alert.score)),
+        level: worstAlert?.level ?? 'LOW',
+        suppressed: !worstAlert || worstAlert.suppressed,
+        caption: asset
+          ? `${asset.name} · worst path`
+          : cve
+            ? `${cve.id} · worst asset`
+            : 'mesh mean · active paths',
+      },
+      radar: {
+        axes: radarAxes,
+        node: radarNode,
+        baseline: radarBaseline,
+        nodeLabel: asset ? asset.name : cve ? cve.id : 'this mesh',
+        baselineLabel: asset ? 'estate mean' : cve ? 'register mean' : 'critical slice',
+      },
+      ego: {
+        center: {
+          label: asset ? asset.name : cve ? cve.product : 'AEGIS core',
+          sub: asset
+            ? `${asset.department} · ${nodeAlerts.length} paths${peerNodes.length ? ` · ${peerNodes.length} peers` : ''}`
+            : cve
+              ? `${cve.vendor} ${cve.product} · ${nodeAlerts.length} assets`
+              : `${model.counts.active} active paths`,
+          level: worstAlert?.level ?? 'LOW',
+          suppressed: !worstAlert || worstAlert.suppressed,
+        },
+        nodes: [...egoNodes, ...peerNodes],
+      },
+      ladderRows,
+      donutSlices,
+      gateRows,
+      slaRows,
+      quadrantPoints,
+      focusCveId: provenanceCve?.id ?? null,
+      timelineEvents,
+    }
+  }, [asset, cve, isHub, model, nodeAlerts, activeNodeAlerts, worstAlert, provenanceCve, assetRows])
+
   const headMeta = asset ? (
     <>
       <span className={cx('badge', asset.criticality.toLowerCase())}>{asset.criticality}</span>
@@ -146,10 +416,114 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
     </>
   )
 
+  const dialTone = levelColor(analytics.dial.level, analytics.dial.suppressed)
+
+  const analysisBand = (
+    <div className="wb-analysis">
+      <ChartCard
+        title="Exposure dial"
+        sub={analytics.dial.caption}
+        action={<span className="wb-chart-tag" style={{ color: dialTone }}>{analytics.dial.suppressed ? 'gated' : analytics.dial.level.toLowerCase()}</span>}
+      >
+        <RiskDial
+          value={Number(analytics.dial.value.toFixed(1))}
+          level={analytics.dial.level}
+          suppressed={analytics.dial.suppressed}
+          caption={asset ? 'worst path' : cve ? 'worst asset' : 'mean score'}
+        />
+        <div className="wb-dial-foot mono">
+          <span>0–40 low · 40–65 medium</span>
+          <span>65–85 high · 85+ critical</span>
+        </div>
+      </ChartCard>
+
+      <ChartCard
+        title="Risk signature"
+        sub={`${analytics.radar.nodeLabel} against ${analytics.radar.baselineLabel}`}
+        action={<span className="wb-chart-tag">6 factors</span>}
+      >
+        <FactorRadar
+          axes={analytics.radar.axes}
+          series={[
+            { name: analytics.radar.nodeLabel, values: analytics.radar.node, color: dialTone, emphasis: true },
+            { name: analytics.radar.baselineLabel, values: analytics.radar.baseline, color: TEAL },
+          ]}
+        />
+      </ChartCard>
+
+      <ChartCard
+        title="Neighbourhood"
+        sub={analytics.ego.center.sub}
+        action={<span className="wb-chart-tag">tap to jump</span>}
+      >
+        <EgoGraph center={analytics.ego.center} nodes={analytics.ego.nodes} onSelect={onSelectNode} />
+      </ChartCard>
+    </div>
+  )
+
+  const spreadBand = (
+    <div className="wb-grid wb-grid-2 wb-spread">
+      <ChartCard
+        title={asset ? 'Path score spread' : cve ? 'Asset score spread' : 'Estate score spread'}
+        sub={asset ? 'CVE records ranked against this asset' : cve ? 'Inventory ranked for this record' : 'Top platforms by worst path'}
+        action={<span className="wb-chart-tag">0–100</span>}
+      >
+        {analytics.ladderRows.length ? (
+          <ScoreLadder rows={analytics.ladderRows} onPick={(id) => onSelectNode(id)} />
+        ) : (
+          <EmptyNote title="No paths to plot" body="This node has no correlation edges in the current window." />
+        )}
+      </ChartCard>
+      <ChartCard
+        title="Relevance gate mix"
+        sub={`${(asset || cve ? nodeAlerts : model.alerts).length} edges classified`}
+        action={<span className="wb-chart-tag">auditable</span>}
+      >
+        {analytics.donutSlices.length ? (
+          <RelevanceDonut slices={analytics.donutSlices} />
+        ) : (
+          <EmptyNote title="Nothing classified" body="No relevance verdicts exist for this selection yet." />
+        )}
+      </ChartCard>
+    </div>
+  )
+
+  const evidenceBand = (
+    <div className="wb-grid wb-grid-2 wb-spread">
+      <ChartCard
+        title="Exploitability quadrant"
+        sub={analytics.focusCveId ? 'focus record against the live register' : 'live register · CVSS against EPSS'}
+        action={<span className="wb-chart-tag">{analytics.quadrantPoints.length} records</span>}
+      >
+        <ExploitQuadrant points={analytics.quadrantPoints} focusId={analytics.focusCveId} onPick={onSelectNode} />
+        <p className="wb-note">Shaded quadrant = high severity and majority-exploit-prediction probability.</p>
+      </ChartCard>
+      <ChartCard
+        title="Gate impact"
+        sub="AEGIS score against the CVSS-only rank"
+        action={<span className="wb-chart-tag">formula v{FORMULA_VERSION}</span>}
+      >
+        <GateCompare rows={analytics.gateRows} />
+        <p className="wb-note">Gaps show where version relevance or the gate demoted a headline CVSS score.</p>
+      </ChartCard>
+    </div>
+  )
+
+  const timelineCard = analytics.timelineEvents.length ? (
+    <ChartCard
+      title="Intelligence timeline"
+      sub={`${provenanceCve?.id} · publication to remediation deadline`}
+      action={<span className="wb-chart-tag">{provenanceCve?.kev ? 'KEV tracked' : 'monitoring'}</span>}
+    >
+      <IntelTimeline events={analytics.timelineEvents} now={DEMO_NOW} />
+    </ChartCard>
+  ) : null
+
   const renderOverview = () => {
     if (asset) {
       return (
         <>
+          {analysisBand}
           <div className="wb-grid wb-grid-2">
             <Card title="Mission context" sub={`${asset.department} · ${asset.type}`}>
               <p className="wb-copy">{asset.businessFunction}</p>
@@ -161,38 +535,31 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
               </div>
             </Card>
             <Card
-              title="Risk posture"
-              sub={`${activeNodeAlerts.length} active · ${nodeAlerts.length - activeNodeAlerts.length} suppressed`}
+              title="Attack surface"
+              sub={
+                worstAlert
+                  ? `${worstAlert.cve.id} · CVSS ${worstAlert.cve.cvss?.toFixed(1) ?? '—'} vector`
+                  : 'no matched record'
+              }
+              action={
+                worstAlert ? <SeverityBadge level={worstAlert.level} suppressed={worstAlert.suppressed} /> : undefined
+              }
             >
-              <div className="wb-posture">
-                <span
-                  className={cx(
-                    'wb-score',
-                    worstAlert ? (worstAlert.suppressed ? 'suppressed' : worstAlert.level.toLowerCase()) : 'suppressed',
-                  )}
-                >
-                  {worstAlert ? fmtScore(worstAlert.score) : '—'}
-                </span>
-                <div>
-                  <strong>
-                    {worstAlert
-                      ? worstAlert.suppressed
-                        ? 'Suppressed only'
-                        : `${worstAlert.level} exposure`
-                      : 'No active hazard'}
-                  </strong>
-                  <p>
-                    {worstAlert
-                      ? `${worstAlert.cve.id} · ${worstAlert.relevance.replace(/_/g, ' ')}`
-                      : 'No correlation path reaches this asset.'}
-                  </p>
-                </div>
-              </div>
-              <div className="wb-mini-stats">
-                <span><b>{nodeAlerts.length}</b> paths</span>
-                <span><b>{asset.software.length}</b> packages</span>
-                <span><b>{asset.internetFacing ? 'YES' : 'NO'}</b> internet</span>
-              </div>
+              {worstAlert ? (
+                <>
+                  <VectorBars vector={worstAlert.cve.vector} />
+                  <div className="wb-mini-stats">
+                    <span><b>{nodeAlerts.length}</b> paths</span>
+                    <span><b>{asset.software.length}</b> packages</span>
+                    <span><b>{asset.internetFacing ? 'YES' : 'NO'}</b> internet</span>
+                  </div>
+                </>
+              ) : (
+                <EmptyNote
+                  title="No vector to plot"
+                  body="No CVE in the demo window maps to this inventory record, so there is no attack vector to break down."
+                />
+              )}
             </Card>
           </div>
 
@@ -237,6 +604,7 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
     if (cve) {
       return (
         <>
+          {analysisBand}
           <Card title="Record summary" sub={`${cve.vendor} ${cve.product} · ${cve.id}`}>
             <p className="wb-copy">{cve.description}</p>
             <div className="entity-tags">
@@ -284,6 +652,8 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
             </Card>
           </div>
 
+          {timelineCard}
+
           <Card
             title="Linked inventory"
             sub={`${nodeAlerts.length} asset${nodeAlerts.length === 1 ? ' carries' : 's carry'} this record`}
@@ -312,9 +682,10 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
 
     return (
       <>
+        {analysisBand}
         <Card title="What this mesh proves" sub="Simulated estate · live public intelligence">
           <p className="wb-copy">
-            AEGIS correlates 16 simulated assets against real NVD records, CISA KEV listings and FIRST EPSS
+            AEGIS correlates {model.assets.length} simulated assets against real NVD records, CISA KEV listings and FIRST EPSS
             probabilities. Every edge is a version-gated candidate; suppressed edges stay visible so the relevance gate
             remains auditable.
           </p>
@@ -382,7 +753,14 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
     )
   }
 
-  const renderConnections = () => {
+  const renderConnections = () => (
+    <>
+      {spreadBand}
+      {renderConnectionsBody()}
+    </>
+  )
+
+  const renderConnectionsBody = () => {
     if (asset) {
       return (
         <Card
@@ -529,7 +907,15 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
     )
   }
 
-  const renderEvidence = () => {
+  const renderEvidence = () => (
+    <>
+      {evidenceBand}
+      {timelineCard}
+      {renderEvidenceBody()}
+    </>
+  )
+
+  const renderEvidenceBody = () => {
     if (asset) {
       return (
         <>
@@ -716,7 +1102,35 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
     )
   }
 
-  const renderRemediation = () => {
+  const slaCard = (
+    <ChartCard
+      title="Patch clock"
+      sub={
+        activeNodeAlerts.length
+          ? `${activeNodeAlerts.length} active path${activeNodeAlerts.length === 1 ? '' : 's'} · earliest deadline wins`
+          : 'no active paths in flight'
+      }
+      action={<span className="wb-chart-tag">severity 7/14/30/60d · KEV</span>}
+    >
+      {analytics.slaRows.length ? (
+        <SlaLadder rows={analytics.slaRows} onPick={(id) => onSelectNode(id)} />
+      ) : (
+        <EmptyNote
+          title="Nothing ageing"
+          body="Every correlated path on this selection is suppressed by the relevance gate, so no patch window is running."
+        />
+      )}
+    </ChartCard>
+  )
+
+  const renderRemediation = () => (
+    <>
+      {slaCard}
+      {renderRemediationBody()}
+    </>
+  )
+
+  const renderRemediationBody = () => {
     if (asset) {
       const suppressed = nodeAlerts.filter((alert) => alert.suppressed)
       return (
@@ -792,7 +1206,7 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
               <div className="wb-gate">
                 <ShieldAlert size={15} />
                 <div>
-                  <strong>CISA KEV remediation due {fmtDate(cve.kevDue)}</strong>
+                  <strong>CISA KEV listed {fmtDate(cve.kevDue)}</strong>
                   <p>This record is known-exploited and should be prioritised over CVSS-only findings.</p>
                 </div>
               </div>
@@ -1173,7 +1587,7 @@ function RemediationCard({
         <span className="mono">installed {alert.version}</span>
         <span className="mono">target {alert.cve.fixVersion}</span>
         {alert.cve.kev && alert.cve.kevDue && (
-          <span className="badge high">KEV due {fmtDate(alert.cve.kevDue)}</span>
+          <span className="badge high">KEV listed {fmtDate(alert.cve.kevDue)}</span>
         )}
       </div>
       <div className="wb-action-buttons">
