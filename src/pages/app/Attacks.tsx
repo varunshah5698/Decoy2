@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Chart } from '../../components/Chart'
 import { PageHeader } from '../../components/Panel'
@@ -10,7 +11,6 @@ import {
   ChevronDown,
   Crosshair,
   Gauge,
-  Layers,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -21,6 +21,8 @@ import { attackProfiles, DEMO_NOW, mitreTactics, techniques } from '../../data/s
 import { useTheme } from '../../lib/store'
 import { hexA, levelColor } from '../../lib/colors'
 import { cx } from '../../lib/format'
+import { ProfileAnalyst, ProfileDepth, ProfileDossier, profileMetricsFor } from './ProfileDossier'
+import './profile-dossier.css'
 import type { AttackProfile, Technique } from '../../lib/types'
 
 const NAVY = '#1b2437'
@@ -186,19 +188,30 @@ export default function Attacks() {
   }, [setTheme])
 
   const [selectedKey, setSelectedKey] = useState(attackProfiles[0].key)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const urlKey = attackProfiles.find((p) => p.key === searchParams.get('profile'))?.key
+  const activeKey = urlKey ?? selectedKey
   const [segment, setSegment] = useState<SegmentKey>('techniques')
-  const profile = attackProfiles.find((p) => p.key === selectedKey) ?? attackProfiles[0]
+  const profile = attackProfiles.find((p) => p.key === activeKey) ?? attackProfiles[0]
   const openRow = useRef<HTMLButtonElement>(null)
+
+  const selectProfile = (key: string) => {
+    setSelectedKey(key)
+    const next = new URLSearchParams(searchParams)
+    next.set('profile', key)
+    setSearchParams(next, { replace: true })
+  }
 
   useEffect(() => {
     openRow.current?.scrollIntoView({ block: 'nearest' })
-  }, [selectedKey])
+  }, [activeKey])
 
   const linked = useMemo(
     () => profile.techniques.map((id) => techniques.find((t) => t.id === id)).filter(Boolean) as Technique[],
     [profile],
   )
   const observedTotal = linked.reduce((a, t) => a + t.observed, 0)
+  const dossier = useMemo(() => profileMetricsFor(profile, linked), [profile, linked])
 
   const bars = useMemo(() => {
     const byTechnique = linked.map((t) => ({ name: t.name, meta: t.id, value: t.observed }))
@@ -331,20 +344,36 @@ export default function Attacks() {
   )
 
   const radarOption = useMemo(() => {
-    const values = mitreTactics.map((t) => {
-      const stage = profile.stages.some((s) => s.tactic === t.name)
-      const techs = linked.filter((x) => x.tacticId === t.id).length
-      return (stage ? 1 : 0) + techs * 0.6
-    })
+    const intensityFor = (p: AttackProfile) => {
+      const pLinked = p.techniques.map((id) => techniques.find((t) => t.id === id)).filter(Boolean) as Technique[]
+      return mitreTactics.map((t) => {
+        const stage = p.stages.some((s) => s.tactic === t.name)
+        const techs = pLinked.filter((x) => x.tacticId === t.id).length
+        return (stage ? 1 : 0) + techs * 0.6
+      })
+    }
+    const values = intensityFor(profile)
+    const all = attackProfiles.map(intensityFor)
+    const baseline = mitreTactics.map((_, i) => all.reduce((sum, row) => sum + row[i], 0) / all.length)
     return {
       radar: {
         indicator: mitreTactics.map((t) => ({ name: t.name, max: 2.2 })),
-        radius: '64%',
+        radius: '56%',
+        center: ['50%', '46%'],
         splitNumber: 3,
         axisName: { color: MUTED, fontSize: 8, fontFamily: 'JetBrains Mono Variable, monospace' },
         splitLine: { lineStyle: { color: AXIS } },
         splitArea: { areaStyle: { color: ['transparent', 'rgba(27,36,55,.025)'] } },
         axisLine: { lineStyle: { color: AXIS } },
+      },
+      legend: {
+        bottom: 0,
+        left: 'center',
+        icon: 'circle',
+        itemWidth: 7,
+        itemHeight: 7,
+        itemGap: 14,
+        textStyle: { color: MUTED, fontSize: 8.5, fontFamily: 'JetBrains Mono Variable, monospace' },
       },
       tooltip: {},
       series: [
@@ -359,11 +388,19 @@ export default function Attacks() {
               itemStyle: { color: CORAL },
               areaStyle: { color: hexA(CORAL, 0.14) },
             },
+            {
+              value: baseline,
+              name: 'Estate mean',
+              symbolSize: 3,
+              lineStyle: { color: NAVY, width: 1.2, type: 'dashed' },
+              itemStyle: { color: NAVY },
+              areaStyle: { opacity: 0 },
+            },
           ],
         },
       ],
     }
-  }, [profile, linked])
+  }, [profile])
 
   const weightOption = useMemo(
     () => ({
@@ -390,12 +427,12 @@ export default function Attacks() {
           itemStyle: { borderRadius: [0, 6, 6, 0] },
           data: attackProfiles.map((p) => ({
             value: p.techniques.length + p.stages.length * 0.5,
-            itemStyle: { color: p.key === selectedKey ? CORAL : hexA(NAVY, 0.16) },
+            itemStyle: { color: p.key === profile.key ? CORAL : hexA(NAVY, 0.16) },
           })),
         },
       ],
     }),
-    [selectedKey],
+    [profile.key],
   )
 
   const topTechniques = [...linked].sort((a, b) => b.observed - a.observed).slice(0, 3)
@@ -405,7 +442,7 @@ export default function Attacks() {
       <PageHeader
         eyebrow="COMPONENT 05 · ATTACK PROFILES"
         title="From technique to mitigation"
-        description="Ten attack patterns, each mapped to MITRE ATT&CK stages and to controls that a named team can actually own."
+        description="Open an attack profile to see its chain, technique evidence, control gaps and a profile-scoped analyst reading."
         actions={
           <a className="btn btn-ghost btn-sm" href="https://attack.mitre.org/" target="_blank" rel="noreferrer">
             ATT&amp;CK <ArrowRight size={13} />
@@ -420,11 +457,11 @@ export default function Attacks() {
             title="Attack profile"
             sub="Pick a pattern to open its chain"
           >
-            <ProfileSelect value={profile} onChange={setSelectedKey} />
+            <ProfileSelect value={profile} onChange={selectProfile} />
 
             <div className="mr-acc">
               {attackProfiles.map((p) => {
-                const on = p.key === selectedKey
+                const on = p.key === profile.key
                 return (
                   <div className={cx('mr-acc-item', on && 'on')} key={p.key}>
                     <button
@@ -432,7 +469,7 @@ export default function Attacks() {
                       ref={on ? openRow : undefined}
                       className="mr-acc-head"
                       aria-expanded={on}
-                      onClick={() => setSelectedKey(p.key)}
+                      onClick={() => selectProfile(p.key)}
                     >
                       <i className="mr-dot" style={{ background: levelColor(p.defaultSeverity) }} />
                       <strong>{p.name}</strong>
@@ -476,6 +513,8 @@ export default function Attacks() {
         </aside>
 
         <div className="mr-main">
+          <ProfileDossier profile={profile} linked={linked} metrics={dossier} />
+
           <MrCard
             className="mr-breakdown"
             icon={<BarChart3 size={15} />}
@@ -601,24 +640,9 @@ export default function Attacks() {
             </div>
           </MrCard>
 
-          <MrCard
-            icon={<Layers size={15} />}
-            title="Kill chain"
-            sub={`${profile.stages.length} stages · ${profile.category}`}
-            bodyClass="mr-card-body flush"
-          >
-            <ol className="mr-steps">
-              {profile.stages.map((s, i) => (
-                <li key={`${s.tactic}-${i}`}>
-                  <span className="mr-step-num mono">{String(i + 1).padStart(2, '0')}</span>
-                  <div className="mr-step-copy">
-                    <strong>{s.tactic}</strong>
-                    <p>{s.note}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </MrCard>
+          <ProfileAnalyst profile={profile} metrics={dossier} linked={linked} />
+
+          <ProfileDepth profile={profile} metrics={dossier} linked={linked} />
 
           <div className="dash-grid mr-row">
             <MrCard
@@ -649,7 +673,7 @@ export default function Attacks() {
               className="col-7"
               icon={<SlidersHorizontal size={15} />}
               title="Tactic coverage"
-              sub="Stage presence plus mapped technique weight"
+              sub={`${profile.name} vs the mean of all ${attackProfiles.length} profiles`}
             >
               <Chart option={radarOption} height={268} />
             </MrCard>
