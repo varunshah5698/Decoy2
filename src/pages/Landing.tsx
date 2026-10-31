@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowRight, ArrowUpRight } from 'lucide-react'
+import { ArrowRight, Bell, Server, SlidersHorizontal, Sparkles } from 'lucide-react'
 import { LogoMark } from '../components/Logo'
 import { ServerAttackScene } from '../scenes/ServerAttackScene'
-import { alerts, componentCatalog, counts, posture } from '../data/seed'
+import { alerts, counts, posture } from '../data/seed'
 import { demoAccounts, useAuth } from '../lib/store'
 import './Landing.css'
 
@@ -53,25 +53,43 @@ const pipeline = [
   { t: 'Alert', d: 'Impact, evidence and next action in plain language.' },
 ]
 
-const componentPaths: Record<number, string> = {
-  1: '/app',
-  2: '/app/alerts',
-  3: '/app/scoring',
-  4: '/app/graph',
-  5: '/app/attacks',
-  6: '/app/assets',
-  7: '/app/cves',
-  8: '/app/intel',
-  9: '/app/anomalies',
-  10: '/app/simulator',
-  11: '/app/mitre',
-  12: '/app/map',
-  13: '/app/provenance',
-  14: '/app/radar',
-  15: '/app/traffic',
-  16: '/app/uploads',
-  17: '/app/ai',
-}
+const features = [
+  {
+    id: 2,
+    name: 'Alert Center',
+    desc: 'Version-aware, explained alerts with acknowledgement and evidence trail.',
+    icon: Bell,
+    path: '/app/alerts',
+  },
+  {
+    id: 6,
+    name: 'Asset Exposure',
+    desc: 'Which systems are exposed, what they run, and how much they matter.',
+    icon: Server,
+    path: '/app/assets',
+  },
+  {
+    id: 3,
+    name: 'Risk Scoring',
+    desc: 'The exact formula, weights, and a live ranking preview.',
+    icon: SlidersHorizontal,
+    path: '/app/scoring',
+  },
+  {
+    id: 17,
+    name: 'AI Analyst',
+    desc: 'A copilot that stays inside the record and never invents the number.',
+    icon: Sparkles,
+    path: '/app/ai',
+  },
+]
+
+const ledger = [
+  { label: 'CVEs in corpus', value: String(counts.cves) },
+  { label: 'Live alerts', value: String(counts.active) },
+  { label: 'Suppressed by version', value: String(counts.suppressed) },
+  { label: 'Organisation posture', value: String(posture), suffix: '/100' },
+]
 
 const roleCopy = [
   {
@@ -88,20 +106,6 @@ const roleCopy = [
       'A prioritised queue where every alert carries its version check, score breakdown and evidence trail — plus an analyst that stays inside the record.',
     surfaces: ['Alert center', 'Asset exposure', 'Provenance', 'AI analyst'],
   },
-]
-
-const postureSegments = [
-  { n: counts.critical, label: `${counts.critical} critical`, tone: 'critical' },
-  { n: counts.high, label: `${counts.high} high`, tone: 'high' },
-  { n: counts.medium, label: `${counts.medium} medium`, tone: 'medium' },
-  { n: counts.low, label: `${counts.low} low`, tone: 'low' },
-]
-
-const ledger = [
-  { label: 'CVEs in corpus', value: String(counts.cves) },
-  { label: 'Live alerts', value: String(counts.active) },
-  { label: 'Suppressed by version', value: String(counts.suppressed) },
-  { label: 'Organisation posture', value: String(posture), suffix: '/100' },
 ]
 
 export default function Landing() {
@@ -180,8 +184,7 @@ export default function Landing() {
     navigate('/app')
   }
 
-  const openComponent = (id: number) => {
-    const path = componentPaths[id]
+  const openPath = (path: string) => {
     if (session) navigate(path)
     else navigate(`/login?next=${encodeURIComponent(path)}`)
   }
@@ -201,8 +204,8 @@ export default function Landing() {
             </span>
           </a>
           <div className="lp-nav-links">
-            <a href="#problem">The problem</a>
-            <a href="#matcher">The matcher</a>
+            <a href="#gate">The gate</a>
+            <a href="#pipeline">Pipeline</a>
             <a href="#scoring">Scoring</a>
             <a href="#console">Console</a>
           </div>
@@ -236,7 +239,7 @@ export default function Landing() {
                 Enter the command centre
                 <ArrowRight size={16} strokeWidth={1.8} />
               </button>
-              <a className="lp-btn lp-btn-ghost" href="#matcher">
+              <a className="lp-btn lp-btn-ghost" href="#gate">
                 See how the gate works
                 <ArrowRight size={16} strokeWidth={1.8} />
               </a>
@@ -259,8 +262,8 @@ export default function Landing() {
       </header>
 
       <main className="lp-main">
-        <section className="lp-section" id="problem">
-          <div className="lp-wrap lp-problem">
+        <section className="lp-section" id="gate">
+          <div className="lp-wrap lp-gate-layout">
             <div className="lp-sec-copy lp-rv">
               <h2>
                 Most alerts are <em>not yours.</em>
@@ -282,131 +285,104 @@ export default function Landing() {
                   <span>suppressed with their would-have score kept</span>
                 </div>
               </div>
-              <a className="lp-link" href="#scoring">
-                Then the survivors are scored <ArrowRight size={14} strokeWidth={1.8} />
-              </a>
             </div>
 
-            <div className="lp-gate lp-rv" style={{ transitionDelay: '90ms' }} role="table" aria-label="Version gate decisions">
-              <div className="lp-gate-head" role="row">
-                <span role="columnheader">cve</span>
-                <span role="columnheader">installed software</span>
-                <span role="columnheader">gate</span>
-                <span role="columnheader">score</span>
+            <div className="lp-gate-proof lp-rv" style={{ transitionDelay: '90ms' }}>
+              <div className="lp-gate" role="table" aria-label="Version gate decisions">
+                <div className="lp-gate-head" role="row">
+                  <span role="columnheader">cve</span>
+                  <span role="columnheader">installed software</span>
+                  <span role="columnheader">gate</span>
+                  <span role="columnheader">score</span>
+                </div>
+                {gateRows.map((alert) => {
+                  const tone = alert.suppressed
+                    ? 'is-suppressed'
+                    : alert.relevance === 'MATCHED'
+                      ? 'is-matched'
+                      : 'is-unknown'
+                  return (
+                    <div className={`lp-gate-row ${tone}`} key={alert.id} role="row">
+                      <span className="lp-gate-cve" role="cell">
+                        {alert.cve.id}
+                      </span>
+                      <span className="lp-gate-asset" role="cell">
+                        {alert.asset.name}
+                        <em>
+                          {alert.cve.product} · {alert.version}
+                        </em>
+                      </span>
+                      <span className="lp-gate-state" role="cell">
+                        <i />
+                        {gateState[alert.relevance]}
+                      </span>
+                      <span className="lp-gate-score" role="cell">
+                        {alert.suppressed ? '0.0' : alert.score.toFixed(1)}
+                        {alert.suppressed && alert.wouldHaveScored != null && (
+                          <em>would be {alert.wouldHaveScored.toFixed(1)}</em>
+                        )}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
-              {gateRows.map((alert) => {
-                const tone = alert.suppressed
-                  ? 'is-suppressed'
-                  : alert.relevance === 'MATCHED'
-                    ? 'is-matched'
-                    : 'is-unknown'
-                return (
-                  <div className={`lp-gate-row ${tone}`} key={alert.id} role="row">
-                    <span className="lp-gate-cve" role="cell">
-                      {alert.cve.id}
-                    </span>
-                    <span className="lp-gate-asset" role="cell">
-                      {alert.asset.name}
-                      <em>
-                        {alert.cve.product} · {alert.version}
-                      </em>
-                    </span>
-                    <span className="lp-gate-state" role="cell">
-                      <i />
-                      {gateState[alert.relevance]}
-                    </span>
-                    <span className="lp-gate-score" role="cell">
-                      {alert.suppressed ? '0.0' : alert.score.toFixed(1)}
-                      {alert.suppressed && alert.wouldHaveScored != null && (
-                        <em>would be {alert.wouldHaveScored.toFixed(1)}</em>
-                      )}
-                    </span>
-                  </div>
-                )
-              })}
-              <div className="lp-gate-foot">
-                <span>CPE range check · normalised versions</span>
-                <span>simulated inventory</span>
-              </div>
+
+              <figure className="lp-ruler" aria-label="Version range check">
+                <div className="lp-ruler-top">
+                  <span>CPE range check</span>
+                  <span>{heroAlert.cve.id}</span>
+                </div>
+                <figcaption className="lp-ruler-title">
+                  <b>
+                    {heroAlert.cve.vendor} {heroAlert.cve.product}
+                  </b>
+                  <span>
+                    {heroAlert.asset.name} · installed {heroAlert.version}
+                  </span>
+                </figcaption>
+                <div className="lp-ruler-track" aria-hidden="true">
+                  <span className="lp-ruler-band" />
+                  <span className="lp-ruler-safe" />
+                  <span className="lp-ruler-mark">
+                    <i />
+                    <b>{heroAlert.version}</b>
+                  </span>
+                  <span className="lp-ruler-fix" />
+                </div>
+                <div className="lp-ruler-scale" aria-hidden="true">
+                  <span className="is-start">{heroAlert.cve.range.startIncluding}</span>
+                  <span className="is-end">{heroAlert.cve.range.endExcluding}</span>
+                  <span className="is-fix">{heroAlert.cve.fixVersion.replace(' or later', '+')}</span>
+                </div>
+                <div className="lp-ruler-verdict">
+                  <span className="lp-verdict-match">
+                    <i /> in range → matched
+                  </span>
+                  <span className="lp-verdict-fix">fix ≥ {heroAlert.cve.fixVersion.replace(' or later', '')}</span>
+                </div>
+              </figure>
             </div>
           </div>
         </section>
 
-        <section className="lp-section" id="matcher">
-          <div className="lp-wrap lp-split">
-            <div className="lp-sec-copy lp-rv">
+        <section className="lp-section" id="pipeline">
+          <div className="lp-wrap">
+            <div className="lp-pipeline-head lp-rv">
               <h2>
-                One version string <em>changes everything.</em>
+                From feed to <em>focused.</em>
               </h2>
               <p>
                 Correlation is not a keyword search. Aegis pulls the product and installed version
                 out of the inventory record, then checks them against the CVE's published affected
                 range.
               </p>
-              <ul className="lp-principles">
-                <li>
-                  <span>Extract</span>
-                  Product, vendor and version come from the asset record — never guessed from the
-                  CVE title.
-                </li>
-                <li>
-                  <span>Compare</span>
-                  Ranges are evaluated on normalised versions, including pre-release and partial
-                  strings.
-                </li>
-                <li>
-                  <span>Verify</span>
-                  An unreadable version is never treated as safe. It stays visible at reduced
-                  relevance.
-                </li>
-              </ul>
             </div>
-
-            <figure className="lp-ruler lp-rv" style={{ transitionDelay: '90ms' }}>
-              <div className="lp-ruler-top">
-                <span>CPE range check</span>
-                <span>{heroAlert.cve.id}</span>
-              </div>
-              <figcaption className="lp-ruler-title">
-                <b>{heroAlert.cve.vendor} {heroAlert.cve.product}</b>
-                <span>{heroAlert.asset.name} · installed {heroAlert.version}</span>
-              </figcaption>
-              <div className="lp-ruler-track" aria-hidden="true">
-                <span className="lp-ruler-band" />
-                <span className="lp-ruler-safe" />
-                <span className="lp-ruler-mark">
-                  <i />
-                  <b>{heroAlert.version}</b>
-                </span>
-                <span className="lp-ruler-fix" />
-              </div>
-              <div className="lp-ruler-scale" aria-hidden="true">
-                <span className="is-start">{heroAlert.cve.range.startIncluding}</span>
-                <span className="is-end">{heroAlert.cve.range.endExcluding}</span>
-                <span className="is-fix">{heroAlert.cve.fixVersion.replace(' or later', '+')}</span>
-              </div>
-              <div className="lp-ruler-verdict">
-                <span className="lp-verdict-match">
-                  <i /> in range → matched
-                </span>
-                <span className="lp-verdict-fix">fix ≥ {heroAlert.cve.fixVersion.replace(' or later', '')}</span>
-              </div>
-              <div className="lp-ruler-foot">
-                <span>CVSS {(heroAlert.cve.cvss ?? 0).toFixed(1)}</span>
-                <span>EPSS {((heroAlert.cve.epss ?? 0) * 100).toFixed(1)}%</span>
-                <span>{heroAlert.cve.kev ? 'CISA KEV' : 'not in KEV'}</span>
-                <span>{heroAlert.asset.criticality} criticality</span>
-              </div>
-            </figure>
-          </div>
-
-          <div className="lp-wrap">
-            <ol className="lp-path lp-rv">
+            <ol className="lp-pipeline lp-rv">
               {pipeline.map((step, index) => (
                 <li key={step.t}>
-                  <span className="lp-path-n">{String(index + 1).padStart(2, '0')}</span>
+                  <span className="lp-pipeline-n">{String(index + 1).padStart(2, '0')}</span>
                   <b>{step.t}</b>
-                  <span className="lp-path-d">{step.d}</span>
+                  <span className="lp-pipeline-d">{step.d}</span>
                 </li>
               ))}
             </ol>
@@ -432,9 +408,6 @@ export default function Landing() {
                 <span>FIRST EPSS</span>
                 <span>MITRE ATT&amp;CK</span>
               </div>
-              <p className="lp-small">
-                Language explains the alert. It never invents the number.
-              </p>
             </div>
 
             <div className="lp-calc lp-rv" style={{ transitionDelay: '90ms' }}>
@@ -482,117 +455,50 @@ export default function Landing() {
 
         <section className="lp-section" id="console">
           <div className="lp-wrap">
-            <div className="lp-console-head">
-              <div className="lp-rv">
-                <h2>
-                  The alert is <em>the beginning.</em>
-                </h2>
-                <p>
-                  Every surface opens from the same evidence — the asset, the version, the score, and
-                  the record trail behind it.
-                </p>
-              </div>
-              <aside className="lp-posture lp-rv" style={{ transitionDelay: '90ms' }}>
-                <span>organisation posture</span>
-                <b>
-                  {posture}
-                  <em>/100</em>
-                </b>
-                <div
-                  className="lp-posture-bar"
-                  role="img"
-                  aria-label={`${counts.critical} critical, ${counts.high} high, ${counts.medium} medium and ${counts.low} low alerts`}
-                >
-                  {postureSegments.map((segment) => (
-                    <i
-                      key={segment.tone}
-                      className={`is-${segment.tone}`}
-                      style={{ width: `${(segment.n / counts.active) * 100}%` }}
-                    />
-                  ))}
-                </div>
-                <div className="lp-posture-legend">
-                  {postureSegments.map((segment) => (
-                    <span key={segment.tone}>{segment.label}</span>
-                  ))}
-                </div>
-                <p>−15 points per critical · −6 per high, computed from the live queue.</p>
-              </aside>
-            </div>
-
-            <div className="lp-index lp-rv">
-              {componentCatalog.map((item) => (
-                <button
-                  type="button"
-                  className="lp-index-row"
-                  key={item.id}
-                  onClick={() => openComponent(item.id)}
-                >
-                  <span className="lp-index-n">{String(item.id).padStart(2, '0')}</span>
-                  <span className="lp-index-name">{item.name}</span>
-                  <span className="lp-index-group">{item.group}</span>
-                  <ArrowUpRight size={14} strokeWidth={1.7} />
-                </button>
-              ))}
-            </div>
-
-            <div className="lp-console-cta">
-              <span>Seeded demo · no signup · two roles</span>
-              <button type="button" className="lp-btn lp-btn-solid" onClick={startDemo}>
-                Enter the command centre
-                <ArrowRight size={16} strokeWidth={1.8} />
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section className="lp-section" id="roles">
-          <div className="lp-wrap">
-            <div className="lp-roles-head lp-rv">
+            <div className="lp-console-head lp-rv">
               <h2>
-                Two clearances. <em>One source of truth.</em>
+                The alert is <em>the beginning.</em>
               </h2>
+              <p>
+                Every surface opens from the same evidence — the asset, the version, the score, and
+                the record trail behind it.
+              </p>
             </div>
-            <div className="lp-role-list">
-              {demoAccounts.map((account, index) => {
-                const copy = roleCopy[index]
+
+            <div className="lp-features">
+              {features.map((feature, index) => {
+                const Icon = feature.icon
                 return (
-                  <article className="lp-role lp-rv" key={account.role} style={{ transitionDelay: `${index * 80}ms` }}>
-                    <span className="lp-role-k">{account.label}</span>
-                    <h3>
-                      {copy.title} <em>{copy.em}</em>
-                    </h3>
-                    <p>{copy.description}</p>
-                    <ul>
-                      {copy.surfaces.map((surface) => (
-                        <li key={surface}>{surface}</li>
-                      ))}
-                    </ul>
-                    <div className="lp-role-foot">
-                      <span>{account.email}</span>
-                      <button type="button" className="lp-link" onClick={() => enterAs(index)}>
-                        Enter as {account.label.toLowerCase()} <ArrowRight size={14} strokeWidth={1.8} />
-                      </button>
-                    </div>
-                  </article>
+                  <button
+                    type="button"
+                    className="lp-feature lp-rv"
+                    key={feature.id}
+                    onClick={() => openPath(feature.path)}
+                    style={{ transitionDelay: `${index * 70}ms` }}
+                  >
+                    <span className="lp-feature-icon">
+                      <Icon size={22} strokeWidth={1.6} />
+                    </span>
+                    <b>{feature.name}</b>
+                    <span className="lp-feature-d">{feature.desc}</span>
+                    <span className="lp-feature-link">
+                      Open <ArrowRight size={12} strokeWidth={1.8} />
+                    </span>
+                  </button>
                 )
               })}
             </div>
-          </div>
-        </section>
 
-        <section className="lp-section lp-final">
-          <div className="lp-wrap">
-            <div className="lp-final-inner lp-rv">
-              <div className="lp-final-copy">
-                <h2>
-                  Start with the alert that <em>actually reaches you.</em>
-                </h2>
+            <div className="lp-closing lp-rv">
+              <div className="lp-closing-copy">
+                <h3>
+                  Two clearances. <em>One source of truth.</em>
+                </h3>
                 <p>
                   Open the seeded organisation, walk the {heroAlert.score.toFixed(1)} Log4Shell match
                   down to its fix, then patch it and watch the queue change.
                 </p>
-                <div className="lp-hero-actions">
+                <div className="lp-closing-actions">
                   <button type="button" className="lp-btn lp-btn-solid" onClick={startDemo}>
                     Enter the command centre
                     <ArrowRight size={16} strokeWidth={1.8} />
@@ -601,13 +507,35 @@ export default function Landing() {
                     Sign in
                   </button>
                 </div>
-                <div className="lp-final-meta">
+                <div className="lp-closing-meta">
                   <span>Demo data simulated and labelled</span>
                   <span>Real CVE identifiers</span>
                   <span>Formula v{heroAlert.breakdown.formula_version}</span>
                 </div>
               </div>
-              <span className="lp-final-mark" aria-hidden="true">
+
+              <div className="lp-closing-roles">
+                {demoAccounts.map((account, index) => {
+                  const copy = roleCopy[index]
+                  return (
+                    <article className="lp-role" key={account.role}>
+                      <span className="lp-role-k">{account.label}</span>
+                      <h4>
+                        {copy.title} <em>{copy.em}</em>
+                      </h4>
+                      <p>{copy.description}</p>
+                      <div className="lp-role-foot">
+                        <span>{account.email}</span>
+                        <button type="button" className="lp-link" onClick={() => enterAs(index)}>
+                          Enter as {account.label.toLowerCase()} <ArrowRight size={14} strokeWidth={1.8} />
+                        </button>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+
+              <span className="lp-closing-mark" aria-hidden="true">
                 <LogoMark />
               </span>
             </div>

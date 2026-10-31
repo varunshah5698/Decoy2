@@ -8,11 +8,13 @@ export function Drawer({
   onClose,
   children,
   label,
+  wide,
 }: {
   open: boolean
   onClose: () => void
   children: ReactNode
   label: string
+  wide?: boolean
 }) {
   useEffect(() => {
     if (!open) return
@@ -41,7 +43,7 @@ export function Drawer({
             onClick={onClose}
           />
           <motion.aside
-            className="drawer"
+            className={wide ? 'drawer drawer-wide' : 'drawer'}
             role="dialog"
             aria-modal="true"
             aria-label={label}
