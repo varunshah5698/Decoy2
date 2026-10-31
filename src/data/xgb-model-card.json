@@ -1,0 +1,170 @@
+{
+  "name": "Aegis XGBoost exploit prior",
+  "version": "xgb-1.0.0",
+  "objective": "binary:logistic",
+  "target": "30-day exploitation probability",
+  "trainedAt": "2026-10-31T10:27:49Z",
+  "dataset": {
+    "rows": 120000,
+    "trainRows": 98400,
+    "testRows": 21600,
+    "positiveRate": 8.0,
+    "source": "Synthetic correlation corpus calibrated to demo seed ranges"
+  },
+  "params": {
+    "maxDepth": 5,
+    "eta": 0.045,
+    "subsample": 0.88,
+    "colsampleByTree": 0.9,
+    "minChildWeight": 3,
+    "gamma": 0.1,
+    "earlyStoppingRounds": 100
+  },
+  "rounds": 100,
+  "search": {
+    "configs": 9,
+    "cvFolds": 4,
+    "bestSearchAuc": 0.8476
+  },
+  "cv": {
+    "folds": 5,
+    "auc": 0.8514,
+    "logloss": 0.2038,
+    "bestIteration": 100
+  },
+  "test": {
+    "auc": 0.8598,
+    "logloss": 0.1989,
+    "brier": 0.0552
+  },
+  "calibration": [
+    {
+      "bin": "0-10%",
+      "predicted": 0.9,
+      "observed": 0.8,
+      "count": 2160
+    },
+    {
+      "bin": "10-20%",
+      "predicted": 1.2,
+      "observed": 0.7,
+      "count": 2160
+    },
+    {
+      "bin": "20-30%",
+      "predicted": 1.5,
+      "observed": 1.4,
+      "count": 2160
+    },
+    {
+      "bin": "30-40%",
+      "predicted": 2.0,
+      "observed": 2.1,
+      "count": 2160
+    },
+    {
+      "bin": "40-50%",
+      "predicted": 2.7,
+      "observed": 2.1,
+      "count": 2160
+    },
+    {
+      "bin": "50-60%",
+      "predicted": 3.5,
+      "observed": 3.6,
+      "count": 2160
+    },
+    {
+      "bin": "60-70%",
+      "predicted": 4.7,
+      "observed": 4.0,
+      "count": 2160
+    },
+    {
+      "bin": "70-80%",
+      "predicted": 7.3,
+      "observed": 7.0,
+      "count": 2160
+    },
+    {
+      "bin": "80-90%",
+      "predicted": 15.1,
+      "observed": 14.8,
+      "count": 2160
+    },
+    {
+      "bin": "90-100%",
+      "predicted": 41.9,
+      "observed": 43.3,
+      "count": 2160
+    }
+  ],
+  "featureImportance": [
+    {
+      "feature": "kev",
+      "gain": 494.82,
+      "share": 44.5
+    },
+    {
+      "feature": "kev_x_epss",
+      "gain": 383.84,
+      "share": 34.6
+    },
+    {
+      "feature": "internet_facing",
+      "gain": 60.08,
+      "share": 5.4
+    },
+    {
+      "feature": "deterministic_score",
+      "gain": 48.25,
+      "share": 4.3
+    },
+    {
+      "feature": "exposure_index",
+      "gain": 41.76,
+      "share": 3.8
+    },
+    {
+      "feature": "epss",
+      "gain": 24.2,
+      "share": 2.2
+    },
+    {
+      "feature": "asset_criticality",
+      "gain": 12.37,
+      "share": 1.1
+    },
+    {
+      "feature": "epss_x_cvss",
+      "gain": 10.83,
+      "share": 1.0
+    },
+    {
+      "feature": "version_verified",
+      "gain": 10.3,
+      "share": 0.9
+    },
+    {
+      "feature": "confidence",
+      "gain": 8.17,
+      "share": 0.7
+    },
+    {
+      "feature": "patch_available",
+      "gain": 5.52,
+      "share": 0.5
+    },
+    {
+      "feature": "cvss",
+      "gain": 5.44,
+      "share": 0.5
+    },
+    {
+      "feature": "age_days",
+      "gain": 5.18,
+      "share": 0.5
+    }
+  ],
+  "disclaimer": "Demo model trained on synthetic telemetry. Useful for showing model wiring, not validated for production triage."
+}
