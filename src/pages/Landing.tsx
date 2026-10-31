@@ -1,19 +1,57 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { motion, useScroll, useSpring, useTransform } from 'framer-motion'
-import { Ambient } from '../components/Ambient'
-import { Logo, LogoMark } from '../components/Logo'
-import { HeroScene } from '../scenes/HeroScene'
-import { Counter } from '../components/Counter'
-import { Reveal } from '../components/Reveal'
-import { Sparkline } from '../components/Sparkline'
-import { Waterfall } from '../components/Waterfall'
-import { SourceBadge, SeverityBadge } from '../components/Badges'
-import { TiltCard } from '../components/TiltCard'
-import { CatalogIcon, ArrowRight, ExternalLink, Sparkles, ShieldCheck, SlidersHorizontal, FileSearch, Zap } from '../components/Icons'
-import { alerts, componentCatalog, counts, posture, suppressedAlerts } from '../data/seed'
-import { demoAccounts, useAuth, useTheme } from '../lib/store'
-import { cx } from '../lib/format'
+import { Link, useNavigate } from 'react-router-dom'
+import { ArrowRight, ArrowUpRight } from 'lucide-react'
+import { LogoMark } from '../components/Logo'
+import { ServerAttackScene } from '../scenes/ServerAttackScene'
+import { alerts, componentCatalog, counts, posture } from '../data/seed'
+import { demoAccounts, useAuth } from '../lib/store'
+import './Landing.css'
+
+const heroAlert = alerts[0]
+
+const gateState = {
+  MATCHED: 'in range',
+  VERSION_UNKNOWN: 'version unreadable',
+  NOT_AFFECTED: 'outside range',
+  PRODUCT_ABSENT: 'not installed',
+} as const
+
+const gateRows = ['CVE-2021-44228', 'CVE-2024-3400', 'CVE-2021-34527', 'CVE-2023-23397'].flatMap((id) =>
+  alerts.filter((alert) => alert.cve.id === id),
+)
+
+const factors = [
+  {
+    key: 'Severity',
+    note: `CVSS ${(heroAlert.cve.cvss ?? 0).toFixed(1)}`,
+    value: heroAlert.breakdown.severity_points,
+  },
+  {
+    key: 'Exploitation probability',
+    note: `EPSS ${((heroAlert.cve.epss ?? 0) * 100).toFixed(1)}%`,
+    value: heroAlert.breakdown.exploit_points,
+  },
+  { key: 'Known exploitation', note: 'CISA KEV listed', value: heroAlert.breakdown.kev_points },
+  {
+    key: 'Asset criticality',
+    note: `${heroAlert.asset.criticality.toLowerCase()} criticality`,
+    value: heroAlert.breakdown.criticality_points,
+  },
+  {
+    key: 'Exposure',
+    note: heroAlert.asset.internetFacing ? 'internet-facing' : 'internal only',
+    value: heroAlert.breakdown.exposure_points,
+  },
+  { key: 'Version relevance', note: 'installed range matched', value: heroAlert.breakdown.relevance_points },
+]
+
+const pipeline = [
+  { t: 'Ingest', d: 'NVD, KEV, EPSS and ATT&CK arrive through cached adapters.' },
+  { t: 'Extract', d: 'Product, vendor and version read from the asset record.' },
+  { t: 'Correlate', d: 'Installed versions checked against published ranges.' },
+  { t: 'Score', d: 'Six weighted inputs, deterministic, capped at 100.' },
+  { t: 'Alert', d: 'Impact, evidence and next action in plain language.' },
+]
 
 const componentPaths: Record<number, string> = {
   1: '/app',
@@ -35,26 +73,42 @@ const componentPaths: Record<number, string> = {
   17: '/app/ai',
 }
 
-const heroAlert = alerts[0]
+const roleCopy = [
+  {
+    title: 'Operate',
+    em: 'the whole room.',
+    description:
+      'Full workspace control: ingest inventory and logs, change the inputs in the simulator, and export what the queue decided.',
+    surfaces: ['Ingestion', 'Simulator', 'Scoring model', 'Exports'],
+  },
+  {
+    title: 'Triage',
+    em: 'with the why.',
+    description:
+      'A prioritised queue where every alert carries its version check, score breakdown and evidence trail — plus an analyst that stays inside the record.',
+    surfaces: ['Alert center', 'Asset exposure', 'Provenance', 'AI analyst'],
+  },
+]
 
-const tickerAlerts = [...alerts]
-  .filter((a) => !a.suppressed)
-  .sort((a, b) => b.score - a.score)
-  .slice(0, 8)
+const postureSegments = [
+  { n: counts.critical, label: `${counts.critical} critical`, tone: 'critical' },
+  { n: counts.high, label: `${counts.high} high`, tone: 'high' },
+  { n: counts.medium, label: `${counts.medium} medium`, tone: 'medium' },
+  { n: counts.low, label: `${counts.low} low`, tone: 'low' },
+]
+
+const ledger = [
+  { label: 'CVEs in corpus', value: String(counts.cves) },
+  { label: 'Live alerts', value: String(counts.active) },
+  { label: 'Suppressed by version', value: String(counts.suppressed) },
+  { label: 'Organisation posture', value: String(posture), suffix: '/100' },
+]
 
 export default function Landing() {
   const navigate = useNavigate()
-  const { theme, toggle } = useTheme()
   const { session, signIn } = useAuth()
   const [scrolled, setScrolled] = useState(false)
-  const threadRef = useRef<HTMLDivElement>(null)
-  const { scrollYProgress } = useScroll({
-    target: threadRef,
-    offset: ['start 0.82', 'end 0.45'],
-  })
-  const progress = useSpring(scrollYProgress, { stiffness: 90, damping: 24, mass: 0.4 })
-  const lineWidth = useTransform(progress, [0, 1], ['0%', '100%'])
-  const sparkLeft = useTransform(progress, [0, 1], ['0%', '100%'])
+  const ambientRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24)
@@ -63,11 +117,66 @@ export default function Landing() {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+  useEffect(() => {
+    const nodes = Array.from(document.querySelectorAll<HTMLElement>('.lp-rv'))
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      nodes.forEach((node) => node.classList.add('in'))
+      return
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('in')
+            observer.unobserve(entry.target)
+          }
+        })
+      },
+      { rootMargin: '0px 0px -10% 0px', threshold: 0.08 },
+    )
+    nodes.forEach((node) => observer.observe(node))
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    const el = ambientRef.current
+    if (!el) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    let raf = 0
+    let x = 0.68
+    let y = 0.22
+    const target = { x, y }
+    const onMove = (event: PointerEvent) => {
+      target.x = event.clientX / window.innerWidth
+      target.y = event.clientY / window.innerHeight
+    }
+    const tick = () => {
+      x += (target.x - x) * 0.045
+      y += (target.y - y) * 0.045
+      el.style.setProperty('--ax', `${(x * 100).toFixed(2)}%`)
+      el.style.setProperty('--ay', `${(y * 100).toFixed(2)}%`)
+      el.style.setProperty('--sy', `${Math.min(160, window.scrollY * 0.05).toFixed(1)}px`)
+      raf = requestAnimationFrame(tick)
+    }
+    window.addEventListener('pointermove', onMove, { passive: true })
+    raf = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('pointermove', onMove)
+    }
+  }, [])
+
   const startDemo = () => {
     if (!session) {
-      const analyst = demoAccounts[1]
+      const analyst = demoAccounts.find((account) => account.role === 'ANALYST') ?? demoAccounts[1]
       signIn(analyst.email, analyst.role, analyst.name)
     }
+    navigate('/app')
+  }
+
+  const enterAs = (index: number) => {
+    const account = demoAccounts[index]
+    if (!session) signIn(account.email, account.role, account.name)
     navigate('/app')
   }
 
@@ -78,560 +187,493 @@ export default function Landing() {
   }
 
   return (
-    <div>
-      <Ambient />
+    <div className="lp">
+      <div className="lp-ambient" ref={ambientRef} aria-hidden="true" />
+      <div className="lp-grain" aria-hidden="true" />
 
-      <nav className={cx('site-nav', scrolled && 'scrolled')}>
-        <div className="container nav-inner">
-          <a href="#top" aria-label="Aegis Sentinel home">
-            <Logo sub="Threat early warning" />
+      <nav className={`lp-nav${scrolled ? ' is-scrolled' : ''}`} aria-label="Primary">
+        <div className="lp-wrap lp-nav-inner">
+          <a className="lp-brand" href="#top" aria-label="Aegis Sentinel home">
+            <LogoMark />
+            <span className="lp-brand-text">
+              <b>Aegis Sentinel</b>
+              <small>Threat early warning</small>
+            </span>
           </a>
-          <div className="nav-links" aria-label="Sections">
-            <a href="#problem">Problem</a>
-            <a href="#thread">How it works</a>
+          <div className="lp-nav-links">
+            <a href="#problem">The problem</a>
+            <a href="#matcher">The matcher</a>
             <a href="#scoring">Scoring</a>
-            <a href="#components">Components</a>
+            <a href="#console">Console</a>
           </div>
-          <div className="nav-actions">
-            <button
-              className="theme-toggle"
-              onClick={toggle}
-              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
-            >
-              {theme === 'dark' ? (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-                  <circle cx="12" cy="12" r="4" />
-                  <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-                </svg>
-              ) : (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-                  <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />
-                </svg>
-              )}
-            </button>
-            <button className="btn btn-ghost btn-sm" onClick={() => navigate('/login')}>
+          <div className="lp-nav-actions">
+            <button type="button" className="lp-nav-signin" onClick={() => navigate('/login')}>
               Sign in
             </button>
-            <button className="btn btn-primary btn-sm" onClick={startDemo}>
-              Explore demo
-              <ArrowRight size={14} />
+            <button type="button" className="lp-btn lp-btn-solid lp-btn-sm" onClick={startDemo}>
+              Open demo
             </button>
           </div>
         </div>
       </nav>
 
-      <header className="hero" id="top">
-        <HeroScene />
-        <div className="hero-scrim" />
-        <div className="hero-vignette" />
-
-        <div className="hero-inner">
-          <div className="hero-copy">
-            <div className="eyebrow">
-              <span className="dot" />
-              Early warning · version-aware · explainable
-            </div>
-            <h1>
-              Know which threats <span className="serif-accent">reach</span> your systems.
+      <header className="lp-hero" id="top">
+        <ServerAttackScene />
+        <div className="lp-hero-shell">
+          <div className="lp-hero-copy">
+            <h1 className="lp-hero-title">
+              The internet is loud.
               <br />
-              Before they do.
+              <em>Your breach is specific.</em>
             </h1>
-            <p className="hero-sub">
-              Aegis Sentinel correlates global vulnerability intelligence with{' '}
-              <strong>your own asset inventory</strong> — down to the installed version — and tells you
-              what to fix first, and why.
+            <p className="lp-hero-sub">
+              Aegis Sentinel reads the global vulnerability firehose, checks every affected range
+              against the software you <strong>actually run</strong>, and escalates only what reaches
+              your systems — with the version, the score and the fix in plain sight.
             </p>
-            <div className="hero-actions">
-              <button className="btn btn-primary" onClick={startDemo}>
-                Explore the demo
-                <ArrowRight size={16} />
+            <div className="lp-hero-actions">
+              <button type="button" className="lp-btn lp-btn-solid" onClick={startDemo}>
+                Enter the command centre
+                <ArrowRight size={16} strokeWidth={1.8} />
               </button>
-              <button className="btn btn-ghost" onClick={() => navigate('/login')}>
-                Sign in
-              </button>
-            </div>
-            <div className="hero-meta">
-              <div className="hero-meta-item">
-                <strong>{counts.cves} CVEs</strong>
-                <span>NVD-seeded corpus</span>
-              </div>
-              <div className="hero-meta-item">
-                <strong>{counts.active} alerts</strong>
-                <span>scored &amp; explained</span>
-              </div>
-              <div className="hero-meta-item">
-                <strong>{counts.suppressed} suppressed</strong>
-                <span>by the version gate</span>
-              </div>
-              <div className="hero-meta-item">
-                <strong>{posture}/100</strong>
-                <span>org posture</span>
-              </div>
+              <a className="lp-btn lp-btn-ghost" href="#matcher">
+                See how the gate works
+                <ArrowRight size={16} strokeWidth={1.8} />
+              </a>
             </div>
           </div>
-
         </div>
-
-        <div className="scroll-cue" aria-hidden="true">
-          <span>Scroll</span>
-          <span className="rail" />
-        </div>
-
-        <div className="hero-ticker" aria-label="Latest prioritised alerts">
-          <div className="ticker-track">
-            {[...tickerAlerts, ...tickerAlerts].map((a, i) => (
-              <span className="ticker-item" key={`${a.id}-${i}`}>
-                <SeverityBadge level={a.level} />
-                <strong style={{ color: 'var(--text)' }}>{a.cve.id}</strong>
-                <span>{a.asset.name}</span>
-                <span style={{ color: 'var(--amber)' }}>{a.score.toFixed(1)}</span>
-                <i className="ticker-sep" />
-              </span>
+        <div className="lp-hero-ledger">
+          <div className="lp-wrap lp-ledger-inner">
+            {ledger.map((item) => (
+              <div className="lp-ledger-item" key={item.label}>
+                <span>{item.label}</span>
+                <b>
+                  {item.value}
+                  {item.suffix && <em>{item.suffix}</em>}
+                </b>
+              </div>
             ))}
           </div>
         </div>
       </header>
 
-      <main>
-        <section className="section" id="problem">
-          <div className="container">
-            <Reveal>
-              <div className="section-head">
-                <span className="mono">01 — The problem</span>
-                <h2>
-                  Severity is not the same as <span className="serif-accent">danger.</span>
-                </h2>
-                <p>
-                  Every day NVD publishes new CVEs. Very few of them touch your systems. A 9.8 on a
-                  product you do not run is noise — and noise is how real emergencies get missed.
-                </p>
+      <main className="lp-main">
+        <section className="lp-section" id="problem">
+          <div className="lp-wrap lp-problem">
+            <div className="lp-sec-copy lp-rv">
+              <h2>
+                Most alerts are <em>not yours.</em>
+              </h2>
+              <p>
+                The feed is endless and genuinely alarming. A 9.8 on software you do not run is still
+                a 9.8 — and it still pages someone. Aegis starts by removing what cannot touch you.
+              </p>
+              <div className="lp-facts">
+                <div>
+                  <b>
+                    {counts.active}
+                    <i> / {counts.total}</i>
+                  </b>
+                  <span>alerts clear the gate</span>
+                </div>
+                <div>
+                  <b>{counts.suppressed}</b>
+                  <span>suppressed with their would-have score kept</span>
+                </div>
               </div>
-            </Reveal>
+              <a className="lp-link" href="#scoring">
+                Then the survivors are scored <ArrowRight size={14} strokeWidth={1.8} />
+              </a>
+            </div>
 
-            <div className="problem-grid">
-              <Reveal delay={0.05}>
-                <article className="panel problem-card">
-                  <span className="mono">Seeded corpus</span>
-                  <div className="problem-num">
-                    <Counter to={counts.cves} />
-                  </div>
-                  <div className="problem-label">CVEs in the demo window</div>
-                  <p className="problem-copy">
-                    Real NVD identifiers, flattened and normalised, each with CVSS, EPSS, KEV status and
-                    readable version ranges.
-                  </p>
-                  <div className="problem-formula">
-                    computed: counts of cves seeded from NVD records · source NVD
-                  </div>
-                  <div className="problem-foot">
-                    <div className="source-cell">
-                      <SourceBadge source="NVD" />
-                      <span className="badge simulated">Simulated slice</span>
-                    </div>
-                    <span className="mono" style={{ fontSize: 8.5 }}>
-                      n={counts.cves}
+            <div className="lp-gate lp-rv" style={{ transitionDelay: '90ms' }} role="table" aria-label="Version gate decisions">
+              <div className="lp-gate-head" role="row">
+                <span role="columnheader">cve</span>
+                <span role="columnheader">installed software</span>
+                <span role="columnheader">gate</span>
+                <span role="columnheader">score</span>
+              </div>
+              {gateRows.map((alert) => {
+                const tone = alert.suppressed
+                  ? 'is-suppressed'
+                  : alert.relevance === 'MATCHED'
+                    ? 'is-matched'
+                    : 'is-unknown'
+                return (
+                  <div className={`lp-gate-row ${tone}`} key={alert.id} role="row">
+                    <span className="lp-gate-cve" role="cell">
+                      {alert.cve.id}
+                    </span>
+                    <span className="lp-gate-asset" role="cell">
+                      {alert.asset.name}
+                      <em>
+                        {alert.cve.product} · {alert.version}
+                      </em>
+                    </span>
+                    <span className="lp-gate-state" role="cell">
+                      <i />
+                      {gateState[alert.relevance]}
+                    </span>
+                    <span className="lp-gate-score" role="cell">
+                      {alert.suppressed ? '0.0' : alert.score.toFixed(1)}
+                      {alert.suppressed && alert.wouldHaveScored != null && (
+                        <em>would be {alert.wouldHaveScored.toFixed(1)}</em>
+                      )}
                     </span>
                   </div>
-                </article>
-              </Reveal>
-
-              <Reveal delay={0.12}>
-                <article className="panel problem-card">
-                  <span className="mono">Already exploited</span>
-                  <div className="problem-num">
-                    <Counter to={counts.kev} />
-                  </div>
-                  <div className="problem-label">In the CISA KEV catalog</div>
-                  <p className="problem-copy">
-                    These are not theoretical. Each KEV entry carries a remediation due date that the
-                    scoring engine treats as an escalation floor.
-                  </p>
-                  <div className="problem-formula">
-                    computed: count where kev = true · join on cve_id · CISA KEV
-                  </div>
-                  <div className="problem-foot">
-                    <div className="source-cell">
-                      <SourceBadge source="CISA KEV" />
-                      <SourceBadge source="FIRST EPSS" />
-                    </div>
-                    <span className="mono" style={{ fontSize: 8.5 }}>
-                      KEV floor
-                    </span>
-                  </div>
-                </article>
-              </Reveal>
-
-              <Reveal delay={0.19}>
-                <article className="panel problem-card">
-                  <span className="mono">Relevance gate</span>
-                  <div className="problem-num">
-                    <Counter to={counts.suppressed} />
-                  </div>
-                  <div className="problem-label">High-severity alerts suppressed</div>
-                  <p className="problem-copy">
-                    {suppressedAlerts.map((a) => a.cve.id).join(' and ')} would top a CVSS-only queue.
-                    Version-aware correlation says they do not apply here.
-                  </p>
-                  <div className="problem-formula">
-                    NOT_AFFECTED or PRODUCT_ABSENT → score 0.0 · would-have value retained
-                  </div>
-                  <div className="problem-foot">
-                    <div className="source-cell">
-                      <span className="badge suppressed">Suppressed</span>
-                      <span className="badge simulated">Simulated inventory</span>
-                    </div>
-                    <span className="mono" style={{ fontSize: 8.5 }}>
-                      n={counts.suppressed}
-                    </span>
-                  </div>
-                </article>
-              </Reveal>
+                )
+              })}
+              <div className="lp-gate-foot">
+                <span>CPE range check · normalised versions</span>
+                <span>simulated inventory</span>
+              </div>
             </div>
           </div>
         </section>
 
-        <section className="section" id="thread" style={{ paddingTop: 40 }}>
-          <div className="container">
-            <Reveal>
-              <div className="section-head">
-                <span className="mono">02 — The golden thread</span>
-                <h2>
-                  Five steps. One <span className="serif-accent">explainable</span> path.
-                </h2>
-                <p>
-                  Nothing in the pipeline is a black box. Every step is deterministic, versioned, and
-                  traceable back to the exact record that produced it.
-                </p>
-              </div>
-            </Reveal>
+        <section className="lp-section" id="matcher">
+          <div className="lp-wrap lp-split">
+            <div className="lp-sec-copy lp-rv">
+              <h2>
+                One version string <em>changes everything.</em>
+              </h2>
+              <p>
+                Correlation is not a keyword search. Aegis pulls the product and installed version
+                out of the inventory record, then checks them against the CVE's published affected
+                range.
+              </p>
+              <ul className="lp-principles">
+                <li>
+                  <span>Extract</span>
+                  Product, vendor and version come from the asset record — never guessed from the
+                  CVE title.
+                </li>
+                <li>
+                  <span>Compare</span>
+                  Ranges are evaluated on normalised versions, including pre-release and partial
+                  strings.
+                </li>
+                <li>
+                  <span>Verify</span>
+                  An unreadable version is never treated as safe. It stays visible at reduced
+                  relevance.
+                </li>
+              </ul>
+            </div>
 
-            <div className="thread" ref={threadRef}>
-              <div className="thread-track">
-                <div className="thread-line" />
-                <motion.div className="thread-progress" style={{ width: lineWidth }} />
-                <motion.div className="thread-spark" style={{ left: sparkLeft }} aria-hidden="true" />
-                {[
-                  {
-                    n: '01',
-                    k: 'Ingest',
-                    t: 'Ingest',
-                    d: 'NVD, KEV, EPSS and ATT&CK arrive through cached, rate-limited adapters.',
-                    icon: <RssIcon />,
-                  },
-                  {
-                    n: '02',
-                    k: 'Extract',
-                    t: 'Extract',
-                    d: 'Gazetteer and regex pull products, versions, CVE IDs and IPs from text.',
-                    icon: <FileSearch size={16} />,
-                  },
-                  {
-                    n: '03',
-                    k: 'Correlate',
-                    t: 'Correlate',
-                    d: 'Vendor, product and installed version are checked against CPE ranges.',
-                    icon: <ShieldCheck size={16} />,
-                  },
-                  {
-                    n: '04',
-                    k: 'Score',
-                    t: 'Score',
-                    d: 'Six weighted inputs produce a reproducible 0–100 risk score.',
-                    icon: <SlidersHorizontal size={16} />,
-                  },
-                  {
-                    n: '05',
-                    k: 'Alert',
-                    t: 'Alert',
-                    d: 'A plain-language summary, impact and next action — validated, never invented.',
-                    icon: <Zap size={16} />,
-                  },
-                ].map((s, i) => (
-                  <Reveal key={s.n} delay={0.04 * i} className="thread-step">
-                    <span className="thread-node">{s.n}</span>
-                    <span className="mono">Step {s.n}</span>
-                    <h3>{s.t}</h3>
-                    <p>{s.d}</p>
-                    <div className="thread-icon">{s.icon}</div>
-                  </Reveal>
+            <figure className="lp-ruler lp-rv" style={{ transitionDelay: '90ms' }}>
+              <div className="lp-ruler-top">
+                <span>CPE range check</span>
+                <span>{heroAlert.cve.id}</span>
+              </div>
+              <figcaption className="lp-ruler-title">
+                <b>{heroAlert.cve.vendor} {heroAlert.cve.product}</b>
+                <span>{heroAlert.asset.name} · installed {heroAlert.version}</span>
+              </figcaption>
+              <div className="lp-ruler-track" aria-hidden="true">
+                <span className="lp-ruler-band" />
+                <span className="lp-ruler-safe" />
+                <span className="lp-ruler-mark">
+                  <i />
+                  <b>{heroAlert.version}</b>
+                </span>
+                <span className="lp-ruler-fix" />
+              </div>
+              <div className="lp-ruler-scale" aria-hidden="true">
+                <span className="is-start">{heroAlert.cve.range.startIncluding}</span>
+                <span className="is-end">{heroAlert.cve.range.endExcluding}</span>
+                <span className="is-fix">{heroAlert.cve.fixVersion.replace(' or later', '+')}</span>
+              </div>
+              <div className="lp-ruler-verdict">
+                <span className="lp-verdict-match">
+                  <i /> in range → matched
+                </span>
+                <span className="lp-verdict-fix">fix ≥ {heroAlert.cve.fixVersion.replace(' or later', '')}</span>
+              </div>
+              <div className="lp-ruler-foot">
+                <span>CVSS {(heroAlert.cve.cvss ?? 0).toFixed(1)}</span>
+                <span>EPSS {((heroAlert.cve.epss ?? 0) * 100).toFixed(1)}%</span>
+                <span>{heroAlert.cve.kev ? 'CISA KEV' : 'not in KEV'}</span>
+                <span>{heroAlert.asset.criticality} criticality</span>
+              </div>
+            </figure>
+          </div>
+
+          <div className="lp-wrap">
+            <ol className="lp-path lp-rv">
+              {pipeline.map((step, index) => (
+                <li key={step.t}>
+                  <span className="lp-path-n">{String(index + 1).padStart(2, '0')}</span>
+                  <b>{step.t}</b>
+                  <span className="lp-path-d">{step.d}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        <section className="lp-section" id="scoring">
+          <div className="lp-wrap lp-split lp-split-scoring">
+            <div className="lp-sec-copy lp-rv">
+              <h2>
+                The score keeps <em>no secrets.</em>
+              </h2>
+              <p>
+                Six weighted inputs, one deterministic formula, capped at 100. The same record always
+                produces the same number — and the arithmetic is on screen, not behind a model.
+              </p>
+              <Link className="lp-link" to="/login?next=%2Fapp%2Fscoring">
+                Open the scoring model <ArrowRight size={14} strokeWidth={1.8} />
+              </Link>
+              <div className="lp-sources">
+                <span>NVD</span>
+                <span>CISA KEV</span>
+                <span>FIRST EPSS</span>
+                <span>MITRE ATT&amp;CK</span>
+              </div>
+              <p className="lp-small">
+                Language explains the alert. It never invents the number.
+              </p>
+            </div>
+
+            <div className="lp-calc lp-rv" style={{ transitionDelay: '90ms' }}>
+              <header>
+                <div>
+                  <b>{heroAlert.asset.name}</b>
+                  <span>
+                    {heroAlert.cve.id} · {heroAlert.cve.product} {heroAlert.version}
+                  </span>
+                </div>
+                <span className={`lp-level is-${heroAlert.level.toLowerCase()}`}>{heroAlert.level}</span>
+              </header>
+              <div className="lp-factors">
+                {factors.map((factor) => (
+                  <div className="lp-factor" key={factor.key}>
+                    <div className="lp-factor-head">
+                      <span>{factor.key}</span>
+                      <em>{factor.note}</em>
+                      <b>{factor.value.toFixed(1)}</b>
+                    </div>
+                    <div className="lp-factor-bar">
+                      <i
+                        className={factor.key === 'Version relevance' ? 'is-amber' : undefined}
+                        style={{ width: `${(factor.value / 25) * 100}%` }}
+                      />
+                    </div>
+                  </div>
                 ))}
               </div>
+              <div className="lp-calc-total">
+                <span>total · capped</span>
+                <b>
+                  {heroAlert.score.toFixed(1)}
+                  <em>/100</em>
+                </b>
+              </div>
+              <div className="lp-calc-foot">
+                <span>formula v{heroAlert.breakdown.formula_version}</span>
+                <span>six inputs</span>
+                <span>reproducible</span>
+              </div>
             </div>
           </div>
         </section>
 
-        <section className="section" id="scoring" style={{ paddingTop: 40 }}>
-          <div className="container split">
-            <Reveal>
-              <div className="section-head" style={{ marginBottom: 0 }}>
-                <span className="mono">03 — Explainability</span>
+        <section className="lp-section" id="console">
+          <div className="lp-wrap">
+            <div className="lp-console-head">
+              <div className="lp-rv">
                 <h2>
-                  Every alert can be rebuilt, <span className="serif-accent">line by line.</span>
+                  The alert is <em>the beginning.</em>
                 </h2>
                 <p>
-                  No opaque model decides your risk. The score is arithmetic over six inputs, shown as
-                  a waterfall. The language layer only explains it — and is validated against the same
-                  facts.
+                  Every surface opens from the same evidence — the asset, the version, the score, and
+                  the record trail behind it.
                 </p>
-                <div className="hero-meta" style={{ marginTop: 30, maxWidth: 480 }}>
-                  <div className="hero-meta-item">
-                    <strong>25 + 25</strong>
-                    <span>severity + EPSS</span>
-                  </div>
-                  <div className="hero-meta-item">
-                    <strong>+10 + 25</strong>
-                    <span>KEV + criticality</span>
-                  </div>
-                  <div className="hero-meta-item">
-                    <strong>+5 + 10</strong>
-                    <span>exposure + relevance</span>
-                  </div>
-                </div>
-                <button
-                  className="link-arrow"
-                  style={{ marginTop: 28 }}
-                  onClick={() => navigate('/login?next=%2Fapp%2Falerts')}
+              </div>
+              <aside className="lp-posture lp-rv" style={{ transitionDelay: '90ms' }}>
+                <span>organisation posture</span>
+                <b>
+                  {posture}
+                  <em>/100</em>
+                </b>
+                <div
+                  className="lp-posture-bar"
+                  role="img"
+                  aria-label={`${counts.critical} critical, ${counts.high} high, ${counts.medium} medium and ${counts.low} low alerts`}
                 >
-                  Open the alert center <ArrowRight size={14} />
+                  {postureSegments.map((segment) => (
+                    <i
+                      key={segment.tone}
+                      className={`is-${segment.tone}`}
+                      style={{ width: `${(segment.n / counts.active) * 100}%` }}
+                    />
+                  ))}
+                </div>
+                <div className="lp-posture-legend">
+                  {postureSegments.map((segment) => (
+                    <span key={segment.tone}>{segment.label}</span>
+                  ))}
+                </div>
+                <p>−15 points per critical · −6 per high, computed from the live queue.</p>
+              </aside>
+            </div>
+
+            <div className="lp-index lp-rv">
+              {componentCatalog.map((item) => (
+                <button
+                  type="button"
+                  className="lp-index-row"
+                  key={item.id}
+                  onClick={() => openComponent(item.id)}
+                >
+                  <span className="lp-index-n">{String(item.id).padStart(2, '0')}</span>
+                  <span className="lp-index-name">{item.name}</span>
+                  <span className="lp-index-group">{item.group}</span>
+                  <ArrowUpRight size={14} strokeWidth={1.7} />
                 </button>
-                <div className="source-cell" style={{ marginTop: 26 }}>
-                  <SourceBadge source="NVD" />
-                  <SourceBadge source="CISA KEV" />
-                  <SourceBadge source="FIRST EPSS" />
-                  <span className="badge simulated">Simulated asset</span>
-                </div>
-              </div>
-            </Reveal>
-
-            <Reveal delay={0.1}>
-              <div className="panel wf-panel">
-                <div className="panel-head" style={{ padding: 0, paddingBottom: 16, borderBottom: '1px solid var(--line)' }}>
-                  <div>
-                    <div className="panel-title">
-                      HR Portal
-                      <span className="badge suppressed" style={{ marginLeft: 4 }}>
-                        2.14.1
-                      </span>
-                    </div>
-                    <div className="panel-sub">Version-aware correlation · matched</div>
-                  </div>
-                  <SeverityBadge level={heroAlert.level} />
-                </div>
-                <Waterfall alert={heroAlert} />
-                <div className="wf-foot" style={{ borderTop: '1px solid var(--line)', marginTop: 12 }}>
-                  <span className="mono">HR Portal · HIGH · internet-facing</span>
-                  <span className="badge simulated">Simulated asset</span>
-                </div>
-              </div>
-            </Reveal>
-          </div>
-        </section>
-
-        <section className="section" style={{ paddingTop: 40 }}>
-          <div className="container">
-            <Reveal>
-              <div className="section-head">
-                <span className="mono">04 — Two roles, one signal</span>
-                <h2>
-                  The same signal, at two <span className="serif-accent">altitudes.</span>
-                </h2>
-              </div>
-            </Reveal>
-            <div className="roles-grid">
-              {[
-                {
-                  index: 'Analyst',
-                  title: 'Triage',
-                  em: 'with the why.',
-                  copy: 'A prioritised queue where every card explains its inputs, its version check, and what to do next.',
-                  tags: ['Alert center', 'Provenance', 'Network graph'],
-                  link: '/login?next=%2Fapp%2Falerts',
-                },
-                {
-                  index: 'Admin',
-                  title: 'Operate',
-                  em: 'with full control.',
-                  copy: 'Everything analysts see, plus the patch simulator, data intake and exports that change the queue.',
-                  tags: ['Scoring', 'Simulator', 'Data input', 'Exports'],
-                  link: '/login?next=%2Fapp%2Fscoring',
-                },
-              ].map((role, i) => (
-                <Reveal key={role.index} delay={0.06 * i}>
-                  <TiltCard className="role-card">
-                    <span className="role-glow" />
-                    <span className="role-index">{String(i + 1).padStart(2, '0')} / {role.index}</span>
-                    <h3>
-                      {role.title}
-                      <em>{role.em}</em>
-                    </h3>
-                    <p>{role.copy}</p>
-                    <div className="role-list">
-                      {role.tags.map((t) => (
-                        <span key={t}>{t}</span>
-                      ))}
-                    </div>
-                    <div className="role-foot">
-                      <button className="link-arrow" onClick={() => navigate(role.link)}>
-                        Enter as {role.index.toLowerCase()} <ArrowRight size={14} />
-                      </button>
-                      <Sparkles size={14} style={{ color: 'var(--text-mute)' }} />
-                    </div>
-                  </TiltCard>
-                </Reveal>
               ))}
+            </div>
+
+            <div className="lp-console-cta">
+              <span>Seeded demo · no signup · two roles</span>
+              <button type="button" className="lp-btn lp-btn-solid" onClick={startDemo}>
+                Enter the command centre
+                <ArrowRight size={16} strokeWidth={1.8} />
+              </button>
             </div>
           </div>
         </section>
 
-        <section className="section" id="components" style={{ paddingTop: 40 }}>
-          <div className="container">
-            <Reveal>
-              <div className="section-head">
-                <span className="mono">05 — The surface</span>
+        <section className="lp-section" id="roles">
+          <div className="lp-wrap">
+            <div className="lp-roles-head lp-rv">
+              <h2>
+                Two clearances. <em>One source of truth.</em>
+              </h2>
+            </div>
+            <div className="lp-role-list">
+              {demoAccounts.map((account, index) => {
+                const copy = roleCopy[index]
+                return (
+                  <article className="lp-role lp-rv" key={account.role} style={{ transitionDelay: `${index * 80}ms` }}>
+                    <span className="lp-role-k">{account.label}</span>
+                    <h3>
+                      {copy.title} <em>{copy.em}</em>
+                    </h3>
+                    <p>{copy.description}</p>
+                    <ul>
+                      {copy.surfaces.map((surface) => (
+                        <li key={surface}>{surface}</li>
+                      ))}
+                    </ul>
+                    <div className="lp-role-foot">
+                      <span>{account.email}</span>
+                      <button type="button" className="lp-link" onClick={() => enterAs(index)}>
+                        Enter as {account.label.toLowerCase()} <ArrowRight size={14} strokeWidth={1.8} />
+                      </button>
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section className="lp-section lp-final">
+          <div className="lp-wrap">
+            <div className="lp-final-inner lp-rv">
+              <div className="lp-final-copy">
                 <h2>
-                  Seventeen components. One <span className="serif-accent">decision.</span>
+                  Start with the alert that <em>actually reaches you.</em>
                 </h2>
                 <p>
-                  Each surface carries graphics and a statistics layer, with formulas, sample sizes and
-                  windows attached. Click a tile to open its demo.
+                  Open the seeded organisation, walk the {heroAlert.score.toFixed(1)} Log4Shell match
+                  down to its fix, then patch it and watch the queue change.
                 </p>
-              </div>
-            </Reveal>
-            <div className="showcase-grid">
-              {componentCatalog.map((c, i) => (
-                <Reveal key={c.id} delay={(i % 4) * 0.04} y={14}>
-                  <button className="tile" onClick={() => openComponent(c.id)} style={{ width: '100%', textAlign: 'left' }}>
-                    <span className="tile-top">
-                      <span className="tile-icon">
-                        <CatalogIcon name={c.icon} size={16} />
-                      </span>
-                      <span className="tile-num">{String(c.id).padStart(2, '0')}</span>
-                    </span>
-                    <h4>{c.name}</h4>
-                    <p>{c.tagline}</p>
-                    <span className="tile-spark">
-                      <Sparkline
-                        values={Array.from({ length: 11 }, (_, k) =>
-                          Math.max(4, 10 + Math.sin(k * 0.9 + c.id) * 6 + (k % 3) * 2),
-                        )}
-                        width={72}
-                        height={22}
-                        color={i % 3 === 0 ? '#e3a455' : i % 3 === 1 ? '#3ed2c1' : '#9b7bd4'}
-                      />
-                    </span>
-                    <span
-                      className="mono"
-                      style={{ position: 'absolute', left: 20, bottom: 16, fontSize: 8, opacity: 0.8 }}
-                    >
-                      {c.group}
-                    </span>
+                <div className="lp-hero-actions">
+                  <button type="button" className="lp-btn lp-btn-solid" onClick={startDemo}>
+                    Enter the command centre
+                    <ArrowRight size={16} strokeWidth={1.8} />
                   </button>
-                </Reveal>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <section className="section" style={{ paddingTop: 20 }}>
-          <div className="container">
-            <Reveal>
-              <div className="cta-panel">
-                <div className="cta-grid-mark" aria-hidden="true" />
-                <div style={{ position: 'relative' }}>
-                  <span className="eyebrow">
-                    <span className="dot" />
-                    Demo mode · offline seed
-                  </span>
-                  <h2 style={{ marginTop: 20 }}>
-                    See your own exposure
-                    <br />
-                    in <span className="serif-accent">five minutes.</span>
-                  </h2>
-                  <p className="dim" style={{ marginTop: 18, maxWidth: 480, fontSize: 14 }}>
-                    Explore the seeded organisation, open a 99.4 Log4Shell alert, then patch it in the
-                    simulator and watch the queue change.
-                  </p>
-                </div>
-                <div className="cta-actions">
-                  <button className="btn btn-primary" onClick={startDemo}>
-                    Enter the demo
-                    <ArrowRight size={16} />
-                  </button>
-                  <button className="btn btn-ghost" onClick={() => navigate('/login')}>
+                  <button type="button" className="lp-btn lp-btn-ghost" onClick={() => navigate('/login')}>
                     Sign in
                   </button>
                 </div>
+                <div className="lp-final-meta">
+                  <span>Demo data simulated and labelled</span>
+                  <span>Real CVE identifiers</span>
+                  <span>Formula v{heroAlert.breakdown.formula_version}</span>
+                </div>
               </div>
-            </Reveal>
+              <span className="lp-final-mark" aria-hidden="true">
+                <LogoMark />
+              </span>
+            </div>
           </div>
         </section>
       </main>
 
-      <footer className="footer">
-        <div className="container">
-          <div className="footer-grid">
-            <div>
-              <span className="brand">
+      <footer className="lp-footer">
+        <div className="lp-wrap">
+          <div className="lp-footer-grid">
+            <div className="lp-footer-brand">
+              <span className="lp-brand">
                 <LogoMark />
-                <span>
-                  Aegis Sentinel
+                <span className="lp-brand-text">
+                  <b>Aegis Sentinel</b>
                   <small>Threat early warning</small>
                 </span>
               </span>
-              <p className="footer-note">
-                Turns raw threat intelligence into asset-specific, risk-ranked, explainable early
-                warning. Customer data stays in this deployment.
+              <p>
+                Asset-specific, version-aware, explainable early warning. Customer data stays inside
+                this deployment.
               </p>
             </div>
             <div>
-              <h5>Data sources</h5>
+              <h4>Data sources</h4>
               <ul>
                 <li>NVD CVE API 2.0</li>
                 <li>CISA KEV catalog</li>
                 <li>FIRST EPSS</li>
-                <li>MITRE ATT&CK</li>
-                <li>CERT-In (sample feed)</li>
+                <li>MITRE ATT&amp;CK</li>
+                <li>CERT-In sample feed</li>
               </ul>
             </div>
             <div>
-              <h5>Platform</h5>
+              <h4>Surfaces</h4>
               <ul>
-                <li><a href="#problem">Problem</a></li>
-                <li><a href="#thread">How it works</a></li>
-                <li><a href="#scoring">Scoring</a></li>
-                <li><a href="#components">Components</a></li>
-              </ul>
-            </div>
-            <div>
-              <h5>Demo</h5>
-              <ul>
-                <li>admin@aegis.demo</li>
-                <li>analyst@aegis.demo</li>
-                <li style={{ paddingTop: 10, color: 'var(--text-mute)', fontSize: 11.5 }}>
-                  Demo data is simulated and labelled. CVEs are real identifiers.
+                <li>
+                  <Link to="/login?next=%2Fapp%2Falerts">Alert center</Link>
+                </li>
+                <li>
+                  <Link to="/login?next=%2Fapp%2Fassets">Asset exposure</Link>
+                </li>
+                <li>
+                  <Link to="/login?next=%2Fapp%2Fscoring">Risk scoring</Link>
+                </li>
+                <li>
+                  <Link to="/login?next=%2Fapp%2Fai">AI analyst</Link>
                 </li>
               </ul>
             </div>
-          </div>
-          <div className="footer-bottom">
-            <span className="mono">© 2026 Aegis Sentinel · formula v1.1 · demo build</span>
-            <div className="footer-badges">
-              <span className="badge simulated">Simulated data labelled</span>
-              <span className="badge upload">User uploads quarantined</span>
-              <span className="badge real">Deterministic core</span>
+            <div>
+              <h4>Access</h4>
+              <ul>
+                <li>admin@aegis.demo</li>
+                <li>analyst@aegis.demo</li>
+                <li className="lp-footer-note">Demo password shown on the sign-in screen.</li>
+              </ul>
             </div>
+          </div>
+          <div className="lp-footer-bottom">
+            <span>© 2026 Aegis Sentinel</span>
+            <span>formula v{heroAlert.breakdown.formula_version} · demo build</span>
+            <span>simulated data labelled</span>
           </div>
         </div>
       </footer>
     </div>
-  )
-}
-
-function RssIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-      <path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16" />
-      <circle cx="5" cy="19" r="1" fill="currentColor" />
-    </svg>
   )
 }
