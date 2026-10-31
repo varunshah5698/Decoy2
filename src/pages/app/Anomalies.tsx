@@ -1,289 +1,822 @@
-import { useMemo, useState } from 'react'
-import { Chart, axisStyle } from '../../components/Chart'
-import { PageHeader, Panel } from '../../components/Panel'
+import { useMemo, useState, type ReactNode } from 'react'
+import { Chart } from '../../components/Chart'
 import { Drawer, DrawerHead } from '../../components/Drawer'
-import { StatsPanel } from '../../components/StatsPanel'
-import { SourceBadge } from '../../components/Badges'
-import { Activity, AlertTriangle, Info, ShieldCheck } from '../../components/Icons'
+import {
+  Activity,
+  ArrowRight,
+  BarChart3,
+  Gauge,
+  Globe2,
+  Grid3X3,
+  Info,
+  KeyRound,
+  Layers,
+  ShieldAlert,
+  ShieldCheck,
+  Zap,
+} from '../../components/Icons'
 import { anomalyWindows } from '../../data/seed'
 import { useTheme } from '../../lib/store'
-import { fmtScore } from '../../lib/format'
+import { cx } from '../../lib/format'
 import { mean, median, quantile, stdev } from '../../lib/stats'
-import { AMBER, LEVEL_COLORS, TEAL, hexA } from '../../lib/colors'
 import type { LogWindow } from '../../lib/types'
+import './anomalies.css'
 
 const THRESHOLD = 0.2
+const MONO = "'JetBrains Mono Variable', ui-monospace, monospace"
+const DISPLAY = "'Space Grotesk Variable', 'Inter Variable', system-ui, sans-serif"
+
+type Metric = 'score' | 'logins' | 'rps'
+
+const METRICS: { id: Metric; label: string; unit: string; peakLabel: string }[] = [
+  { id: 'score', label: 'Score', unit: 'isolation score', peakLabel: 'peak anomaly score' },
+  { id: 'logins', label: 'Logins', unit: 'failed logins', peakLabel: 'peak failed logins' },
+  { id: 'rps', label: 'Requests', unit: 'requests / second', peakLabel: 'peak request rate' },
+]
+
+const metricValue = (w: LogWindow, metric: Metric) =>
+  metric === 'score' ? w.anomalyScore : metric === 'logins' ? w.failedLogins : w.rps
+
+const fmtMetric = (metric: Metric, value: number) => (metric === 'score' ? value.toFixed(2) : String(Math.round(value)))
+
+const score2 = (n: number) => n.toFixed(2)
+
+const reasonMeta = (reason?: string) => {
+  if (reason?.toLowerCase().includes('credential')) return { icon: KeyRound, tone: 'navy', short: 'Credential stuffing' }
+  if (reason?.toLowerCase().includes('country')) return { icon: Globe2, tone: 'navy', short: 'Geo novelty' }
+  if (reason?.toLowerCase().includes('off-hours')) return { icon: Activity, tone: '', short: 'Off-hours activity' }
+  return { icon: Zap, tone: '', short: 'Brute-force burst' }
+}
+
+const flagged = anomalyWindows.filter((w) => w.anomaly)
+const watch = anomalyWindows.filter((w) => !w.anomaly && w.anomalyScore > -0.1)
+const baseline = anomalyWindows.filter((w) => !w.anomaly && w.anomalyScore <= -0.1)
+const flagRate = flagged.length / anomalyWindows.length
+const flaggedLoad = flagged.reduce((sum, w) => sum + w.failedLogins, 0)
+const normalLoad = anomalyWindows.filter((w) => !w.anomaly).reduce((sum, w) => sum + w.failedLogins, 0)
+const scores = anomalyWindows.map((w) => w.anomalyScore)
+const maxLogins = Math.max(...anomalyWindows.map((w) => w.failedLogins))
+const maxIps = Math.max(...anomalyWindows.map((w) => w.distinctIps))
+const maxRps = Math.max(...anomalyWindows.map((w) => w.rps))
+
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const dayStats = DAYS.map((day) => {
+  const windows = anomalyWindows.filter((w) => w.label.startsWith(day))
+  return {
+    day,
+    logins: Math.max(...windows.map((w) => w.failedLogins)),
+    ips: Math.max(...windows.map((w) => w.distinctIps)),
+    rps: Math.max(...windows.map((w) => w.rps)),
+    flagged: windows.filter((w) => w.anomaly).length,
+    count: windows.length,
+  }
+})
+
+const mix = flagged
+  .map((w) => ({ id: w.id, label: reasonMeta(w.reason).short, logins: w.failedLogins, reason: w.reason ?? '' }))
+  .sort((a, b) => b.logins - a.logins)
+
+const MIX_COLORS = ['var(--an-orange)', 'var(--an-bar-2)', 'var(--an-bar-3)', 'var(--an-bar-4)']
+const stat2 = (n: number) => (Math.abs(n) < 0.005 ? '0.00' : n.toFixed(2))
+const blockCount = (value: number, max: number) => Math.max(1, Math.round((value / max) * 10))
+
+function GaugeArc({ segments, total }: { segments: { count: number; color: string }[]; total: number }) {
+  const size = 268
+  const stroke = 26
+  const center = size / 2
+  const radius = (size - stroke) / 2 - 2
+  const circum = 2 * Math.PI * radius
+  const sweep = 270
+  const gap = 7
+  let travelled = 0
+
+  const ticks = Array.from({ length: 41 }, (_, i) => {
+    const angle = 135 + (sweep / 40) * i
+    const rad = (angle * Math.PI) / 180
+    const inner = radius - stroke * 1.55
+    const outer = radius - stroke * 1.05
+    return (
+      <line
+        key={i}
+        x1={center + Math.cos(rad) * inner}
+        y1={center + Math.sin(rad) * inner}
+        x2={center + Math.cos(rad) * outer}
+        y2={center + Math.sin(rad) * outer}
+        stroke="var(--an-line)"
+        strokeWidth={i % 5 === 0 ? 1.4 : 0.9}
+      />
+    )
+  })
+
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${segments[0].count} of ${total} windows flagged`}>
+      <circle
+        cx={center}
+        cy={center}
+        r={radius}
+        fill="none"
+        stroke="var(--an-track)"
+        strokeWidth={stroke}
+        strokeLinecap="round"
+        strokeDasharray={`${(circum * sweep) / 360} ${circum}`}
+        transform={`rotate(135 ${center} ${center})`}
+      />
+      {segments.map((segment) => {
+        const degrees = (segment.count / total) * sweep
+        const length = (circum * degrees) / 360
+        const rotation = 135 + travelled + ((gap / circum) * 360) / 2
+        travelled += degrees
+        return (
+          <circle
+            key={segment.color}
+            className="an-gauge-seg"
+            cx={center}
+            cy={center}
+            r={radius}
+            fill="none"
+            stroke={segment.color}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeDasharray={`${Math.max(length - gap, 1)} ${circum}`}
+            transform={`rotate(${rotation} ${center} ${center})`}
+          />
+        )
+      })}
+      <circle
+        cx={center}
+        cy={center}
+        r={radius - stroke * 0.72}
+        fill="none"
+        stroke="var(--an-line-2)"
+        strokeWidth={1}
+        strokeDasharray={`${(circum * sweep) / 360} ${circum}`}
+        transform={`rotate(135 ${center} ${center})`}
+      />
+      {ticks}
+      <circle cx={center} cy={center} r={radius - stroke * 1.55} fill="none" stroke="var(--an-line)" strokeWidth={0.6} />
+    </svg>
+  )
+}
+
+function CardHead({
+  icon,
+  tone,
+  title,
+  sub,
+  action,
+}: {
+  icon: ReactNode
+  tone?: string
+  title: string
+  sub: string
+  action?: ReactNode
+}) {
+  return (
+    <div className="an-card-head">
+      <div className="an-titlewrap">
+        <span className={cx('an-card-icon', tone)}>{icon}</span>
+        <div>
+          <h2 className="an-card-title">{title}</h2>
+          <div className="an-card-sub">{sub}</div>
+        </div>
+      </div>
+      {action}
+    </div>
+  )
+}
 
 export default function Anomalies() {
   const theme = useTheme((s) => s.theme)
   const [selected, setSelected] = useState<LogWindow | null>(null)
   const [onlyAnomalies, setOnlyAnomalies] = useState(false)
+  const [metric, setMetric] = useState<Metric>('score')
 
-  const rows = anomalyWindows.filter((w) => (onlyAnomalies ? w.anomaly : true))
-  const anomalies = anomalyWindows.filter((w) => w.anomaly)
-  const scores = anomalyWindows.map((w) => w.anomalyScore)
+  const dark = theme === 'dark'
+  const accent = dark ? '#ff6a36' : '#ff5a1f'
+  const navy = dark ? '#c9d8ea' : '#14263e'
+  const axisColor = dark ? '#6f849a' : '#a8a29a'
+  const gridColor = dark ? 'rgba(255,255,255,0.06)' : 'rgba(16,29,45,0.07)'
+  const cardColor = dark ? '#121f2c' : '#fffdf9'
 
-  const scatterOption = useMemo(() => {
-    const ax = axisStyle(theme)
+  const peak = useMemo(
+    () => [...anomalyWindows].sort((a, b) => metricValue(b, metric) - metricValue(a, metric))[0],
+    [metric],
+  )
+
+  const meta = METRICS.find((m) => m.id === metric)!
+
+  const chartOption = useMemo(() => {
+    const lineColor = metric === 'rps' ? (dark ? '#8fa3b8' : '#8d99a8') : metric === 'logins' ? navy : accent
+    const areaTop = metric === 'score' ? accent : lineColor
+    const values = anomalyWindows.map((w) => metricValue(w, metric))
+    const allAnomalies = anomalyWindows.map((w) => w.anomaly)
+
+    const featureBar = (label: string, value: number, max: number, color: string) =>
+      `<div style="display:grid;grid-template-columns:76px 34px minmax(0,1fr);align-items:center;gap:7px;font:500 8.5px ${MONO};color:#8fa3b8">
+        <span style="letter-spacing:.02em">${label}</span>
+        <span style="color:#e9f0f8;text-align:right">${value}</span>
+        <span style="display:block;height:4px;border-radius:99px;background:rgba(255,255,255,.09)">
+          <span style="display:block;height:100%;width:${Math.round((value / max) * 100)}%;border-radius:99px;background:${color}"></span>
+        </span>
+      </div>`
+
     return {
-      grid: { left: 40, right: 20, top: 28, bottom: 40 },
+      animationDuration: 900,
+      grid: { left: 44, right: 18, top: 30, bottom: 30 },
       xAxis: {
-        type: 'value',
-        name: 'Failed logins per window',
-        nameLocation: 'middle',
-        nameGap: 24,
-        ...ax,
+        type: 'category',
+        boundaryGap: false,
+        data: anomalyWindows.map((w) => w.label),
+        axisLine: { lineStyle: { color: gridColor } },
+        axisTick: { show: false },
+        axisLabel: {
+          color: axisColor,
+          fontSize: 8.5,
+          fontFamily: MONO,
+          interval: 2,
+          margin: 12,
+        },
       },
       yAxis: {
         type: 'value',
-        name: 'Anomaly score',
-        nameGap: 30,
-        min: -0.3,
-        max: 0.6,
-        ...ax,
-      },
-      tooltip: {
-        formatter: (p: any) => {
-          const w = anomalyWindows[p.data[4]]
-          return `<strong>${w.label}</strong><br/>score ${fmtScore(w.anomalyScore)} · ${w.failedLogins} failures<br/>${w.distinctIps} IPs · ${w.rps} RPS`
+        min: metric === 'score' ? -0.3 : 0,
+        max: metric === 'score' ? 0.6 : undefined,
+        splitNumber: 3,
+        axisLine: { show: false },
+        axisTick: { show: false },
+        axisLabel: {
+          color: axisColor,
+          fontSize: 8.5,
+          fontFamily: MONO,
+          formatter: (value: number) => (metric === 'score' ? value.toFixed(1) : String(value)),
         },
+        splitLine: { lineStyle: { color: gridColor, type: 'dashed' } },
       },
-      series: [
-        {
-          type: 'scatter',
-          data: anomalyWindows.map((w, i) => [w.failedLogins, w.anomalyScore, w.rps, w.anomaly, i]),
-          symbolSize: (v: any) => 8 + v[2] * 0.25,
-          itemStyle: {
-            color: (p: any) => (p.data[3] ? hexA(LEVEL_COLORS.CRITICAL, 0.85) : hexA(TEAL, 0.5)),
-            borderColor: 'rgba(5,8,14,0.5)',
-            borderWidth: 1,
-          },
-          markLine: {
-            silent: true,
-            symbol: 'none',
-            lineStyle: { color: hexA(AMBER, 0.6), type: 'dashed', width: 1 },
-            label: {
-              formatter: `threshold ${THRESHOLD}`,
-              color: '#e3a455',
-              fontSize: 8,
-              fontFamily: 'monospace',
-              position: 'insideEndTop',
-            },
-            data: [{ yAxis: THRESHOLD }],
-          },
-        },
-      ],
-    }
-  }, [theme])
-
-  const barOption = useMemo(() => {
-    const ax = axisStyle(theme)
-    return {
-      grid: { left: 34, right: 12, top: 18, bottom: 44 },
-      xAxis: {
-        type: 'category',
-        data: anomalyWindows.map((w) => w.label),
-        ...ax,
-        axisLabel: { ...ax.axisLabel, rotate: 48, fontSize: 7, interval: 0 },
-      },
-      yAxis: { type: 'value', min: -0.3, max: 0.6, ...ax },
       tooltip: {
         trigger: 'axis',
-        formatter: (p: any) => `${p[0].name}<br/>score ${fmtScore(p[0].value)}`,
+        backgroundColor: 'rgba(10,17,27,0.97)',
+        borderWidth: 0,
+        padding: [12, 14],
+        extraCssText: 'border-radius:16px;box-shadow:0 24px 50px -20px rgba(0,0,0,.65);',
+        axisPointer: {
+          type: 'line',
+          lineStyle: { color: accent, width: 1, type: 'dashed' },
+        },
+        formatter: (params: any) => {
+          const index = params?.[0]?.dataIndex ?? 0
+          const w = anomalyWindows[index]
+          const value = metricValue(w, metric)
+          const prev = index > 0 ? metricValue(anomalyWindows[index - 1], metric) : null
+          const delta = prev == null ? null : value - prev
+          return `<div style="min-width:206px">
+            <div style="display:flex;justify-content:space-between;gap:18px;font:500 8.5px ${MONO};letter-spacing:.12em;text-transform:uppercase;color:#7d8ea3">
+              <span>${w.id} · ${w.label}</span>
+              <span style="color:${w.anomaly ? '#ff9b74' : '#7fe0d2'}">${w.anomaly ? 'Flagged' : 'Baseline'}</span>
+            </div>
+            <div style="display:flex;align-items:baseline;gap:7px;margin-top:9px">
+              <span style="font:600 26px/1 ${DISPLAY};letter-spacing:-.045em;color:#f4f8fc">${fmtMetric(metric, value)}</span>
+              <span style="font:500 8.5px ${MONO};color:#8fa3b8">${meta.unit}</span>
+              ${delta == null ? '' : `<span style="margin-left:auto;font:500 8.5px ${MONO};color:${delta > 0 ? '#ff9b74' : '#7fe0d2'}">${delta > 0 ? '+' : ''}${fmtMetric(metric, delta)}</span>`}
+            </div>
+            <div style="margin-top:11px;display:grid;gap:5px">
+              ${featureBar('Failed logins', w.failedLogins, maxLogins, '#ff7a45')}
+              ${featureBar('Distinct IPs', w.distinctIps, maxIps, '#c9d8ea')}
+              ${featureBar('Requests /s', w.rps, maxRps, '#7f93a9')}
+            </div>
+          </div>`
+        },
       },
       series: [
         {
-          type: 'bar',
-          barWidth: '58%',
-          data: anomalyWindows.map((w) => ({
-            value: w.anomalyScore,
-            itemStyle: {
-              color: w.anomaly ? hexA(LEVEL_COLORS.CRITICAL, 0.8) : hexA(TEAL, 0.42),
-              borderRadius: w.anomalyScore >= 0 ? [2, 2, 0, 0] : [0, 0, 2, 2],
+          type: 'line',
+          data: values,
+          smooth: 0.32,
+          symbol: 'circle',
+          symbolSize: 8,
+          showSymbol: false,
+          lineStyle: { width: 2.4, color: lineColor, cap: 'round' },
+          itemStyle: { color: lineColor, borderColor: cardColor, borderWidth: 2 },
+          emphasis: { scale: 1.4, itemStyle: { color: lineColor } },
+          areaStyle: {
+            color: {
+              type: 'linear',
+              x: 0,
+              y: 0,
+              x2: 0,
+              y2: 1,
+              colorStops: [
+                { offset: 0, color: `${areaTop}${dark ? '4f' : '55'}` },
+                { offset: 0.72, color: `${areaTop}${dark ? '0d' : '10'}` },
+                { offset: 1, color: `${areaTop}00` },
+              ],
             },
-          })),
+          },
+          markLine:
+            metric === 'score'
+              ? {
+                  silent: true,
+                  symbol: 'none',
+                  lineStyle: { color: '#e08a2f', type: 'dashed', width: 1, opacity: 0.75 },
+                  label: {
+                    formatter: 'threshold 0.20',
+                    color: '#b4701f',
+                    fontSize: 8,
+                    fontFamily: MONO,
+                    position: 'insideEndTop',
+                  },
+                  data: [{ yAxis: THRESHOLD }],
+                }
+              : undefined,
+          markPoint: {
+            symbol: 'circle',
+            symbolSize: 7,
+            itemStyle: { color: lineColor, borderColor: cardColor, borderWidth: 2 },
+            label: { show: false },
+            data: allAnomalies
+              .map((isAnomaly, index) => ({ isAnomaly, index }))
+              .filter((d) => d.isAnomaly)
+              .map((d) => ({ coord: [d.index, values[d.index]] })),
+          },
         },
       ],
     }
-  }, [theme])
+  }, [metric, dark, accent, navy, axisColor, gridColor, cardColor, meta])
+
+  const scrollToRegister = () => document.getElementById('an-register')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+
+  const rows = onlyAnomalies ? flagged : anomalyWindows
+
+  const peakValue = metricValue(peak, metric)
 
   return (
-    <div className="page">
-      <PageHeader
-        eyebrow="COMPONENT 09 · ANOMALY DETECTION"
-        title="Behaviour that breaks the baseline"
-        description="Auth logs are reduced to windows, features are compared with the baseline, and only deviations above the threshold are surfaced with their evidence."
-        actions={
-          <div className="inline-flex">
-            <SourceBadge source="USER UPLOAD" />
-            <span className="mono" style={{ fontSize: 9 }}>demo windows</span>
+    <div className="anomalies-page">
+      <div className="an-shell">
+        <header className="an-head">
+          <div className="an-head-copy">
+            <span className="an-eyebrow">Component 09 · Anomaly detection</span>
+            <h1>
+              Behaviour that breaks <em>the baseline</em>
+            </h1>
+            <p>
+              Auth logs are reduced to six-hour windows, compared against the learned baseline, and only deviations
+              above the threshold surface with their evidence attached.
+            </p>
           </div>
-        }
-      />
-
-      <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
-        <div className="kpi">
-          <div className="kpi-label">Windows analysed</div>
-          <div className="kpi-value">{anomalyWindows.length}</div>
-          <div className="kpi-delta">6-hour buckets · demo week</div>
-        </div>
-        <div className="kpi critical-tone">
-          <div className="kpi-label">Anomalies flagged</div>
-          <div className="kpi-value">{anomalies.length}</div>
-          <div className="kpi-delta up">{((anomalies.length / anomalyWindows.length) * 100).toFixed(0)}% of windows</div>
-        </div>
-        <div className="kpi amber-tone">
-          <div className="kpi-label">Peak score</div>
-          <div className="kpi-value">{fmtScore(Math.max(...scores))}</div>
-          <div className="kpi-delta">{anomalies.sort((a, b) => b.anomalyScore - a.anomalyScore)[0]?.label}</div>
-        </div>
-        <div className="kpi teal-tone">
-          <div className="kpi-label">Baseline failure rate</div>
-          <div className="kpi-value">
-            {median(anomalyWindows.filter((w) => !w.anomaly).map((w) => w.failedLogins)).toFixed(0)}
-            <small>per window</small>
+          <div className="an-head-side">
+            <div className="an-pillrow">
+              <span className="an-pill">
+                <span className="an-dot" />
+                User upload
+              </span>
+              <span className="an-pill ghost">Demo windows · {anomalyWindows.length}</span>
+            </div>
+            <button className="an-btn dark" onClick={scrollToRegister}>
+              Window register <ArrowRight size={13} />
+            </button>
           </div>
-          <div className="kpi-delta">median of normal windows</div>
-        </div>
-      </div>
+        </header>
 
-      <div className="dash-grid">
-        <Panel className="col-7" title="Feature space" sub="Failed logins vs anomaly score · bubble size = requests per second" noPad>
-          <Chart option={scatterOption} height={330} />
-          <div className="chart-legend">
-            <span className="legend-item">
-              <i style={{ background: LEVEL_COLORS.CRITICAL }} /> flagged window
-            </span>
-            <span className="legend-item">
-              <i style={{ background: TEAL }} /> within baseline
-            </span>
-            <span className="legend-item dim">Threshold is fixed at 0.2 for this demo.</span>
-          </div>
-        </Panel>
-
-        <Panel
-          className="col-5"
-          title="Method"
-          sub="What the score is, and what it is not"
-          action={<Activity size={14} style={{ color: 'var(--text-mute)' }} />}
-          bodyClass="panel-body"
-        >
-          <ol style={{ display: 'grid', gap: 12, counterReset: 'step' }}>
-            {[
-              ['Reduce logs', 'Group events into six-hour windows per destination asset.'],
-              ['Build features', 'Failed logins, distinct source IPs, request rate, and country novelty.'],
-              ['Score isolation', 'The demo ships precomputed scores aligned with an IsolationForest run; no live model call is made.'],
-              ['Apply threshold', 'A fixed 0.2 cut keeps the demo deterministic and auditable.'],
-            ].map(([title, body], i) => (
-              <li key={title} style={{ display: 'flex', gap: 12 }}>
-                <span
-                  style={{
-                    flexShrink: 0,
-                    width: 22,
-                    height: 22,
-                    borderRadius: '50%',
-                    display: 'grid',
-                    placeItems: 'center',
-                    border: '1px solid var(--line-strong)',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: 8.5,
-                    color: 'var(--amber)',
-                  }}
-                >
-                  {i + 1}
+        <div className="an-grid">
+          <section className="an-card an-gauge-card">
+            <CardHead
+              icon={<Gauge size={16} />}
+              title="Flag exposure"
+              sub="18 windows across the demo week"
+              action={
+                <button className="an-icon-btn" aria-label="About the gauge" onClick={scrollToRegister}>
+                  <Info size={13} />
+                </button>
+              }
+            />
+            <div className="an-gauge-body">
+              <div className="an-gauge-ring">
+                <GaugeArc
+                  total={anomalyWindows.length}
+                  segments={[
+                    { count: flagged.length, color: 'var(--an-orange)' },
+                    { count: watch.length, color: 'var(--an-watch)' },
+                    { count: baseline.length, color: 'var(--an-slate-2)' },
+                  ]}
+                />
+                <div className="an-gauge-center">
+                  <div className="an-gauge-value">
+                    {String(flagged.length).padStart(2, '0')}
+                    <small>/{anomalyWindows.length}</small>
+                  </div>
+                  <div className="an-gauge-label">flagged windows</div>
+                </div>
+              </div>
+              <div className="an-gauge-legend">
+                <span>
+                  <i style={{ background: 'var(--an-orange)' }} /> Flagged · {flagged.length}
                 </span>
                 <span>
-                  <strong style={{ fontSize: 12 }}>{title}</strong>
-                  <span style={{ display: 'block', fontSize: 11.5, color: 'var(--text-dim)', marginTop: 3 }}>{body}</span>
+                  <i style={{ background: 'var(--an-watch)' }} /> Watch · {watch.length}
                 </span>
-              </li>
-            ))}
-          </ol>
-          <div className="form-alert" style={{ margin: '16px 0 0' }}>
-            <Info size={13} />
-            <span>
-              These window-level scores are demonstration data, not a claim that a model detected these events
-              in a live environment.
-            </span>
-          </div>
-        </Panel>
+                <span>
+                  <i style={{ background: 'var(--an-slate-2)' }} /> Baseline · {baseline.length}
+                </span>
+              </div>
+              <div className="an-split-stats">
+                <div className="an-split-stat">
+                  <Zap size={13} />
+                  <b>{score2(Math.max(...scores))}</b>
+                  <span>peak score</span>
+                </div>
+                <div className="an-split-stat">
+                  <ShieldAlert size={13} />
+                  <b>{Math.round(flagRate * 100)}%</b>
+                  <span>flag rate</span>
+                </div>
+                <div className="an-split-stat">
+                  <Activity size={13} />
+                  <b>{score2(median(scores))}</b>
+                  <span>median score</span>
+                </div>
+              </div>
+            </div>
+          </section>
 
-        <Panel className="col-12" title="Anomaly score by window" sub="Red bars cross the fixed threshold; negative values sit inside the baseline" noPad>
-          <Chart option={barOption} height={260} />
-        </Panel>
+          <section className="an-card an-hero-card">
+            <CardHead
+              icon={<Activity size={16} />}
+              tone="orange"
+              title="Anomaly signal"
+              sub="Six-hour windows · threshold held at 0.20"
+              action={
+                <div className="an-seg" role="tablist" aria-label="Chart metric">
+                  {METRICS.map((m) => (
+                    <button
+                      key={m.id}
+                      role="tab"
+                      aria-selected={metric === m.id}
+                      className={cx(metric === m.id && 'on')}
+                      onClick={() => setMetric(m.id)}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              }
+            />
+            <div className="an-hero-body">
+              <div className="an-hero-top">
+                <div className="an-hero-figure">
+                  <div className="an-hero-num">
+                    {fmtMetric(metric, peakValue)}
+                    <small>{metric === 'score' ? '' : metric === 'logins' ? 'logins' : 'req/s'}</small>
+                  </div>
+                  <div className="an-hero-label">
+                    <span>{meta.peakLabel}</span>
+                    <span className="an-chip soft">{peak.label}</span>
+                    {metric === 'score' && (
+                      <span className="an-chip alert">+{score2(peakValue - THRESHOLD)} over threshold</span>
+                    )}
+                    {metric !== 'score' && peak.anomaly && <span className="an-chip alert">flagged window</span>}
+                  </div>
+                </div>
+                <div className="an-hero-actions">
+                  <button className="an-btn ghost" onClick={() => setSelected(peak)}>
+                    Details
+                  </button>
+                </div>
+              </div>
 
-        <Panel
-          className="col-12"
-          title="Window register"
-          sub={`${rows.length} windows · ${anomalies.length} flagged · evidence recorded per window`}
-          action={
-            <button
-              className="chip"
-              onClick={() => setOnlyAnomalies((v) => !v)}
-              aria-pressed={onlyAnomalies}
-              style={onlyAnomalies ? { color: 'var(--critical)', borderColor: 'rgba(229,84,90,.35)' } : undefined}
-            >
-              <AlertTriangle size={12} /> {onlyAnomalies ? 'Showing anomalies' : 'Show anomalies only'}
-            </button>
-          }
-          noPad
-        >
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Window</th>
-                  <th className="right">Failed logins</th>
-                  <th className="right">Distinct IPs</th>
-                  <th className="right">RPS</th>
-                  <th className="right">Country novelty</th>
-                  <th className="right">Score</th>
-                  <th>Finding</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((w) => (
-                  <tr key={w.id} className="clickable" onClick={() => setSelected(w)}>
-                    <td className="mono">{w.label}</td>
-                    <td className="right mono">{w.failedLogins}</td>
-                    <td className="right mono">{w.distinctIps}</td>
-                    <td className="right mono">{w.rps}</td>
-                    <td className="right mono">{w.countryNovelty}</td>
-                    <td className="right">
-                      <span className={w.anomaly ? 'score-cell critical' : 'score-cell low'} style={{ fontSize: 16 }}>
-                        {fmtScore(w.anomalyScore)}
-                      </span>
-                    </td>
-                    <td>
-                      {w.anomaly ? (
-                        <span className="badge critical">{w.reason}</span>
-                      ) : (
-                        <span className="mono dim" style={{ fontSize: 9 }}>within baseline</span>
-                      )}
-                    </td>
-                  </tr>
+              <div className="an-hero-chart">
+                <Chart option={chartOption} height={252} />
+              </div>
+
+              <div className="an-hero-foot">
+                <div className="an-hero-cell orange">
+                  <b>{flagged.length} of {anomalyWindows.length}</b>
+                  <span>windows above threshold</span>
+                </div>
+                <div className="an-hero-cell navy">
+                  <b>{score2(THRESHOLD)}</b>
+                  <span>fixed cut · auditable</span>
+                </div>
+                <div className="an-hero-cell">
+                  <b>{score2(median(scores))}</b>
+                  <span>median score · full week</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="an-card an-mix-card">
+            <CardHead
+              icon={<BarChart3 size={16} />}
+              tone="soft"
+              title="Signal mix"
+              sub="Failed logins by driver"
+              action={<span className="an-chip soft">{flaggedLoad} logins</span>}
+            />
+            <div className="an-mix-body">
+              <div className="an-mix-rows">
+                {mix.map((item, index) => (
+                  <div className="an-mix-row" key={item.id}>
+                    <div className="an-mix-line">
+                      <span>{item.label}</span>
+                      <b>{((item.logins / flaggedLoad) * 100).toFixed(1)}%</b>
+                    </div>
+                    <div className="an-mix-bar">
+                      <i
+                        style={{
+                          width: `${Math.max((item.logins / flaggedLoad) * 100, 3)}%`,
+                          background: MIX_COLORS[index % MIX_COLORS.length],
+                        }}
+                      />
+                    </div>
+                    <div className="an-mix-meta">
+                      <span>{item.id}</span>
+                      <span>{item.logins} logins</span>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="table-note">
-            <span className="inline-flex">
-              <ShieldCheck size={11} /> Missing optional log fields are tolerated; missing timestamp or event type rejects the row.
-            </span>
-            <span className="mono">n={rows.length}</span>
-          </div>
-        </Panel>
+              </div>
 
-        <StatsPanel
-          className="col-12"
-          stats={[
-            { name: 'Mean score', value: fmtScore(mean(scores)), formula: 'mean(score_i)', n: scores.length },
-            { name: 'Median score', value: fmtScore(median(scores)), formula: 'median', n: scores.length },
-            { name: '95th percentile', value: fmtScore(quantile(scores, 0.95)), formula: 'linear-interpolated p95', n: scores.length },
-            { name: 'Score dispersion', value: `σ ${fmtScore(stdev(scores))}`, formula: 'sample standard deviation', n: scores.length },
-            { name: 'Flag rate', value: `${((anomalies.length / anomalyWindows.length) * 100).toFixed(1)}%`, formula: `windows above ${THRESHOLD} ÷ all windows`, n: anomalyWindows.length },
-          ]}
-        />
+              <div className="an-compare">
+                <div className="an-compare-head">
+                  <b>Flagged vs baseline load</b>
+                  <span>6h windows</span>
+                </div>
+                <div className="an-compare-cols">
+                  <div className="an-compare-col">
+                    <div className="an-compare-track">
+                      <div className="an-compare-fill orange" style={{ height: `${(flaggedLoad / flaggedLoad) * 100}%` }} />
+                    </div>
+                    <div className="an-compare-val">
+                      <b>{flaggedLoad}</b>
+                      <span>flagged</span>
+                    </div>
+                  </div>
+                  <div className="an-compare-col">
+                    <div className="an-compare-track">
+                      <div className="an-compare-fill navy" style={{ height: `${(normalLoad / flaggedLoad) * 100}%` }} />
+                    </div>
+                    <div className="an-compare-val">
+                      <b>{normalLoad}</b>
+                      <span>baseline</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="an-mix-cta">
+                  <span className="an-chip soft">{flagged.length} windows carry the load</span>
+                  <button className="an-link" onClick={scrollToRegister}>
+                    Open register <ArrowRight size={11} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="an-card an-queue-card">
+            <CardHead
+              icon={<ShieldAlert size={16} />}
+              title="Priority queue"
+              sub="Flagged windows, highest score first"
+              action={<span className="an-chip alert">needs review</span>}
+            />
+            <div className="an-queue-body">
+              <div className="an-queue-head">
+                <span>Window / driver</span>
+                <span>Share</span>
+                <span>Score</span>
+              </div>
+              <div className="an-queue-rows">
+                {[...flagged]
+                  .sort((a, b) => b.anomalyScore - a.anomalyScore)
+                  .map((w) => {
+                    const driver = reasonMeta(w.reason)
+                    const DriverIcon = driver.icon
+                    return (
+                      <button className="an-queue-row" key={w.id} onClick={() => setSelected(w)}>
+                        <span className="an-queue-id">
+                          <span className={cx('an-driver', driver.tone)}>
+                            <DriverIcon size={13} />
+                          </span>
+                          <span className="an-queue-name">
+                            <b>{w.label}</b>
+                            <span>{w.reason}</span>
+                          </span>
+                        </span>
+                        <span className="an-queue-share">{((w.failedLogins / flaggedLoad) * 100).toFixed(1)}%</span>
+                        <span className="an-score-pill">{score2(w.anomalyScore)}</span>
+                      </button>
+                    )
+                  })}
+              </div>
+              <div className="an-mix-cta" style={{ marginTop: 'auto' }}>
+                <span className="an-chip soft">threshold {score2(THRESHOLD)}</span>
+                <button className="an-link" onClick={scrollToRegister}>
+                  Full register <ArrowRight size={11} />
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="an-card an-print-card">
+            <CardHead icon={<Grid3X3 size={16} />} tone="soft" title="Feature print" sub="Peak intensity per day" />
+            <div className="an-print-body">
+              <div className="an-print-hero">
+                <div>
+                  <div className="an-print-num">
+                    {Math.round(flagRate * 100)}
+                    <small>%</small>
+                  </div>
+                  <div className="an-print-note">
+                    of windows flagged across {DAYS.length} days · {flagged.length} of {anomalyWindows.length}
+                  </div>
+                </div>
+              </div>
+
+              <div className="an-print-grid">
+                {dayStats.map((day) => (
+                  <div
+                    className="an-print-col"
+                    key={day.day}
+                    title={`${day.day} · ${day.count} windows · ${day.flagged} flagged · peak ${day.logins} logins / ${day.ips} IPs / ${day.rps} rps`}
+                  >
+                    <span className={cx('an-print-flag', day.flagged > 0 && 'on')} aria-hidden="true" />
+                    <div className="an-print-stacks">
+                      {[
+                        { key: 'logins', tone: 'orange', count: blockCount(day.logins, maxLogins) },
+                        { key: 'ips', tone: 'navy', count: blockCount(day.ips, maxIps) },
+                        { key: 'rps', tone: 'slate', count: blockCount(day.rps, maxRps) },
+                      ].flatMap((stack) =>
+                        Array.from({ length: stack.count }, (_, index) => (
+                          <span
+                            key={`${stack.key}-${index}`}
+                            className={cx('an-print-block', stack.tone)}
+                            aria-hidden="true"
+                          />
+                        )),
+                      )}
+                    </div>
+                    <span className="an-print-day">{day.day}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="an-print-legend">
+                <span>
+                  <i style={{ background: 'var(--an-orange)' }} /> Failed logins
+                </span>
+                <span>
+                  <i style={{ background: 'var(--an-bar-2)' }} /> Distinct IPs
+                </span>
+                <span>
+                  <i style={{ background: 'var(--an-bar-3)' }} /> Requests /s
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <section className="an-card an-register-card" id="an-register">
+            <div className="an-card-head an-register-head">
+              <div className="an-titlewrap">
+                <span className="an-card-icon">
+                  <Layers size={16} />
+                </span>
+                <div>
+                  <h2 className="an-card-title">Window register</h2>
+                  <div className="an-card-sub">
+                    {rows.length} windows · {flagged.length} flagged · evidence recorded per window
+                  </div>
+                </div>
+              </div>
+              <div className="an-register-tools">
+                <div className="an-seg" role="tablist" aria-label="Window filter">
+                  <button
+                    role="tab"
+                    aria-selected={!onlyAnomalies}
+                    className={cx(!onlyAnomalies && 'on')}
+                    onClick={() => setOnlyAnomalies(false)}
+                  >
+                    All windows
+                  </button>
+                  <button
+                    role="tab"
+                    aria-selected={onlyAnomalies}
+                    className={cx(onlyAnomalies && 'on')}
+                    onClick={() => setOnlyAnomalies(true)}
+                  >
+                    Flagged
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="an-register-scroll">
+              <table className="an-table">
+                <thead>
+                  <tr>
+                    <th>Window</th>
+                    <th className="right">Failed logins</th>
+                    <th className="right">Distinct IPs</th>
+                    <th className="right">RPS</th>
+                    <th className="right">Country novelty</th>
+                    <th className="right">Score</th>
+                    <th>Finding</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((w) => (
+                    <tr
+                      key={w.id}
+                      className={cx('clickable', w.anomaly && 'flagged')}
+                      onClick={() => setSelected(w)}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') setSelected(w)
+                      }}
+                    >
+                      <td>
+                        <span className="an-cell-window">{w.label}</span>{' '}
+                        <span className="an-cell-mono" style={{ color: 'var(--an-muted-2)' }}>
+                          {w.id}
+                        </span>
+                      </td>
+                      <td className="right an-cell-mono">{w.failedLogins}</td>
+                      <td className="right an-cell-mono">{w.distinctIps}</td>
+                      <td className="right an-cell-mono">{w.rps}</td>
+                      <td className="right an-cell-mono">{w.countryNovelty}</td>
+                      <td className="right">
+                        <span className={cx('an-cell-score', !w.anomaly && 'quiet')}>{score2(w.anomalyScore)}</span>
+                      </td>
+                      <td>
+                        {w.anomaly ? (
+                          <span className="an-finding">
+                            <i />
+                            {w.reason}
+                          </span>
+                        ) : (
+                          <span className="an-finding quiet">within baseline</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="an-table-foot">
+              <span className="an-inline">
+                <ShieldCheck size={12} /> Missing optional log fields are tolerated; missing timestamp or event type
+                rejects the row.
+              </span>
+              <span className="an-mono">n={rows.length} · scroll</span>
+            </div>
+          </section>
+
+          <section className="an-card an-foot-card">
+            <div className="an-foot-body">
+              <div className="an-foot-stats">
+                <div className="an-foot-label">
+                  Layer B · statistics <span className="an-chip soft">demo windows</span>
+                </div>
+                <div className="an-foot-grid">
+                  {[
+                    { label: 'Mean score', value: stat2(mean(scores)) },
+                    { label: 'Median', value: stat2(median(scores)) },
+                    { label: 'p95', value: stat2(quantile(scores, 0.95)) },
+                    { label: 'Dispersion σ', value: stat2(stdev(scores)) },
+                    { label: 'Flag rate', value: `${(flagRate * 100).toFixed(1)}%` },
+                  ].map((stat) => (
+                    <div className="an-foot-cell" key={stat.label}>
+                      <b>{stat.value}</b>
+                      <span>{stat.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="an-method">
+                <div className="an-foot-label">How the score is built</div>
+                <div className="an-method-steps">
+                  {[
+                    ['Reduce logs', 'Six-hour windows per destination asset.'],
+                    ['Build features', 'Failures, distinct IPs, RPS, geo novelty.'],
+                    ['Score isolation', 'Precomputed IsolationForest-aligned scores.'],
+                    ['Apply threshold', 'Fixed 0.20 cut keeps the demo auditable.'],
+                  ].map(([title, body], index) => (
+                    <div className="an-method-step" key={title}>
+                      <i>{String(index + 1).padStart(2, '0')}</i>
+                      <div>
+                        <b>{title}</b>
+                        <span>{body}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="an-note">
+                  <Info size={12} />
+                  <span>
+                    These window-level scores are demonstration data, not a claim that a model detected these events
+                    in a live environment.
+                  </span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
       </div>
 
       <Drawer open={Boolean(selected)} onClose={() => setSelected(null)} label="Anomaly window">
@@ -295,14 +828,14 @@ export default function Anomalies() {
               onClose={() => setSelected(null)}
               meta={
                 <span className="inline-flex" style={{ gap: 8 }}>
-                  <SourceBadge source="USER UPLOAD" />
+                  <span className="badge upload">USER UPLOAD</span>
                   <span className="badge simulated">demo windows</span>
                 </span>
               }
             />
             <div className="drawer-body">
               <div className="drawer-section">
-                <p style={{ fontSize: 13, color: 'var(--text)' }}>
+                <p className="an-drawer-note">
                   {selected.anomaly
                     ? selected.reason
                     : 'This window sits inside the learned baseline. No alert was raised.'}
@@ -334,7 +867,7 @@ export default function Anomalies() {
                   <div className="provenance-row">
                     <span className="check">✓</span>
                     <span>Isolation score</span>
-                    <span className="time">{fmtScore(selected.anomalyScore)}</span>
+                    <span className="time">{score2(selected.anomalyScore)}</span>
                   </div>
                 </div>
               </div>

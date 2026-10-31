@@ -12636,28 +12636,13 @@ svg {
 
 .app:has(.dashboard-page) .app-main {
   background:
-    radial-gradient(1100px 480px at 92% -8%, rgba(244, 96, 42, 0.06), transparent 62%),
-    radial-gradient(900px 460px at 4% 18%, rgba(29, 43, 79, 0.05), transparent 58%),
-    #f4f3f9;
+    radial-gradient(1100px 460px at 82% -16%, rgba(255, 90, 31, 0.1), transparent 60%),
+    radial-gradient(900px 500px at -8% 108%, rgba(255, 129, 77, 0.045), transparent 60%),
+    #e9e5dc;
 }
 
 [data-theme='dark'] .app:has(.dashboard-page) .app-main {
   background: transparent;
-}
-
-.app:has(.dashboard-page) .sidebar {
-  background: #fbfbfe;
-}
-
-.app:has(.dashboard-page) .topbar {
-  background: rgba(255, 255, 255, 0.88);
-  border-bottom-color: #e9e8f1;
-}
-
-[data-theme='dark'] .app:has(.dashboard-page) .sidebar,
-[data-theme='dark'] .app:has(.dashboard-page) .topbar {
-  background: color-mix(in srgb, var(--bg) 88%, var(--surface-solid));
-  border-bottom-color: var(--line);
 }
 
 /* header */
@@ -14365,6 +14350,117 @@ svg {
     transition: none;
   }
 }
+
+/* ============================================================
+   Moon boards on the warm exposure canvas
+   ============================================================ */
+
+.dashboard-page.exposure-page {
+  --mc-card: var(--xp-card);
+  --mc-card-2: var(--xp-well-2);
+  --mc-line: var(--xp-line);
+  --mc-line-soft: var(--xp-line-2);
+  --mc-line-strong: var(--xp-line-strong);
+  --mc-ink: var(--xp-ink);
+  --mc-ink-2: var(--xp-ink-2);
+  --mc-muted: var(--xp-muted);
+  --mc-orange: var(--xp-orange);
+  --mc-orange-soft: var(--xp-orange-soft);
+  --mc-navy: var(--xp-navy);
+  --mc-navy-soft: var(--xp-well);
+  --mc-green: var(--xp-green);
+  --mc-radius: 22px;
+  --mc-shadow: 0 24px 48px -40px var(--xp-card-shadow);
+  padding: 18px 22px 44px;
+}
+
+.dashboard-page.exposure-page > .xp-shell {
+  padding: 22px;
+}
+
+.dashboard-page .mc-header {
+  padding: 6px 8px 4px;
+}
+
+.dashboard-page .mc-eyebrow::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--mc-orange);
+  box-shadow: 0 0 0 4px rgba(255, 90, 31, 0.12);
+  vertical-align: 1px;
+}
+
+[data-theme='dark'] .dashboard-page .mc-eyebrow::before {
+  box-shadow: 0 0 0 4px rgba(255, 106, 54, 0.18);
+}
+
+.dashboard-page .mc-header h1 {
+  font-size: clamp(29px, 3.3vw, 40px);
+  letter-spacing: -0.045em;
+  line-height: 1.04;
+}
+
+.dashboard-page .mc-header p {
+  margin-top: 9px;
+  max-width: 690px;
+  line-height: 1.65;
+  color: var(--mc-muted);
+}
+
+.dashboard-page .mc-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+
+.dashboard-page .mc-icon.orange {
+  background: var(--mc-orange);
+  color: #fff8f3;
+  box-shadow: 0 10px 18px -12px rgba(255, 90, 31, 0.9);
+}
+
+.dashboard-page .mc-icon.navy {
+  box-shadow: 0 10px 18px -12px rgba(20, 38, 62, 0.9);
+}
+
+.dashboard-page .mc-icon.soft {
+  background: var(--mc-orange-soft);
+  color: var(--mc-orange);
+}
+
+.dashboard-page .btn-primary:hover {
+  background: var(--mc-navy);
+}
+
+[data-theme='dark'] .dashboard-page .btn-primary:hover {
+  background: var(--xp-orange-2);
+}
+
+.dashboard-page .mc-card {
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.32s ease, border-color 0.32s ease;
+}
+
+.dashboard-page .mc-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 34px 60px -40px var(--xp-card-shadow);
+}
+
+[data-theme='dark'] .dashboard-page .mc-card:hover {
+  box-shadow: 0 30px 56px -36px rgba(0, 0, 0, 0.85);
+}
+
+.dashboard-page .panel:hover {
+  box-shadow: 0 34px 60px -40px var(--xp-card-shadow);
+}
+
+[data-theme='dark'] .dashboard-page .panel:hover {
+  box-shadow: 0 30px 56px -36px rgba(0, 0, 0, 0.85);
+}
+
 
 
 /* =========================================================
