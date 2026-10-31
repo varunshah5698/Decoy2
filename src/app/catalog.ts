@@ -17,9 +17,11 @@ export const routeById: Record<number, string> = {
   14: '/app/radar',
   15: '/app/traffic',
   16: '/app/uploads',
+  17: '/app/ai',
 }
 
 export const navGroups = [
+  { label: 'Assistant', ids: [17] },
   { label: 'Command', ids: [1, 2, 3] },
   { label: 'Assets & vulnerabilities', ids: [6, 7] },
   { label: 'Threat intelligence', ids: [8, 14, 12] },

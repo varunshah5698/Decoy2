@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: aegis-sentinel
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22.13.0
+      - key: RIVER_API_KEY
+        sync: false
+      - key: RIVER_BASE_URL
+        value: https://api.river.ai/v1
+      - key: RIVER_MODEL
+        value: deepseek-ai/DeepSeek-V4.1-Flash

@@ -2,7 +2,7 @@
 
 Live deployment: <https://aegis-sentinel-blush.vercel.app> (Vercel project `aegis-sentinel`). The project is connected to the Decoy2 repository, so pushes to `main` deploy production automatically.
 
-The app is a static Vite build plus one server-side endpoint, `POST /api/ai/chat`, which streams answers from River AI. The endpoint must run on a server: a static-only host would leave the copilot unavailable.
+The app is a static Vite build plus one server-side endpoint, `POST /api/ai/chat`, which streams answers from River AI. The endpoint must run on a server: a static-only host would leave the copilot unavailable. The copilot lives on its own page at `/app/ai`.
 
 The River key is read only from the server environment. Never put it in a `VITE_` variable, in client code, or in git. Locally it lives in `.env.local`, which is ignored.
 
@@ -26,7 +26,26 @@ vercel --prod     # production deployment
 
 Set the key first with `vercel env add RIVER_API_KEY` (choose Production, Preview and Development).
 
-## Option 2 — Netlify
+## Option 2 — Render (blueprint)
+
+`render.yaml` describes the whole service, so Render can create it from the repository without manual settings.
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/varunshah5698/Decoy2)
+
+1. In Render, **New → Blueprint** and connect the Decoy2 repository (or use the button above).
+2. Render reads `render.yaml` and proposes the `aegis-sentinel` web service:
+   - Build: `npm ci --include=dev && npm run build`
+   - Start: `npm start` (serves `dist` and `/api/ai/chat` from one Node process)
+   - Health check: `/api/health`
+   - Auto-deploy on every push to the connected branch
+3. When prompted, paste the value for `RIVER_API_KEY`. It is marked `sync: false`, so the key is never stored in the repo and must be entered in the Render dashboard.
+4. Apply the blueprint. The first deploy builds the SPA and starts the server.
+
+The free plan sleeps after idle traffic; the first request after a sleep takes a few seconds. Upgrade the plan for always-on use.
+
+`RIVER_BASE_URL` and `RIVER_MODEL` are set in the blueprint. Override them in the dashboard if the provider changes.
+
+## Option 3 — Netlify
 
 `netlify.toml` builds with Vite, publishes `dist`, rewrites unknown paths to `index.html`, and routes `/api/ai/chat` to the streaming Edge Function in `netlify/edge-functions/ai-chat.js`.
 
@@ -43,7 +62,7 @@ netlify env:set RIVER_API_KEY rv_your_key
 netlify deploy --build --prod
 ```
 
-## Option 3 — Any Node host (Render, Railway, Fly, Docker, VPS)
+## Option 4 — Any Node host (Railway, Fly, Docker, VPS)
 
 The included server serves the built SPA and the AI endpoint from one process.
 
@@ -76,7 +95,7 @@ npm run build
 npm start
 ```
 
-Open the URL, sign in with `admin@aegis.demo` or `analyst@aegis.demo` (demo password `aegis-demo-2026`), then ask the copilot a question. If the reply is a local greeting, the client is working but the server key is missing; check `/api/health`.
+Open the URL, sign in with `admin@aegis.demo` or `analyst@aegis.demo` (demo password `aegis-demo-2026`), then open **AI Analyst** in the sidebar (or press `Ctrl/⌘ + I`) and ask a question. If the reply is a local greeting, the client is working but the server key is missing; check `/api/health`.
 
 ## Checks before going live
 

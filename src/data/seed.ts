@@ -1259,6 +1259,7 @@ export const componentCatalog = [
   { id: 14, name: 'Emerging Radar', tagline: 'EPSS movement, KEV additions, and acceleration.', group: 'Threat Intelligence', icon: 'radar' },
   { id: 15, name: 'Traffic Analytics', tagline: 'Requests, bursts, entropy, and protocol mix.', group: 'Operations & Analytics', icon: 'barChart' },
   { id: 16, name: 'Data Input Hub', tagline: 'Upload inventory and logs, map, validate, accept.', group: 'Data', icon: 'upload' },
+  { id: 17, name: 'AI Analyst', tagline: 'A dedicated copilot page for workspace evidence and general questions.', group: 'Assistant', icon: 'sparkles' },
 ]
 
 export const sampleAssetsCsv = `asset_name,asset_type,owner_department,criticality,business_function,internet_facing,data_sensitivity,software_vendor,software_product,software_version

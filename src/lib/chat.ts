@@ -39,7 +39,7 @@ export function localChatReply(text: string, view: ChatView): string | null {
   }
 
   if (exact(text, ['who are you', 'what are you', 'what is your name', 'introduce yourself'])) {
-    return `I'm **Aegis Copilot**, the assistant embedded in Aegis Sentinel. I use the live demo context for workspace questions and my own general knowledge for everything else, so you don't have to keep questions inside the dashboard.`
+    return `I'm **Aegis Copilot**, the dedicated assistant page in Aegis Sentinel. I use the live demo context for workspace questions and my own general knowledge for everything else, so you don't have to keep questions inside the dashboard.`
   }
 
   if (exact(text, ['help', 'what can you do', 'what do you do', 'capabilities', 'how can you help'])) {

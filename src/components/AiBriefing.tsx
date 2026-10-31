@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { AnalystMark } from './AnalystMark'
 import { AiMarkdown } from './AiMarkdown'
 import { Activity, ArrowRight, Database, Info, RefreshCw, ShieldAlert, Zap } from './Icons'
@@ -14,13 +15,16 @@ const versionUnknown = activeAlerts.filter((a) => a.relevance === 'VERSION_UNKNO
 const degraded = sourceHealth.filter((s) => s.status === 'DEGRADED')
 
 export default function AiBriefing() {
+  const navigate = useNavigate()
   const generate = useAiPanel((s) => s.generateBriefing)
   const briefing = useAiPanel((s) => s.briefing)
-  const openWith = useAiPanel((s) => s.openWith)
 
   useEffect(() => {
     generate('/app')
   }, [generate])
+
+  const ask = (prompt?: string) =>
+    navigate('/app/ai', { state: prompt ? { prompt, nonce: Date.now() } : undefined })
 
   const status = briefing?.status ?? 'streaming'
   const text = briefing?.text ?? ''
@@ -135,14 +139,14 @@ export default function AiBriefing() {
           Generated from {counts.active} alerts · 16 assets · {sourceHealth.length} sources · deterministic scores · XGBoost v{MODEL_CARD.version} second opinion
         </span>
         <div className="ai-brief-prompts">
-          <button type="button" onClick={() => openWith('What changed in the last 24 hours that I should act on?')}>
+          <button type="button" onClick={() => ask('What changed in the last 24 hours that I should act on?')}>
             What changed?
           </button>
-          <button type="button" onClick={() => openWith('Draft the patch order for this week, with owners and checks.')}>
+          <button type="button" onClick={() => ask('Draft the patch order for this week, with owners and checks.')}>
             Draft patch order
           </button>
-          <button type="button" className="ai-brief-open" onClick={() => openWith()}>
-            Open analyst <ArrowRight size={12} />
+          <button type="button" className="ai-brief-open" onClick={() => ask()}>
+            Open copilot <ArrowRight size={12} />
           </button>
         </div>
       </footer>

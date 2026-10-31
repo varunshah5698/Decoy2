@@ -32,6 +32,7 @@ const componentPaths: Record<number, string> = {
   14: '/app/radar',
   15: '/app/traffic',
   16: '/app/uploads',
+  17: '/app/ai',
 }
 
 const heroAlert = alerts[0]
@@ -498,7 +499,7 @@ export default function Landing() {
               <div className="section-head">
                 <span className="mono">05 — The surface</span>
                 <h2>
-                  Sixteen components. One <span className="serif-accent">decision.</span>
+                  Seventeen components. One <span className="serif-accent">decision.</span>
                 </h2>
                 <p>
                   Each surface carries graphics and a statistics layer, with formulas, sample sizes and

@@ -6,6 +6,7 @@ import { useAuth, useTheme } from './lib/store'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
+import AiAnalyst from './pages/app/AiAnalyst'
 import Alerts from './pages/app/Alerts'
 import Anomalies from './pages/app/Anomalies'
 import Assets from './pages/app/Assets'
@@ -75,6 +76,7 @@ export default function App() {
           }
         >
           <Route index element={<Dashboard />} />
+          <Route path="ai" element={<AiAnalyst />} />
           <Route path="alerts" element={<Alerts />} />
           <Route path="scoring" element={<Scoring />} />
           <Route path="assets" element={<Assets />} />

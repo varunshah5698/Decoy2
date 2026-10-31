@@ -20,15 +20,10 @@ export interface ChatErrorState {
 }
 
 interface AiState {
-  open: boolean
-  prompt: { text: string; nonce: number } | null
   briefing: BriefingState | null
   messages: ChatMessage[]
   streaming: boolean
   chatError: ChatErrorState | null
-  openWith: (text?: string) => void
-  close: () => void
-  clearPrompt: () => void
   generateBriefing: (pathname?: string, force?: boolean) => void
   send: (text: string, view: ChatView) => void
   stop: () => void
@@ -56,22 +51,10 @@ const currentViewer = () => {
 }
 
 export const useAiPanel = create<AiState>((set, get) => ({
-  open: false,
-  prompt: null,
   briefing: null,
   messages: [],
   streaming: false,
   chatError: null,
-
-  openWith: (text) =>
-    set((s) => ({
-      open: true,
-      prompt: text ? { text, nonce: (s.prompt?.nonce ?? 0) + 1 } : s.prompt,
-    })),
-
-  close: () => set({ open: false }),
-
-  clearPrompt: () => set({ prompt: null }),
 
   generateBriefing: (pathname = '/app', force = false) => {
     const key = briefingKey(pathname)

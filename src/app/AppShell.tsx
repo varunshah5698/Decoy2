@@ -14,11 +14,11 @@ import {
 } from '../components/Icons'
 import { componentCatalog, counts, DEMO_NOW } from '../data/seed'
 import { useAuth, useFilters, useTheme, useToast } from '../lib/store'
+import { useAiPanel } from '../lib/aiStore'
+import { AnalystMark } from '../components/AnalystMark'
 import { navGroups, pageTitle, routeById } from './catalog'
 import { canAccess } from '../lib/access'
 import { cx, initials } from '../lib/format'
-import AiDock, { AiTrigger } from './AiDock'
-import SidebarCopilot from './SidebarCopilot'
 
 export default function AppShell() {
   const navigate = useNavigate()
@@ -30,6 +30,7 @@ export default function AppShell() {
   const query = useFilters((s) => s.query)
   const setQuery = useFilters((s) => s.setQuery)
   const showToast = useToast((s) => s.show)
+  const aiStreaming = useAiPanel((s) => s.streaming)
   const [mobileOpen, setMobileOpen] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
   const title = pageTitle(location.pathname)
@@ -38,6 +39,12 @@ export default function AppShell() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'i') {
+        e.preventDefault()
+        if (location.pathname === '/app/ai') window.dispatchEvent(new Event('aegis-ai-focus'))
+        else navigate('/app/ai')
+        return
+      }
       if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
         e.preventDefault()
         searchRef.current?.focus()
@@ -45,7 +52,7 @@ export default function AppShell() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [location.pathname, navigate])
 
   const logout = () => {
     signOut()
@@ -98,8 +105,6 @@ export default function AppShell() {
           ))}
         </nav>
 
-        <SidebarCopilot />
-
         <div className="sidebar-foot">
           <div className="status-line">
             <i className="status-dot" />
@@ -149,7 +154,16 @@ export default function AppShell() {
           </div>
 
           <div className="topbar-actions">
-            <AiTrigger />
+            <NavLink
+              to="/app/ai"
+              className={({ isActive }) => cx('ai-trigger', isActive && 'active')}
+              aria-label="Open Aegis Copilot"
+              title="Aegis Copilot (Ctrl/⌘ + I)"
+            >
+              <AnalystMark size={19} live={aiStreaming} />
+              <span className="ai-trigger-label">Ask Aegis</span>
+              <kbd className="ai-trigger-kbd">⌘I</kbd>
+            </NavLink>
             <span className="topbar-chip live">
               <i className="dot" style={{ background: 'var(--amber)', boxShadow: '0 0 8px var(--amber)' }} />
               DEMO
@@ -195,7 +209,6 @@ export default function AppShell() {
           <Outlet />
         </main>
       </div>
-      <AiDock />
     </div>
   )
 }
