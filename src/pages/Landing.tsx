@@ -265,6 +265,11 @@ export default function Landing() {
         <section className="lp-section" id="gate">
           <div className="lp-wrap lp-gate-layout">
             <div className="lp-sec-copy lp-rv">
+              <div className="lp-eyebrow">
+                <span className="lp-eyebrow-n">01</span>
+                <span className="lp-eyebrow-line" />
+                <span>The gate</span>
+              </div>
               <h2>
                 Most alerts are <em>not yours.</em>
               </h2>
@@ -368,9 +373,16 @@ export default function Landing() {
         <section className="lp-section" id="pipeline">
           <div className="lp-wrap">
             <div className="lp-pipeline-head lp-rv">
-              <h2>
-                From feed to <em>focused.</em>
-              </h2>
+              <div className="lp-head-lead">
+                <div className="lp-eyebrow">
+                  <span className="lp-eyebrow-n">02</span>
+                  <span className="lp-eyebrow-line" />
+                  <span>Pipeline</span>
+                </div>
+                <h2>
+                  From feed to <em>focused.</em>
+                </h2>
+              </div>
               <p>
                 Correlation is not a keyword search. Aegis pulls the product and installed version
                 out of the inventory record, then checks them against the CVE's published affected
@@ -386,12 +398,29 @@ export default function Landing() {
                 </li>
               ))}
             </ol>
+            <div className="lp-pipeline-foot lp-rv">
+              <div>
+                <span className="lp-kicker">Audit trail</span>
+                <p>
+                  Every stage writes its reasoning back to the alert, so the console shows the
+                  version check that actually fired — not just the final number.
+                </p>
+              </div>
+              <Link className="lp-link" to="/login?next=%2Fapp%2Falerts">
+                Open a live alert <ArrowRight size={14} strokeWidth={1.8} />
+              </Link>
+            </div>
           </div>
         </section>
 
         <section className="lp-section" id="scoring">
           <div className="lp-wrap lp-split lp-split-scoring">
             <div className="lp-sec-copy lp-rv">
+              <div className="lp-eyebrow">
+                <span className="lp-eyebrow-n">03</span>
+                <span className="lp-eyebrow-line" />
+                <span>Scoring</span>
+              </div>
               <h2>
                 The score keeps <em>no secrets.</em>
               </h2>
@@ -456,9 +485,16 @@ export default function Landing() {
         <section className="lp-section" id="console">
           <div className="lp-wrap">
             <div className="lp-console-head lp-rv">
-              <h2>
-                The alert is <em>the beginning.</em>
-              </h2>
+              <div className="lp-head-lead">
+                <div className="lp-eyebrow">
+                  <span className="lp-eyebrow-n">04</span>
+                  <span className="lp-eyebrow-line" />
+                  <span>Console</span>
+                </div>
+                <h2>
+                  The alert is <em>the beginning.</em>
+                </h2>
+              </div>
               <p>
                 Every surface opens from the same evidence — the asset, the version, the score, and
                 the record trail behind it.
@@ -476,8 +512,11 @@ export default function Landing() {
                     onClick={() => openPath(feature.path)}
                     style={{ transitionDelay: `${index * 70}ms` }}
                   >
-                    <span className="lp-feature-icon">
-                      <Icon size={22} strokeWidth={1.6} />
+                    <span className="lp-feature-top">
+                      <span className="lp-feature-icon">
+                        <Icon size={22} strokeWidth={1.6} />
+                      </span>
+                      <span className="lp-feature-index">{String(index + 1).padStart(2, '0')}</span>
                     </span>
                     <b>{feature.name}</b>
                     <span className="lp-feature-d">{feature.desc}</span>
@@ -491,8 +530,11 @@ export default function Landing() {
 
             <div className="lp-closing lp-rv">
               <div className="lp-closing-copy">
+                <span className="lp-kicker">Access · demo build</span>
                 <h3>
-                  Two clearances. <em>One source of truth.</em>
+                  Two clearances.
+                  <br />
+                  <em>One source of truth.</em>
                 </h3>
                 <p>
                   Open the seeded organisation, walk the {heroAlert.score.toFixed(1)} Log4Shell match
