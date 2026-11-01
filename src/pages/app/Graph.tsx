@@ -27,7 +27,7 @@ import { DEMO_NOW } from '../../data/seed'
 import { RISK_ORDER, useCorrelationModel } from '../../lib/correlation'
 import { LIVE_SOURCES, latestLiveFetch, useLiveFeeds } from '../../lib/liveFeeds'
 import { useFilters, useTheme } from '../../lib/store'
-import { cx, fmtPct, fmtScore, timeAgo } from '../../lib/format'
+import { cx, fmtPct, fmtScore, plural, timeAgo } from '../../lib/format'
 import { LEVEL_COLORS, levelColor } from '../../lib/colors'
 import './graph.css'
 
@@ -144,7 +144,7 @@ export default function Graph() {
     ? `${focusedAsset.department} · ${focusedAsset.type} · ${focusedAsset.criticality} criticality`
     : focusedCve
       ? `${focusedCve.vendor} ${focusedCve.product} · CVSS ${focusedCve.cvss?.toFixed(1) ?? '—'} · ${focusedCve.kev ? 'CISA KEV' : 'not in KEV'}`
-      : `${model.assets.length} assets · ${model.cves.length} CVEs · ${model.alerts.length} correlation paths`
+      : `${model.assets.length} ${plural(model.assets.length, 'asset')} · ${model.cves.length} CVEs · ${model.alerts.length} correlation paths`
 
   const worst = focusedActive[0] ?? null
   const meanActive = activeAlerts.length
@@ -700,7 +700,7 @@ export default function Graph() {
             <Network size={11} /> Mean edges per asset
           </span>
           <b>{(model.alerts.length / model.assets.length).toFixed(2)}</b>
-          <i>edges ÷ {model.assets.length} assets</i>
+          <i>edges ÷ {model.assets.length} {plural(model.assets.length, 'asset')}</i>
         </div>
         <div className="telemetry-tile">
           <span className="telemetry-kicker">

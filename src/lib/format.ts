@@ -7,6 +7,9 @@ export const round = (n: number, digits = 1) => {
 
 export const fmtInt = (n: number) => new Intl.NumberFormat('en-US').format(Math.round(n))
 
+export const plural = (n: number, singular: string, pluralForm = `${singular}s`) =>
+  Math.round(n) === 1 ? singular : pluralForm
+
 export const fmtPct = (n: number, digits = 1) => `${round(n * 100, digits)}%`
 
 export const fmtScore = (n: number) => round(n, 1).toFixed(1)

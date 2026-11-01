@@ -8,7 +8,7 @@ import {
 } from 'react'
 import type { Alert, Asset, Cve, RiskLevel } from '../lib/types'
 import { hexA } from '../lib/colors'
-import { cx, fmtScore } from '../lib/format'
+import { cx, fmtScore, plural } from '../lib/format'
 import { mulberry32 } from '../lib/stats'
 import { worstLevel } from '../lib/correlation'
 import {
@@ -851,7 +851,7 @@ export function ForceGraph({
           <i /> {liveLabel ?? 'live'}
         </span>
         <span>
-          {assets.length} assets · {cves.length} records · {alerts.length} paths · {stackLinks.length} stack links
+          {assets.length} {plural(assets.length, 'asset')} · {cves.length} records · {alerts.length} paths · {stackLinks.length} stack links
         </span>
       </div>
 

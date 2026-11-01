@@ -18,12 +18,14 @@ import { openActionCount, useActions } from '../lib/actionStore'
 import { buildRecommendations } from '../lib/warnings'
 import { useAuth, useFilters, useTheme, useToast } from '../lib/store'
 import { useAiPanel } from '../lib/aiStore'
-import { allUploadedAssets, useUploads } from '../lib/uploads'
+import { useUploads } from '../lib/uploads'
 import { AnalystMark } from '../components/AnalystMark'
+import { DataScopeSwitch } from '../components/DataScopeSwitch'
 import { navGroups, pageTitle, routeById } from './catalog'
 import { canAccess } from '../lib/access'
 import { latestLiveFetch, useLiveFeeds } from '../lib/liveFeeds'
-import { cx, initials, timeAgo } from '../lib/format'
+import { normalizeScopeId, useDataScope, useScopedInventory } from '../lib/dataScope'
+import { cx, initials, plural, timeAgo } from '../lib/format'
 
 export default function AppShell() {
   const navigate = useNavigate()
@@ -44,7 +46,10 @@ export default function AppShell() {
   )
   const aiStreaming = useAiPanel((s) => s.streaming)
   const uploadDatasets = useUploads((s) => s.datasets)
-  const inventoryCount = 16 + allUploadedAssets(uploadDatasets).length
+  const scopeId = useDataScope((s) => s.scopeId)
+  const setScopeId = useDataScope((s) => s.setScopeId)
+  const scopedAssets = useScopedInventory()
+  const inventoryCount = scopedAssets.length
   const liveMeta = useLiveFeeds((s) => s.meta)
   const liveSyncing = useLiveFeeds((s) => s.syncing)
   const livePhase = useLiveFeeds((s) => s.phase)
@@ -55,6 +60,11 @@ export default function AppShell() {
   const title = pageTitle(location.pathname)
 
   useEffect(() => setMobileOpen(false), [location.pathname])
+
+  useEffect(() => {
+    const normalized = normalizeScopeId(scopeId, uploadDatasets)
+    if (normalized !== scopeId) setScopeId(normalized)
+  }, [scopeId, uploadDatasets, setScopeId])
 
   useEffect(() => {
     void useLiveFeeds.getState().syncAll()
@@ -97,7 +107,7 @@ export default function AppShell() {
           <span className="org-avatar">AS</span>
           <div style={{ minWidth: 0 }}>
             <strong>Aegis Demo Org</strong>
-            <span>{counts.active} active · {inventoryCount} assets</span>
+            <span>{counts.active} active · {inventoryCount} {plural(inventoryCount, 'asset')}</span>
           </div>
         </div>
 
@@ -200,6 +210,7 @@ export default function AppShell() {
               <i className="dot" style={{ background: 'var(--amber)', boxShadow: '0 0 8px var(--amber)' }} />
               DEMO
             </span>
+            <DataScopeSwitch />
             <span className="topbar-chip hide-sm">
               <RefreshCw size={11} className={liveSyncing ? 'spin' : undefined} />
               {lastLive ? `${liveSyncing ? 'Syncing' : 'Live'} · ${timeAgo(lastLive)}` : `Updated ${DEMO_NOW.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`}

@@ -23,8 +23,9 @@ import { mean, quantile, stdev } from '../../lib/stats'
 import { scoreAlert, WEIGHTS, levelFromScore, relevanceLabel } from '../../lib/scoring'
 import { ML_BANDS, MODEL_CARD, topFeatureImportance, FEATURE_LABELS } from '../../lib/ml'
 import { useLiveActiveAlerts, useLiveAlerts, useLiveCounts, useLiveMl } from '../../lib/liveData'
+import { useScopeInfo } from '../../lib/dataScope'
 import { hexA } from '../../lib/colors'
-import type { Criticality, RelevanceStatus, RiskLevel } from '../../lib/types'
+import type { Alert, Criticality, RelevanceStatus, RiskLevel } from '../../lib/types'
 import './assets.css'
 import './scoring.css'
 
@@ -255,15 +256,63 @@ function ScoreArc({
 /* ---------- page ---------- */
 
 export default function Scoring() {
+  const alerts = useLiveAlerts()
+  if (!alerts.length) return <ScoringEmpty />
+  return <ScoringWorkspace alerts={alerts} />
+}
+
+function ScoringEmpty() {
+  const navigate = useNavigate()
+  const scopeInfo = useScopeInfo()
+  return (
+    <div className="exposure-page scoring-page">
+      <div className="xp-shell">
+        <header className="xp-head">
+          <div className="xp-head-copy">
+            <span className="xp-eyebrow">Component 03 · Risk scoring</span>
+            <h1>
+              A formula you can <em>audit</em>.
+            </h1>
+            <p>Nothing in {scopeInfo.label} correlates to the threat catalog yet, so there is no score to derive.</p>
+          </div>
+          <div className="xp-head-side">
+            <div className="xp-actions">
+              <button type="button" className="xp-btn xp-btn-light" onClick={() => navigate('/app/uploads')}>
+                Data Input Hub <ArrowRight size={13} />
+              </button>
+              <button type="button" className="xp-btn xp-btn-dark" onClick={() => navigate('/app/alerts')}>
+                Alert queue <ArrowRight size={13} />
+              </button>
+            </div>
+          </div>
+        </header>
+        <section className="xp-card" style={{ padding: 34 }}>
+          <div className="xp-empty">
+            <span className="xp-empty-icon">
+              <Gauge size={16} />
+            </span>
+            <strong>No alerts to score</strong>
+            <span>Add software versions to the dataset so the relevance gate has something to match, or switch back to live feeds.</span>
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+function ScoringWorkspace({ alerts }: { alerts: Alert[] }) {
   const theme = useTheme((s) => s.theme)
   const navigate = useNavigate()
-  const alerts = useLiveAlerts()
   const activeAlerts = useLiveActiveAlerts()
   const counts = useLiveCounts()
   const liveMl = useLiveMl()
   const base = alerts[0]
   const [selectedId, setSelectedId] = useState(base.id)
   const assetAlert = alerts.find((a) => a.id === selectedId) ?? base
+
+  useEffect(() => {
+    if (!alerts.some((a) => a.id === selectedId)) setSelectedId(base.id)
+  }, [alerts, selectedId, base.id])
 
   const [cvss, setCvss] = useState(assetAlert.cve.cvss ?? 0)
   const [epss, setEpss] = useState(assetAlert.cve.epss ?? 0)

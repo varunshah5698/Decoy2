@@ -22,7 +22,6 @@ import {
 } from '../../components/Icons'
 import {
   activityHeatmap,
-  assets as seedAssets,
   DEMO_NOW,
   threatDaily,
 } from '../../data/seed'
@@ -37,8 +36,9 @@ import {
 import { useFilters, useTheme } from '../../lib/store'
 import { openActionCount, useActions } from '../../lib/actionStore'
 import { buildRecommendations } from '../../lib/warnings'
-import { allUploadedAssets, useUploads } from '../../lib/uploads'
-import { cx, fmtInt, fmtScore, timeAgo } from '../../lib/format'
+import { useUploads } from '../../lib/uploads'
+import { useScopedInventory, useScopeInfo } from '../../lib/dataScope'
+import { cx, fmtInt, fmtScore, plural, timeAgo } from '../../lib/format'
 import { median, spearman, stdev, mean } from '../../lib/stats'
 import { predict, ML_BANDS, MODEL_CARD } from '../../lib/ml'
 import { exposureDeduction } from '../../lib/scoring'
@@ -68,8 +68,8 @@ export default function Dashboard() {
   const liveMl = useLiveMl()
 
   const uploadDatasets = useUploads((s) => s.datasets)
-  const uploadedAssets = useMemo(() => allUploadedAssets(uploadDatasets), [uploadDatasets])
-  const inventory = useMemo(() => [...uploadedAssets, ...seedAssets], [uploadedAssets])
+  const inventory = useScopedInventory()
+  const scopeInfo = useScopeInfo()
   const versioned = inventory.filter((a) => a.software.every((s) => s.version && s.version !== 'unknown')).length
   const coverage = Math.round((versioned / Math.max(1, inventory.length)) * 100)
 
@@ -148,41 +148,46 @@ export default function Dashboard() {
     const scores = activeAlerts.map((a) => a.score)
     const epss = activeAlerts.map((a) => a.cve.epss ?? 0)
     const cvss = activeAlerts.map((a) => a.cve.cvss ?? 0)
+    const medianEpss = median(epss)
+    const dispersion = stdev(scores)
+    const cvssCorr = spearman(cvss, scores)
+    const modelCorr = spearman(activeAlerts.map((a) => predict(a).probability), scores)
+    const suppressionRate = alerts.length ? (suppressedAlerts.length / alerts.length) * 100 : null
     return [
       {
         name: 'Mean risk score',
-        value: fmtScore(mean(scores)),
+        value: scores.length ? fmtScore(mean(scores)) : '—',
         formula: 'mean(score_i) over active alerts',
         n: scores.length,
       },
       {
         name: 'Median EPSS',
-        value: `${(median(epss) * 100).toFixed(1)}%`,
+        value: Number.isFinite(medianEpss) ? `${(medianEpss * 100).toFixed(1)}%` : '—',
         formula: 'median(epss_i) · 30-day exploitation probability',
         n: epss.length,
       },
       {
         name: 'Score dispersion',
-        value: `σ ${fmtScore(stdev(scores))}`,
+        value: Number.isFinite(dispersion) ? `σ ${fmtScore(dispersion)}` : '—',
         formula: 'sample standard deviation of alert scores',
         n: scores.length,
       },
       {
         name: 'CVSS ↔ risk correlation',
-        value: spearman(cvss, scores).toFixed(2),
+        value: cvssCorr ? cvssCorr.toFixed(2) : '—',
         formula: 'Spearman rank correlation',
         n: scores.length,
         note: 'Asset context reshuffles the severity-only queue.',
       },
       {
         name: 'Suppression rate',
-        value: `${((suppressedAlerts.length / alerts.length) * 100).toFixed(1)}%`,
+        value: suppressionRate == null ? '—' : `${suppressionRate.toFixed(1)}%`,
         formula: 'suppressed / all correlation candidates',
         n: alerts.length,
       },
       {
         name: 'Model ↔ score agreement',
-        value: spearman(activeAlerts.map((a) => predict(a).probability), scores).toFixed(2),
+        value: modelCorr ? modelCorr.toFixed(2) : '—',
         formula: 'Spearman ρ · XGBoost prior vs six-factor score',
         n: scores.length,
         note: `XGBoost v${MODEL_CARD.version} · test AUC ${MODEL_CARD.test.auc.toFixed(3)} on live NVD/EPSS feeds.`,
@@ -539,7 +544,7 @@ export default function Dashboard() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, activeAlerts])
 
   const heatmapOption = useMemo(() => {
     const data: [number, number, number][] = []
@@ -610,15 +615,17 @@ export default function Dashboard() {
       <header className="mc-header">
         <div>
           <span className="mono mc-eyebrow">
-            SECURITY POSTURE · {DEMO_NOW.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase()} · DEMO SEED
+            SECURITY POSTURE · {DEMO_NOW.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase()} · {scopeInfo.kind === 'live' ? 'LIVE FEEDS' : scopeInfo.kind === 'uploads' ? 'ALL UPLOADS' : 'UPLOADED DATASET'}
           </span>
           <h1>Command centre</h1>
           <p>Threats correlated to your inventory, ranked by what could actually reach a system you run.</p>
         </div>
         <div className="mc-header-actions">
-          {uploadDatasets.length > 0 && (
-            <span className="badge upload">{uploadDatasets.length} upload{uploadDatasets.length === 1 ? '' : 's'} applied</span>
-          )}
+          {scopeInfo.kind !== 'live' ? (
+            <span className="badge upload">{scopeInfo.label} · {inventory.length} {plural(inventory.length, 'asset')}</span>
+          ) : uploadDatasets.length > 0 ? (
+            <span className="badge upload">{uploadDatasets.length} {plural(uploadDatasets.length, 'upload')} available</span>
+          ) : null}
           <button className="btn btn-ghost btn-sm" onClick={() => navigate('/app/recommendations')}>
             <ShieldCheck size={13} /> {openActions} open actions
           </button>
@@ -1044,7 +1051,7 @@ export default function Dashboard() {
 
       <div className="page-foot">
         <span className="mono">
-          Demo window {DEMO_NOW.toISOString().slice(0, 16).replace('T', ' ')}Z · {fmtInt(18)} CVEs · {inventory.length} assets · 15 correlation candidates
+          Demo window {DEMO_NOW.toISOString().slice(0, 16).replace('T', ' ')}Z · {fmtInt(counts.cves)} CVEs · {inventory.length} {plural(inventory.length, 'asset')} · {counts.total} correlation candidates
         </span>
         <span className="mono">Labels: NVD / CISA KEV / FIRST EPSS = real · SIMULATED = seeded · USER UPLOAD = customer data</span>
       </div>

@@ -1,6 +1,5 @@
 import {
   anomalyWindows,
-  assets,
   attackProfiles,
   DEMO_NOW,
   intelItems,
@@ -20,7 +19,9 @@ import {
   currentLivePosture,
   currentLiveSourceHealth,
 } from './liveData'
-import { allUploadedAssets, useUploads } from './uploads'
+import { useUploads } from './uploads'
+import { normalizeScopeId, scopeInfo, scopedInventory, useDataScope } from './dataScope'
+import { plural } from './format'
 import type { Role } from './store'
 import type { Alert, Asset } from './types'
 
@@ -33,6 +34,17 @@ export interface AnalystContext {
     restrictedModules: string[]
   }
   asOf: string
+  workspace: {
+    scope: {
+      id: string
+      kind: 'live' | 'uploads' | 'dataset'
+      label: string
+      detail: string
+    }
+    datasetCount: number
+    datasets: { id: string; name: string; assets: number }[]
+    note: string
+  }
   organisation: {
     postureScore: number
     postureDefinition: string
@@ -237,8 +249,10 @@ export function buildAnalystContext(
   const role: Role = viewer.role ?? 'ANALYST'
   const component = componentByPath(pathname)
   const uploadDatasets = useUploads.getState().datasets
-  const uploadedAssets = allUploadedAssets(uploadDatasets)
-  const mergedAssets = [...uploadedAssets, ...assets]
+  const scopeId = normalizeScopeId(useDataScope.getState().scopeId, uploadDatasets)
+  const scope = scopeInfo(scopeId, uploadDatasets)
+  const mergedAssets = scopedInventory(scopeId, uploadDatasets)
+  const uploadedAssets = mergedAssets.filter((asset) => asset.source === 'USER UPLOAD')
   const liveAlerts = currentLiveAlerts()
   const liveActive = liveAlerts.filter((alert) => !alert.suppressed)
   const liveSuppressed = liveAlerts.filter((alert) => alert.suppressed)
@@ -402,6 +416,15 @@ export function buildAnalystContext(
       restrictedModules: role === 'ADMIN' ? [] : ['Data Uploads', 'What-If Simulator', 'Alert queue export'],
     },
     asOf: DEMO_NOW.toISOString(),
+    workspace: {
+      scope: { id: scope.id, kind: scope.kind, label: scope.label, detail: scope.detail },
+      datasetCount: uploadDatasets.length,
+      datasets: uploadDatasets
+        .filter((d) => d.assets.length > 0)
+        .slice(0, 20)
+        .map((d) => ({ id: d.id, name: d.name, assets: d.assets.length })),
+      note: 'The workspace dataset scope decides which inventory and correlated alerts are shown. Threat intel from NVD, CISA KEV and FIRST EPSS stays live in every scope.',
+    },
     organisation: {
       postureScore: livePosture,
       postureDefinition:
@@ -416,7 +439,7 @@ export function buildAnalystContext(
       kevLinked: liveActive.filter((a) => a.cve.kev).length,
       internetFacingAlerting: liveActive.filter((a) => a.asset.internetFacing).length,
       versionUnknown: liveActive.filter((a) => a.relevance === 'VERSION_UNKNOWN').length,
-      inventoryCoverage: `${mergedAssets.length} assets${uploadedAssets.length ? ` (${uploadedAssets.length} from user uploads)` : ''}, version-aware on ${verifiedAssets} of ${mergedAssets.length}`,
+      inventoryCoverage: `${mergedAssets.length} ${plural(mergedAssets.length, 'asset')} in ${scope.label}${uploadedAssets.length ? ` (${uploadedAssets.length} from user uploads)` : ''}, version-aware on ${verifiedAssets} of ${mergedAssets.length}`,
       assets: mergedAssets.length,
       departments: [...new Set(mergedAssets.map((a) => a.department))],
     },
@@ -531,8 +554,8 @@ export function buildAnalystContext(
         })),
       note:
         uploadDatasets.length > 0
-          ? 'These datasets were accepted by an admin in the Data Input Hub and are included in inventory counts. Assets carry source USER UPLOAD. Log uploads are summarised, not replayed event by event.'
-          : 'No customer uploads have been accepted in this browser yet. Inventory is the seeded demo set.',
+          ? `These datasets were accepted by an admin in the Data Input Hub. The current workspace scope is ${scope.label}. Assets carry source USER UPLOAD. Log uploads are summarised, not replayed event by event.`
+          : `No customer uploads have been accepted in this browser yet. The workspace scope is ${scope.label}.`,
     },
     pageData,
     policy:
@@ -667,7 +690,7 @@ export function localBriefing(ctx: AnalystContext): string {
 
   const lines: string[] = []
   lines.push(
-    `**Bottom line.** Posture score is **${org.postureScore}/100** (higher is better) with **${org.activeAlerts} active alerts**, including **${org.critical} critical** and **${org.kevLinked} KEV-linked** cases.`,
+    `**Bottom line.** Posture score is **${org.postureScore}/100** for **${ctx.workspace.scope.label}** (higher is better) with **${org.activeAlerts} active alerts**, including **${org.critical} critical** and **${org.kevLinked} KEV-linked** cases.`,
   )
   lines.push('')
   lines.push('**What matters now**')
@@ -697,9 +720,13 @@ export function localBriefing(ctx: AnalystContext): string {
   )
   if (ctx.userUploads.datasetCount > 0) {
     lines.push('')
-    lines.push(
-      `**Customer data.** ${ctx.userUploads.assetsTotal} uploaded asset${ctx.userUploads.assetsTotal === 1 ? '' : 's'} from ${ctx.userUploads.datasetCount} accepted dataset${ctx.userUploads.datasetCount === 1 ? '' : 's'} are included in inventory counts and correlation context.`,
-    )
+    const { assetsTotal, datasetCount } = ctx.userUploads
+    const scope = ctx.workspace.scope
+    const customerLine =
+      scope.kind === 'dataset'
+        ? `${assetsTotal} uploaded ${plural(assetsTotal, 'asset')} from the ${scope.label} dataset ${assetsTotal === 1 ? 'forms' : 'form'} this scope`
+        : `${assetsTotal} uploaded ${plural(assetsTotal, 'asset')} from ${datasetCount} accepted ${plural(datasetCount, 'dataset')} ${scope.kind === 'live' ? 'are included alongside the demo estate' : 'form the All uploads scope'}`
+    lines.push(`**Customer data.** ${customerLine}.`)
   }
   lines.push('')
   lines.push(

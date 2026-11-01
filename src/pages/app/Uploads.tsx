@@ -8,7 +8,8 @@ import { AlertTriangle, ArrowRight, Check, Download, FileSearch, Lock, ShieldChe
 import { sampleAssetsCsv, sampleLogsCsv, uploadedDatasets } from '../../data/seed'
 import { useAuth, useTheme, useToast } from '../../lib/store'
 import { parseObjects, rowsToAssets, rowsToLogSummary, useUploads, type UploadedDataset } from '../../lib/uploads'
-import { fmtInt, timeAgo } from '../../lib/format'
+import { useDataScope, useScopeInfo } from '../../lib/dataScope'
+import { fmtInt, plural, timeAgo } from '../../lib/format'
 import { TEAL, UPLOAD, hexA } from '../../lib/colors'
 
 type Kind = 'assets' | 'logs'
@@ -110,6 +111,8 @@ export default function Uploads() {
 
   const datasets = useUploads((s) => s.datasets)
   const addDataset = useUploads((s) => s.add)
+  const scopeInfo = useScopeInfo()
+  const setScopeId = useDataScope((s) => s.setScopeId)
 
   const [file, setFile] = useState<File | null>(null)
   const [headers, setHeaders] = useState<string[]>([])
@@ -235,6 +238,11 @@ export default function Uploads() {
 
   const history = useMemo(() => [...datasets, ...uploadedDatasets], [datasets])
 
+  const activate = (dataset: UploadedDataset) => {
+    setScopeId(dataset.id)
+    toast(`Workspace dataset switched to ${dataset.name}`)
+  }
+
   const accept = () => {
     if (!file || !validation || validation.missingColumns.length) return
     if (!canUpload) {
@@ -261,11 +269,12 @@ export default function Uploads() {
     }
     addDataset(entry)
     setLastAccepted(entry)
-    toast(
-      kind === 'assets'
-        ? `${assets.length} assets added to the workspace from ${file.name}`
-        : `${entry.accepted} log rows accepted from ${file.name}`,
-    )
+    if (kind === 'assets' && assets.length) {
+      setScopeId(entry.id)
+      toast(`${assets.length} ${plural(assets.length, 'asset')} added · workspace switched to ${file.name}`)
+    } else {
+      toast(`${entry.accepted} log rows accepted from ${file.name}`)
+    }
   }
 
   const download = (name: string, content: string) => {
@@ -347,13 +356,25 @@ export default function Uploads() {
           <Check size={14} />
           {lastAccepted.type === 'Assets' ? (
             <>
-              <span>{lastAccepted.assets.length} assets are now in the workspace inventory.</span>
+              <span>
+                {lastAccepted.assets.length} {plural(lastAccepted.assets.length, 'asset')}{' '}
+                {lastAccepted.assets.length === 1 ? 'is' : 'are'} now in the workspace inventory
+                {scopeInfo.id === lastAccepted.id ? ' · this dataset is in view' : ''}.
+              </span>
+              {scopeInfo.id !== lastAccepted.id && (
+                <button className="panel-link" onClick={() => activate(lastAccepted)}>
+                  Use as workspace dataset <ArrowRight size={11} />
+                </button>
+              )}
               <button className="panel-link" onClick={() => navigate('/app/assets')}>
                 Open asset register <ArrowRight size={11} />
               </button>
             </>
           ) : (
-            <span>{lastAccepted.accepted} log rows accepted and summarised for the Ask Aegis context.</span>
+            <>
+              <span>{lastAccepted.accepted} log rows accepted and summarised for the Ask Aegis context.</span>
+              <span className="mono">inventory scope unchanged</span>
+            </>
           )}
         </div>
       )}
@@ -585,7 +606,7 @@ export default function Uploads() {
         <Panel
           className="col-7"
           title="Dataset history"
-          sub={`${history.length} datasets · accepted and rejected kept separate`}
+          sub={`${history.length} ${plural(history.length, 'dataset')} · accepted and rejected kept separate`}
           action={<span className="badge upload">USER UPLOAD</span>}
           noPad
         >
@@ -596,6 +617,7 @@ export default function Uploads() {
                   <th>Dataset</th>
                   <th>Type</th>
                   <th>Status</th>
+                  <th>View</th>
                   <th className="right">Rows</th>
                   <th className="right">Accepted</th>
                   <th className="right">Rejected</th>
@@ -603,32 +625,50 @@ export default function Uploads() {
                 </tr>
               </thead>
               <tbody>
-                {history.map((h) => (
-                  <tr key={h.id}>
-                    <td>
-                      <div className="cell-title">{h.name}</div>
-                      <div className="cell-sub">
-                        {h.id} · {h.uploadedBy}
-                      </div>
-                    </td>
-                    <td className="cell-sub">{h.type}</td>
-                    <td>
-                      <span className={`badge ${h.status === 'ACCEPTED' ? 'low' : h.status === 'PARTIAL' ? 'medium' : 'critical'}`}>
-                        {h.status}
-                      </span>
-                    </td>
-                    <td className="right mono">{fmtInt(h.rows)}</td>
-                    <td className="right mono">{fmtInt(h.accepted)}</td>
-                    <td className="right mono">{fmtInt(h.rejected)}</td>
-                    <td className="mono">{timeAgo(h.uploadedAt)}</td>
-                  </tr>
-                ))}
+                {history.map((h) => {
+                  const dataset = h as UploadedDataset
+                  const canScope = Array.isArray(dataset.assets) && dataset.assets.length > 0
+                  const inView = canScope && scopeInfo.id === h.id
+                  return (
+                    <tr key={h.id}>
+                      <td>
+                        <div className="cell-title">{h.name}</div>
+                        <div className="cell-sub">
+                          {h.id} · {h.uploadedBy}
+                        </div>
+                      </td>
+                      <td className="cell-sub">{h.type}</td>
+                      <td>
+                        <span className={`badge ${h.status === 'ACCEPTED' ? 'low' : h.status === 'PARTIAL' ? 'medium' : 'critical'}`}>
+                          {h.status}
+                        </span>
+                      </td>
+                      <td>
+                        {canScope ? (
+                          inView ? (
+                            <span className="badge low">IN VIEW</span>
+                          ) : (
+                            <button type="button" className="panel-link" onClick={() => activate(dataset)}>
+                              Use <ArrowRight size={10} />
+                            </button>
+                          )
+                        ) : (
+                          <span className="dim mono">—</span>
+                        )}
+                      </td>
+                      <td className="right mono">{fmtInt(h.rows)}</td>
+                      <td className="right mono">{fmtInt(h.accepted)}</td>
+                      <td className="right mono">{fmtInt(h.rejected)}</td>
+                      <td className="mono">{timeAgo(h.uploadedAt)}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
           <div className="table-note">
             <span className="inline-flex">
-              <FileSearch size={11} /> Accepted assets appear in the asset register, dashboard, and Ask Aegis context.
+              <FileSearch size={11} /> Accepted asset datasets are switchable from the dataset control in the top bar; threat intel stays live.
             </span>
             <span className="mono">quarantine never auto-promotes</span>
           </div>

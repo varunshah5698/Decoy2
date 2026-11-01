@@ -31,11 +31,11 @@ import {
   SlidersHorizontal,
   Upload,
 } from '../../components/Icons'
-import { assets as seedAssets, DEMO_NOW } from '../../data/seed'
+import { DEMO_NOW } from '../../data/seed'
 import { useLiveActiveAlerts, useLiveAlerts, useLiveSuppressedAlerts } from '../../lib/liveData'
 import { useAuth, useFilters, useTheme } from '../../lib/store'
-import { allUploadedAssets, useUploads } from '../../lib/uploads'
-import { fmtScore, timeAgo } from '../../lib/format'
+import { useScopedInventory, useScopeInfo } from '../../lib/dataScope'
+import { fmtScore, plural, timeAgo } from '../../lib/format'
 import { mean, median } from '../../lib/stats'
 import { LEVEL_COLORS } from '../../lib/colors'
 import type { Alert, Asset, AssetType, Criticality, RiskLevel } from '../../lib/types'
@@ -195,9 +195,9 @@ export default function Assets() {
   const [selected, setSelected] = useState<Asset | null>(null)
   const [lens, setLens] = useState<Lens>('ACTIVE')
 
-  const uploadDatasets = useUploads((s) => s.datasets)
-  const uploadedAssets = useMemo(() => allUploadedAssets(uploadDatasets), [uploadDatasets])
-  const inventory = useMemo(() => [...uploadedAssets, ...seedAssets], [uploadedAssets])
+  const inventory = useScopedInventory()
+  const scopeInfo = useScopeInfo()
+  const uploadedAssets = useMemo(() => inventory.filter((a) => a.source === 'USER UPLOAD'), [inventory])
   const departments = useMemo(() => [...new Set(inventory.map((a) => a.department))], [inventory])
 
   const enriched = useMemo(
@@ -439,8 +439,10 @@ export default function Assets() {
               Your side of the <em>correlation</em>.
             </h1>
             <p>
-              Seeded demo systems plus every inventory accepted in the Data Input Hub, with the software versions that
-              drive correlation. Version is the hinge: a product name alone is not a match.
+              {scopeInfo.kind === 'live'
+                ? 'Seeded demo systems plus every inventory accepted in the Data Input Hub.'
+                : `Scoped to ${scopeInfo.label} — ${inventory.length} uploaded ${plural(inventory.length, 'system')} ${inventory.length === 1 ? 'forms' : 'form'} the working estate.`}{' '}
+              Software versions drive correlation: a product name alone is not a match.
             </p>
           </div>
           <div className="xp-head-side">
@@ -449,7 +451,7 @@ export default function Assets() {
               <span className="xp-org-copy">
                 <b>Aegis demo org</b>
                 <small>
-                  {inventory.length} systems · {departments.length} departments
+                  {inventory.length} {plural(inventory.length, 'system')} · {departments.length} {plural(departments.length, 'department')}
                 </small>
               </span>
             </span>
@@ -482,7 +484,7 @@ export default function Assets() {
               }
             />
             <div className="xp-gauge-ring">
-              <svg viewBox="0 0 280 164" role="img" aria-label={`${inventory.length} systems by exposure band`}>
+              <svg viewBox="0 0 280 164" role="img" aria-label={`${inventory.length} ${plural(inventory.length, 'system')} by exposure band`}>
                 <defs>
                   <pattern id="xp-gauge-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
                     <rect width="6" height="6" className="xp-hatch-fill" />
@@ -586,7 +588,7 @@ export default function Assets() {
                 </span>
                 <span className="xp-big-label">{LENS_LABEL[lens]}</span>
                 <span className="xp-big-meta">
-                  {windowLabel} · {inventory.length} systems in scope
+                  {windowLabel} · {inventory.length} {plural(inventory.length, 'system')} in scope
                 </span>
                 <div className="xp-big-actions">
                   <button type="button" className="xp-pill" onClick={() => navigate('/app/alerts')}>
@@ -696,7 +698,7 @@ export default function Assets() {
                     <ShieldCheck size={16} />
                   </span>
                   <strong>No active alerts</strong>
-                  <span>Every inventoried system is clean against the current demo feed.</span>
+                  <span>Every inventoried system is clean against the current scope.</span>
                 </div>
               ) : (
                 topSystems.map((e) => (
@@ -795,15 +797,21 @@ export default function Assets() {
             <CardHead
               icon={<Server size={16} />}
               title="Asset register"
-              sub={`${filtered.length} of ${inventory.length} systems · sorted by maximum score`}
+              sub={`${filtered.length} of ${inventory.length} ${plural(inventory.length, 'system')} · sorted by maximum score`}
               tone="orange"
               action={
                 <span
                   className="xp-source-chip"
-                  style={{ '--xp-tone': uploadedAssets.length ? 'var(--xp-orange)' : 'var(--xp-muted-2)' } as CSSProperties}
+                  style={{ '--xp-tone': scopeInfo.kind !== 'live' || uploadedAssets.length ? 'var(--xp-orange)' : 'var(--xp-muted-2)' } as CSSProperties}
                   title="Seeded rows are SIMULATED; accepted uploads carry USER UPLOAD and persist in this browser."
                 >
-                  {uploadedAssets.length ? `Mixed · ${uploadedAssets.length} uploaded` : 'Simulated inventory'}
+                  {scopeInfo.kind === 'live'
+                    ? uploadedAssets.length
+                      ? `Mixed · ${uploadedAssets.length} uploaded`
+                      : 'Simulated inventory'
+                    : scopeInfo.kind === 'uploads'
+                      ? `All uploads · ${inventory.length} ${plural(inventory.length, 'system')}`
+                      : `${scopeInfo.label} · ${inventory.length} ${plural(inventory.length, 'system')}`}
                 </span>
               }
             />
@@ -856,7 +864,7 @@ export default function Assets() {
                   ))}
                 </div>
                 <span className="xp-filters-count">
-                  {filtered.length} / {inventory.length} systems
+                  {filtered.length} / {inventory.length} {plural(inventory.length, 'system')}
                 </span>
               </div>
 
@@ -974,8 +982,10 @@ export default function Assets() {
 
               <div className="xp-table-foot">
                 <span className="xp-inline">
-                  <Server size={11} /> Seeded rows are SIMULATED; accepted uploads carry USER UPLOAD and persist in this
-                  browser.
+                  <Server size={11} />{' '}
+                  {scopeInfo.kind === 'live'
+                    ? 'Seeded rows are SIMULATED; accepted uploads carry USER UPLOAD and persist in this browser.'
+                    : `${scopeInfo.label} · USER UPLOAD · threat intel stays live.`}
                 </span>
                 <span className="mono">
                   {activeAlerts.length} active · {suppressedAlerts.length} suppressed
@@ -992,12 +1002,12 @@ export default function Assets() {
               </div>
               <div className="xp-method-grid">
                 <div className="xp-method" title="Active alerts divided by the number of inventoried systems.">
-                  <strong>{mean(perAsset).toFixed(2)}</strong>
+                  <strong>{perAsset.length ? mean(perAsset).toFixed(2) : '—'}</strong>
                   <span>Mean alerts per asset</span>
                   <small>active alerts ÷ assets · n={inventory.length}</small>
                 </div>
                 <div className="xp-method" title="Median number of active alerts attached to a system.">
-                  <strong>{median(perAsset).toFixed(1)}</strong>
+                  <strong>{perAsset.length ? median(perAsset).toFixed(1) : '—'}</strong>
                   <span>Median alerts per asset</span>
                   <small>median of counts · n={inventory.length}</small>
                 </div>

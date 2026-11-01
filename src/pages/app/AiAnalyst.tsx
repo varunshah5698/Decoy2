@@ -15,12 +15,12 @@ import {
   Sparkles,
   Zap,
 } from '../../components/Icons'
-import { assets } from '../../data/seed'
 import { useLiveCounts, useLivePosture, useLiveSourceHealth } from '../../lib/liveData'
 import { useAiPanel } from '../../lib/aiStore'
 import { useAuth } from '../../lib/store'
-import { allUploadedAssets, useUploads } from '../../lib/uploads'
-import { cx } from '../../lib/format'
+import { useScopedInventory, useScopeInfo } from '../../lib/dataScope'
+import { useUploads } from '../../lib/uploads'
+import { cx, plural } from '../../lib/format'
 import './ai.css'
 
 const SUGGESTIONS = [
@@ -113,7 +113,9 @@ export default function AiAnalyst() {
   const posture = useLivePosture()
   const sourceHealth = useLiveSourceHealth()
 
-  const uploadedAssets = allUploadedAssets(uploadDatasets)
+  const inventory = useScopedInventory()
+  const scopeInfo = useScopeInfo()
+  const uploadedCount = inventory.filter((asset) => asset.source === 'USER UPLOAD').length
 
   const [input, setInput] = useState('')
   const [pinned, setPinned] = useState(true)
@@ -512,8 +514,12 @@ export default function AiAnalyst() {
                   <div className="ai-page-fact">
                     <span>Inventory</span>
                     <strong>
-                      {assets.length + uploadedAssets.length} assets
-                      {uploadedAssets.length > 0 && <span className="dim"> · {uploadedAssets.length} uploaded</span>}
+                      {inventory.length} {plural(inventory.length, 'asset')}
+                      {scopeInfo.kind !== 'live' ? (
+                        <span className="dim"> · {scopeInfo.label}</span>
+                      ) : uploadedCount > 0 ? (
+                        <span className="dim"> · {uploadedCount} uploaded</span>
+                      ) : null}
                     </strong>
                   </div>
                   <div className="ai-page-fact">

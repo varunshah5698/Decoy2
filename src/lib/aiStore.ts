@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { buildAnalystContext, localBriefing, streamAnalyst, type ChatMessage } from './ai'
 import { localChatReply, type ChatView } from './chat'
 import { currentLiveCounts, currentLivePosture } from './liveData'
+import { normalizeScopeId, useDataScope } from './dataScope'
 import { useAuth } from './store'
 import { useUploads } from './uploads'
 
@@ -38,7 +39,9 @@ let queuedChat: { text: string; view: ChatView } | null = null
 
 const briefingKey = (pathname: string) => {
   const counts = currentLiveCounts()
-  return `briefing:${pathname}:${currentLivePosture()}:${counts.active}:${counts.critical}:${useUploads.getState().datasets.length}`
+  const datasets = useUploads.getState().datasets
+  const scope = normalizeScopeId(useDataScope.getState().scopeId, datasets)
+  return `briefing:${pathname}:${scope}:${currentLivePosture()}:${counts.active}:${counts.critical}:${datasets.length}`
 }
 
 const withoutEmptyTail = (messages: ChatMessage[]) => {

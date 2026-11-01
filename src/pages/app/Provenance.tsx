@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Panel } from '../../components/Panel'
 import { Waterfall } from '../../components/Waterfall'
 import { StatsPanel } from '../../components/StatsPanel'
@@ -6,6 +7,7 @@ import { SeverityBadge, SourceBadge } from '../../components/Badges'
 import { EvidenceChain, EV_LANES, buildEvidenceGraph, type Truth } from '../../components/EvidenceChain'
 import {
   AlertTriangle,
+  ArrowRight,
   BarChart3,
   Check,
   Database,
@@ -18,7 +20,9 @@ import {
 import { DEMO_NOW, sourceHealth } from '../../data/seed'
 import { useLiveAlerts } from '../../lib/liveData'
 import { latestLiveFetch, useLiveFeeds } from '../../lib/liveFeeds'
+import { useScopeInfo } from '../../lib/dataScope'
 import { fmtDate, fmtDateTime } from '../../lib/format'
+import type { Alert } from '../../lib/types'
 import './provenance.css'
 
 const fnv = (input: string) => {
@@ -54,10 +58,59 @@ const TRUTH_TONE: Record<Truth, { bg: string; fg: string; label: string }> = {
 
 export default function Provenance() {
   const alerts = useLiveAlerts()
+  if (!alerts.length) return <ProvenanceEmpty />
+  return <ProvenanceWorkspace alerts={alerts} />
+}
+
+function ProvenanceEmpty() {
+  const navigate = useNavigate()
+  const scopeInfo = useScopeInfo()
+  return (
+    <div className="page prov-root">
+      <header className="prov-head">
+        <div>
+          <span className="prov-head-eyebrow">
+            <GitBranch size={12} /> Component 13 · Provenance graph
+          </span>
+          <h1>Every alert can be traced</h1>
+          <p>{scopeInfo.label} has no correlation candidates yet, so there is no evidence chain to open.</p>
+        </div>
+      </header>
+      <Panel
+        className="col-12"
+        title="No provenance records"
+        sub="Switch dataset or add versioned software to build a chain"
+      >
+        <div className="xp-empty">
+          <span className="xp-empty-icon">
+            <GitBranch size={16} />
+          </span>
+          <strong>Nothing to trace in this scope</strong>
+          <span>Accepted assets need a software version inside a CVE range before an alert — and its chain — exists.</span>
+        </div>
+        <div className="inline-flex mt-16" style={{ gap: 8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/app/uploads')}>
+            Data Input Hub <ArrowRight size={13} />
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={() => navigate('/app/alerts')}>
+            Alert queue <ArrowRight size={13} />
+          </button>
+        </div>
+      </Panel>
+    </div>
+  )
+}
+
+function ProvenanceWorkspace({ alerts }: { alerts: Alert[] }) {
   const [selectedId, setSelectedId] = useState(alerts[0].id)
   const [filter, setFilter] = useState<'all' | Truth>('all')
   const [activeId, setActiveId] = useState<string | null>('alert')
   const alert = alerts.find((a) => a.id === selectedId) ?? alerts[0]
+
+  useEffect(() => {
+    if (!alerts.some((a) => a.id === selectedId)) setSelectedId(alerts[0].id)
+  }, [alerts, selectedId])
+
   const patch = useLiveFeeds((s) => s.patches[alert.cve.id])
   const lastFetch = latestLiveFetch(useLiveFeeds((s) => s.meta))
 
@@ -157,7 +210,7 @@ export default function Provenance() {
           </div>
         </div>
         <div className="prov-head-side">
-          <select className="select" style={{ width: 320 }} value={selectedId} onChange={(e) => setSelectedId(e.target.value)} aria-label="Choose alert">
+          <select className="select" value={selectedId} onChange={(e) => setSelectedId(e.target.value)} aria-label="Choose alert">
             {alerts.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.id} · {a.cve.id} · {a.asset.name}

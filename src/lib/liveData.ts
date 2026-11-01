@@ -1,8 +1,10 @@
 import { useMemo } from 'react'
 import { alerts as seedAlerts, cves as seedCves, sourceHealth as seedSourceHealth } from '../data/seed'
+import { buildScopedAlerts, LIVE_SCOPE, normalizeScopeId, useDataScope } from './dataScope'
 import { mergeCve, useLiveFeeds, type LiveCvePatch, type LiveSource, type LiveSourceMeta } from './liveFeeds'
 import { portfolioFor, predict, type MlPrediction, type MlPortfolio } from './ml'
 import { postureFromCounts, relevanceReason, round1, scoreAlert } from './scoring'
+import { useUploads } from './uploads'
 import type { Alert, Cve, SourceHealth } from './types'
 
 export interface LiveCounts {
@@ -99,7 +101,12 @@ export function mlForAlerts(alerts: Alert[]): LiveMl {
 
 export function useLiveAlerts(): Alert[] {
   const patches = useLiveFeeds((state) => state.patches)
-  return useMemo(() => enrichAlerts(seedAlerts, patches), [patches])
+  const scopeId = useDataScope((state) => state.scopeId)
+  const datasets = useUploads((state) => state.datasets)
+  return useMemo(() => {
+    const id = normalizeScopeId(scopeId, datasets)
+    return id === LIVE_SCOPE ? enrichAlerts(seedAlerts, patches) : buildScopedAlerts(id, datasets, patches)
+  }, [patches, scopeId, datasets])
 }
 
 export function useLiveActiveAlerts(): Alert[] {
@@ -142,7 +149,10 @@ export function useLiveMl(): LiveMl {
 }
 
 export function currentLiveAlerts(): Alert[] {
-  return enrichAlerts(seedAlerts, useLiveFeeds.getState().patches)
+  const datasets = useUploads.getState().datasets
+  const id = normalizeScopeId(useDataScope.getState().scopeId, datasets)
+  const patches = useLiveFeeds.getState().patches
+  return id === LIVE_SCOPE ? enrichAlerts(seedAlerts, patches) : buildScopedAlerts(id, datasets, patches)
 }
 
 export function currentLiveCves(): Cve[] {

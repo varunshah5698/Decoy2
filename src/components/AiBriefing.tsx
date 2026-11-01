@@ -4,11 +4,10 @@ import { AnalystMark } from './AnalystMark'
 import { AiMarkdown } from './AiMarkdown'
 import { Activity, ArrowRight, Database, Info, RefreshCw, ShieldAlert, Zap } from './Icons'
 import { useAiPanel } from '../lib/aiStore'
-import { assets } from '../data/seed'
 import { useLiveActiveAlerts, useLiveCounts, useLiveMl, useLiveSourceHealth } from '../lib/liveData'
-import { allUploadedAssets, useUploads } from '../lib/uploads'
+import { useScopedInventory, useScopeInfo } from '../lib/dataScope'
 import { MODEL_CARD } from '../lib/ml'
-import { fmtScore, cx } from '../lib/format'
+import { fmtScore, cx, plural } from '../lib/format'
 
 export default function AiBriefing() {
   const activeAlerts = useLiveActiveAlerts()
@@ -23,12 +22,13 @@ export default function AiBriefing() {
   const navigate = useNavigate()
   const generate = useAiPanel((s) => s.generateBriefing)
   const briefing = useAiPanel((s) => s.briefing)
-  const uploadDatasets = useUploads((s) => s.datasets)
-  const inventoryCount = assets.length + allUploadedAssets(uploadDatasets).length
+  const inventory = useScopedInventory()
+  const scopeInfo = useScopeInfo()
+  const inventoryCount = inventory.length
 
   useEffect(() => {
     generate('/app')
-  }, [generate])
+  }, [generate, scopeInfo.id])
 
   const ask = (prompt?: string) =>
     navigate('/app/ai', { state: prompt ? { prompt, nonce: Date.now() } : undefined })
@@ -80,7 +80,7 @@ export default function AiBriefing() {
                 <span style={{ width: '46%' }} />
               </div>
               <p>
-                Reading {counts.active} alerts, {inventoryCount} assets and {sourceHealth.length} sources…
+                Reading {counts.active} {plural(counts.active, 'alert')}, {inventoryCount} {plural(inventoryCount, 'asset')} and {sourceHealth.length} {plural(sourceHealth.length, 'source')}…
               </p>
             </div>
           ) : (
@@ -102,10 +102,10 @@ export default function AiBriefing() {
             <span className="ai-signal-label">
               <ShieldAlert size={11} /> Top risk
             </span>
-            <strong>{fmtScore(topAlert.score)}</strong>
+            <strong>{topAlert ? fmtScore(topAlert.score) : '—'}</strong>
             <p>
-              {topAlert.cve.id}
-              <span> · {topAlert.asset.name}</span>
+              {topAlert ? topAlert.cve.id : 'No active alerts'}
+              {topAlert && <span> · {topAlert.asset.name}</span>}
             </p>
           </div>
           <div className="ai-signal amber">
@@ -143,7 +143,7 @@ export default function AiBriefing() {
 
       <footer className="ai-brief-foot">
         <span className="ai-brief-provenance">
-          Generated from {counts.active} alerts · {inventoryCount} assets · {sourceHealth.length} sources · deterministic scores · XGBoost v{MODEL_CARD.version} second opinion
+          Generated from {counts.active} {plural(counts.active, 'alert')} · {inventoryCount} {plural(inventoryCount, 'asset')} in {scopeInfo.label} · {sourceHealth.length} {plural(sourceHealth.length, 'source')} · deterministic scores · XGBoost v{MODEL_CARD.version} second opinion
         </span>
         <div className="ai-brief-prompts">
           <button type="button" onClick={() => ask('What changed in the last 24 hours that I should act on?')}>

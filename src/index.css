@@ -2639,6 +2639,317 @@ svg {
   box-shadow: 0 0 8px var(--low);
 }
 
+/* ---------- workspace dataset switch ---------- */
+
+.scope-switch {
+  position: relative;
+  display: inline-flex;
+}
+
+.scope-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  max-width: 216px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+  color: var(--text-dim);
+  white-space: nowrap;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.scope-btn:hover,
+.scope-btn[aria-expanded='true'] {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.scope-btn.upload,
+.scope-btn.upload:hover,
+.scope-btn.upload[aria-expanded='true'] {
+  color: var(--upload);
+  border-color: color-mix(in srgb, var(--upload) 34%, transparent);
+  background: color-mix(in srgb, var(--upload) 9%, transparent);
+}
+
+.scope-btn-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.scope-btn-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.05;
+}
+
+.scope-btn-copy em {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 7px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+
+.scope-btn-copy strong {
+  max-width: 122px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.scope-btn-chev {
+  flex: none;
+  color: var(--text-mute);
+  transition: transform 0.2s ease;
+}
+
+.scope-btn-chev.open {
+  transform: rotate(180deg);
+}
+
+.scope-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: min(330px, calc(100vw - 24px));
+  max-height: min(440px, calc(100vh - 110px));
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-2) 96%, transparent);
+  box-shadow: 0 28px 60px -30px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(18px) saturate(1.15);
+  animation: scope-in 0.16s ease-out;
+}
+
+@keyframes scope-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.scope-menu-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 9px 6px;
+}
+
+.scope-menu-head span {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.scope-menu-head em {
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  letter-spacing: 0.06em;
+  color: var(--text-mute);
+}
+
+.scope-menu-rule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 9px 4px;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+
+.scope-menu-rule::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.scope-menu-rule em {
+  order: 2;
+  font-style: normal;
+}
+
+.scope-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  text-align: left;
+  color: var(--text-dim);
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.scope-option:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  color: var(--text);
+}
+
+.scope-option.on {
+  border-color: color-mix(in srgb, var(--teal) 26%, transparent);
+  background: color-mix(in srgb, var(--teal) 7%, transparent);
+}
+
+.scope-option.dataset.on {
+  border-color: color-mix(in srgb, var(--upload) 30%, transparent);
+  background: color-mix(in srgb, var(--upload) 8%, transparent);
+}
+
+.scope-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.scope-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.scope-option-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.scope-option-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.scope-option-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  letter-spacing: 0.04em;
+  color: var(--text-mute);
+}
+
+.scope-pip {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-mute);
+}
+
+.scope-pip.live {
+  background: var(--teal);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--teal) 60%, transparent);
+}
+
+.scope-pip.upload {
+  background: var(--upload);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--upload) 60%, transparent);
+}
+
+.scope-pip.dataset {
+  background: var(--amber);
+}
+
+.scope-option-check {
+  flex: none;
+  color: var(--teal);
+}
+
+.scope-option.dataset.on .scope-option-check {
+  color: var(--upload);
+}
+
+.scope-menu-empty {
+  padding: 6px 9px 10px;
+  font-size: 10px;
+  line-height: 1.55;
+  color: var(--text-mute);
+}
+
+.scope-menu-foot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 8px 9px;
+  border-top: 1px solid var(--line);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  transition: color 0.15s ease;
+}
+
+.scope-menu-foot:hover {
+  color: var(--teal);
+}
+
+@media (max-width: 1024px) {
+  .scope-btn-copy em {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .scope-btn {
+    padding: 0 7px;
+    gap: 6px;
+  }
+
+  .scope-btn-copy {
+    display: none;
+  }
+
+  .scope-menu {
+    position: fixed;
+    top: 64px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+    max-height: calc(100vh - 88px);
+  }
+}
+
+
 .icon-btn {
   width: 32px;
   height: 32px;

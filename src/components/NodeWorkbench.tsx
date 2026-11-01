@@ -19,7 +19,7 @@ import {
   type QuadrantPoint,
   type SlaRow,
 } from './WbCharts'
-import { fmtDate, fmtDateTime, fmtPct, fmtScore, timeAgo } from '../lib/format'
+import { fmtDate, fmtDateTime, fmtPct, fmtScore, plural, timeAgo } from '../lib/format'
 import { levelColor, AMBER, LEVEL_COLORS, SIMULATED, SUPPRESSED, TEAL } from '../lib/colors'
 import { latestLiveFetch, useLiveFeeds, type LiveCvePatch, type LiveSource, type LiveSourceMeta } from '../lib/liveFeeds'
 import { rangeText, type CorrelationModel } from '../lib/correlation'
@@ -368,7 +368,7 @@ export function NodeWorkbench({ nodeId, model, onClose, onSelectNode }: NodeWork
           sub: asset
             ? `${asset.department} · ${nodeAlerts.length} paths${peerNodes.length ? ` · ${peerNodes.length} peers` : ''}`
             : cve
-              ? `${cve.vendor} ${cve.product} · ${nodeAlerts.length} assets`
+              ? `${cve.vendor} ${cve.product} · ${nodeAlerts.length} ${plural(nodeAlerts.length, 'asset')}`
               : `${model.counts.active} active paths`,
           level: worstAlert?.level ?? 'LOW',
           suppressed: !worstAlert || worstAlert.suppressed,
