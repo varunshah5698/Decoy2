@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { useInView, useReducedMotion } from 'framer-motion'
+import { useEffect, useState } from 'react'
+import { useReducedMotion } from 'framer-motion'
 
 export function Counter({
   to,
@@ -16,13 +16,10 @@ export function Counter({
   prefix?: string
   start?: number
 }) {
-  const ref = useRef<HTMLSpanElement>(null)
-  const inView = useInView(ref, { once: true, margin: '-30px' })
   const reduce = useReducedMotion()
   const [value, setValue] = useState(reduce ? to : start)
 
   useEffect(() => {
-    if (!inView) return
     if (reduce) {
       setValue(to)
       return
@@ -37,10 +34,10 @@ export function Counter({
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [inView, to, start, duration, reduce])
+  }, [to, start, duration, reduce])
 
   return (
-    <span ref={ref}>
+    <span>
       {prefix}
       {value.toFixed(decimals)}
       {suffix}
