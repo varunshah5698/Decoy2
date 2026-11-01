@@ -701,18 +701,26 @@ const cellText = (value: unknown) => {
   return String(value)
 }
 
+/** Records from a JSON document or an NDJSON stream. A `.jsonl` body is a run of
+    top-level objects, so the whole text is never valid JSON and each line is read alone. */
+const readRecords = (trimmed: string): Record<string, unknown>[] => {
+  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+    try {
+      return extractRecords(JSON.parse(trimmed))
+    } catch {
+      /* fall through to the line-by-line read */
+    }
+  }
+  return trimmed
+    .split('\n')
+    .filter(Boolean)
+    .flatMap((line) => extractRecords(JSON.parse(line)))
+}
+
 export function parseObjects(text: string): string[][] {
   const trimmed = text.trim()
   if (!trimmed) throw new Error('Empty file')
-  let records: Record<string, unknown>[] = []
-  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-    records = extractRecords(JSON.parse(trimmed))
-  } else {
-    records = trimmed
-      .split('\n')
-      .filter(Boolean)
-      .flatMap((line) => extractRecords(JSON.parse(line)))
-  }
+  const records = readRecords(trimmed)
   if (!records.length) throw new Error('No records found')
   const flat = records.map((record) => flattenRecord(record))
   const headers = [...new Set(flat.flatMap((record) => Object.keys(record)))]

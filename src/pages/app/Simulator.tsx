@@ -319,8 +319,17 @@ export default function Simulator() {
   /* ---------- movers chart: diverging Δ, so a no-op scenario reads as a no-op ---------- */
   const moversOption = useMemo(() => {
     const ax = axisStyle(theme)
-    const top = [...movers].sort((a, b) => Math.abs(b.after - b.before) - Math.abs(a.after - a.before)).slice(0, 12)
-    const labels = top.map((r) => r.alert.cve.id.replace('CVE-', ''))
+    /* Ties are common when one override moves a whole department by the same amount, so the
+       second key ranks by the resulting score — the scariest bar ends up on top. */
+    const top = [...movers]
+      .sort((a, b) => Math.abs(b.after - b.before) - Math.abs(a.after - a.before) || b.after - a.after)
+      .slice(0, 12)
+    /* The same CVE can sit on two assets in one estate-wide scenario, so the axis carries the
+       asset name too — otherwise two rows read as one duplicated label. */
+    const labels = top.map((r) => {
+      const name = r.alert.asset.name
+      return `${r.alert.cve.id.replace('CVE-', '')} · ${name.length > 13 ? `${name.slice(0, 12)}…` : name}`
+    })
     const deltas = top.map((r) => Math.round((r.after - r.before) * 10) / 10)
     /* A symmetric axis would waste half the card whenever every mover moves one way, so the
        range is fitted to the actual sign of the deltas and the zero line stays legible. */
@@ -349,7 +358,7 @@ export default function Simulator() {
         formatter: (p: { dataIndex: number }) => {
           const r = top[p.dataIndex]
           const d = r.after - r.before
-          return `<strong>${r.alert.cve.id}</strong><br/>${fmtScore(r.before)} → ${fmtScore(r.after)}<br/>${
+          return `<strong>${r.alert.cve.id}</strong><br/>${r.alert.asset.name}<br/>${fmtScore(r.before)} → ${fmtScore(r.after)}<br/>${
             d < 0 ? '−' : '+'
           }${fmtScore(Math.abs(d))} · ${r.levelBefore} → ${r.suppressedAfter ? 'SUPPRESSED' : r.levelAfter}`
         },
@@ -773,7 +782,9 @@ export default function Simulator() {
           </MsCard>
 
           <MsCard
-            title={`Recomputed alerts · ${target?.name ?? '—'}`}
+            title={`Recomputed alerts · ${
+              scope === 'asset' ? target?.name ?? '—' : scope === 'dept' ? `${target?.department ?? '—'} department` : 'whole estate'
+            }`}
             sub="Stored value, scenario value, and what the gate did"
             icon={<Server size={13} />}
             action={
