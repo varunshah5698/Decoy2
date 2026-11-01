@@ -151,13 +151,36 @@ try {
 if (jsonlRows.length > 1000) {
   check('JSONL one-record-per-line parses', true, `${jsonlRows.length} rows`)
 } else {
-  // parseObjects sends any text starting with "{" to JSON.parse of the whole file, so
-  // genuine NDJSON is rejected. Loading the same records as a JSON array proves the
-  // row shape itself is fine and isolates the gap to the line-splitting branch.
-  const wrapped = uploads.parseObjects(`[${readFileSync(files.telemetryJsonl, 'utf8').trim().split('\n').join(',')}]`)
-  check('JSONL one-record-per-line parses', false, `app rejects NDJSON (${jsonlError?.slice(0, 40)}…) — same records as a JSON array load ${wrapped.length - 1} rows`)
-  jsonlRows = wrapped.slice(1)
+  check('JSONL one-record-per-line parses', false, `app rejects NDJSON (${jsonlError?.slice(0, 40)}…)`)
+  jsonlRows = []
 }
+
+// Shapes that must keep working through the same entry point. Expected = record rows.
+const shapes = [
+  ['JSON array', '[{"asset_name":"a1"},{"asset_name":"a2"}]', 2],
+  ['single JSON object', '{"asset_name":"a1","site":"Mumbai Hub"}', 1],
+  ['{ data: [...] } wrapper', '{"data":[{"asset_name":"a1"},{"asset_name":"a2"}]}', 2],
+  ['pretty-printed array spanning lines', '[\n  {"asset_name":"a1"},\n  {"asset_name":"a2"}\n]', 2],
+  ['NDJSON stream', '{"asset_name":"a1"}\n{"asset_name":"a2"}\n{"asset_name":"a3"}', 3],
+  ['NDJSON with blank lines', '{"asset_name":"a1"}\n\n{"asset_name":"a2"}\n', 2],
+]
+for (const [label, body, expectedRows] of shapes) {
+  let rows = 0
+  let note = ''
+  try {
+    rows = uploads.parseObjects(body).length - 1
+  } catch (err) {
+    note = err instanceof Error ? err.message : String(err)
+  }
+  check(`parseObjects handles ${label}`, rows === expectedRows, note || `${rows} rows, expected ${expectedRows}`)
+}
+let brokenRejected = false
+try {
+  uploads.parseObjects('{"asset_name":"a1"\nnot json at all')
+} catch {
+  brokenRejected = true
+}
+check('unparseable JSON still throws', brokenRejected)
 
 /* -------------------------------- edge cases -------------------------------- */
 
@@ -170,6 +193,45 @@ check('duplicate asset_id merges into one multi-package asset', edgeAssets.some(
 check('CPE-only row still resolves a corpus product', edgeAssets.some((a) => a.software.some((s) => s.cpe && !s.version)))
 const edgePaths = corpus.exposurePaths(edgeAssets, corpus.buildCveIndex(corpus.corpusCves()))
 check('edge rows produce at least one MATCHED path', edgePaths.some((p) => p.relevance === 'MATCHED'), `${edgePaths.length} paths`)
+
+/* ------------------------------- estate build ------------------------------- */
+
+// Mirrors Uploads.tsx accept(): same UploadedDataset shape, then the real estate builder.
+const { useUploads } = uploads
+const estate = await server.ssrLoadModule('/src/lib/estate.ts')
+const makeDataset = (id, name, kind, built) => ({
+  id,
+  name,
+  type: kind === 'assets' ? 'Assets' : 'Logs',
+  status: 'ACCEPTED',
+  rows: kind === 'assets' ? inv.rows.length : log.rows.length,
+  accepted: built.length,
+  rejected: 0,
+  uploadedBy: 'admin@aegis.demo',
+  uploadedAt: new Date().toISOString(),
+  source: 'USER UPLOAD',
+  assets: kind === 'assets' ? built : [],
+  ...(kind === 'logs' ? { events: built, logs: uploads.summarizeEvents(built) } : {}),
+})
+
+useUploads.getState().clear()
+useUploads.getState().add(makeDataset('DS-9001', 'cobalt-inventory.csv', 'assets', assets))
+useUploads.getState().add(makeDataset('DS-9002', 'cobalt-telemetry.csv', 'logs', events))
+
+useUploads.getState().setActive(uploads.ALL_DATASETS)
+const merged = estate.getEstate()
+check('estate ingests both datasets', merged.uploadedAssets.length === assets.length && merged.events.length === events.length, `${merged.uploadedAssets.length} uploaded assets · ${merged.events.length} events · scope "${merged.scope.label}"`)
+check('alerts are generated for the uploaded estate', merged.alerts.length > 0, `${merged.alerts.length} alerts · ${merged.counts.critical} critical · ${merged.counts.high} high · ${merged.suppressedAlerts.length} suppressed`)
+check('version gate suppresses some alerts', merged.suppressedAlerts.length > 0, `${merged.suppressedAlerts.length} zeroed by relevance`)
+check('telemetry totals surface on the dashboard', merged.telemetry?.events === events.length, `${merged.telemetry?.failures} failures · ${merged.telemetry?.threatHits} threat hits`)
+check('anomaly windows flag real bursts', merged.anomalyWindows.some((w) => w.anomaly), `${merged.anomalyWindows.filter((w) => w.anomaly).length}/${merged.anomalyWindows.length} windows anomalous`)
+check('traffic series rebuilt from the upload', merged.trafficSeries.length > 20, `${merged.trafficSeries.length} points`)
+check('threat map has geo points per country', merged.geoPoints.length >= 15, `${merged.geoPoints.length} points`)
+check('uploaded assets reach the asset view', merged.assets.some((a) => a.source === 'USER UPLOAD' && a.inventory?.site))
+
+useUploads.getState().setActive('DS-9001')
+const scoped = estate.getEstate()
+check('scope switch drops the seed estate', !scoped.scope.includesSeed && scoped.seedAssets.length > 0 && scoped.assets.length === assets.length, `${scoped.assets.length} assets, seed hidden · ${scoped.alerts.length} alerts`)
 
 await server.close()
 console.log(`\n${failures ? `${failures} check(s) failed` : 'all checks passed'}`)

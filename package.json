@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "dataset:make": "node scripts/gen-test-datasets.mjs",
+    "dataset:check": "node scripts/verify-test-datasets.mjs",
     "start": "node server/standalone.mjs",
     "train:model": "python3 ml/train_xgb.py"
   },

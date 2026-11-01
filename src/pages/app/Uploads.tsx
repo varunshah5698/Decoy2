@@ -396,7 +396,11 @@ export default function Uploads() {
     {
       label: 'Log events',
       value: fmtInt(estate.coverage.events),
-      note: estate.coverage.hasEvents ? 'drives traffic, anomaly, map, ATT&CK' : 'no events accepted yet',
+      note: estate.coverage.hasEvents
+        ? 'drives traffic, anomaly, map, ATT&CK'
+        : estate.scope.all
+          ? 'no log dataset accepted yet'
+          : 'this scope has no log rows · traffic pages fall back to the demo',
       color: 'var(--text)',
       icon: FileSearch,
     },
