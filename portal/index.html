@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>Northwind · Employee Portal</title>
+    <link rel="stylesheet" href="/portal.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="brand">
+        <div class="brand-top">
+          <span class="mark" aria-hidden="true">N</span>
+          <div class="wordmark">
+            <strong>Northwind</strong>
+            <span>Employee Portal</span>
+          </div>
+          <span class="decoy-tag">Decoy</span>
+        </div>
+
+        <div class="brand-mid">
+          <p class="eyebrow"><i></i> One company. One door.</p>
+          <h1>Good work starts with a <em>secure</em> hello.</h1>
+          <p class="lede">
+            People, payroll and projects in one place. Every sign-in is evaluated by Northwind Identity before the
+            door opens.
+          </p>
+          <div class="brand-notes">
+            <span>Single sign-on</span>
+            <span>Device trust</span>
+            <span>24/7 monitoring</span>
+          </div>
+        </div>
+
+        <div class="brand-foot">
+          <div class="recording">
+            <span class="rec-dot" aria-hidden="true"></span>
+            <div>
+              <strong>Telemetry recording is on</strong>
+              <span>This is a demo decoy. Attempts are streamed to Aegis Sentinel, never to a real identity provider.</span>
+            </div>
+          </div>
+          <p class="fineprint">Northwind is a fictional company. No real credentials belong here.</p>
+        </div>
+        <div class="dotfield" aria-hidden="true"></div>
+      </aside>
+
+      <main class="panel">
+        <header class="panel-top">
+          <span class="status-pill"><i></i> Portal online</span>
+          <a class="console-link" id="console-link" href="http://localhost:5173/app">
+            Open Aegis console <span aria-hidden="true">↗</span>
+          </a>
+        </header>
+
+        <div class="capture-strip" id="capture-strip" aria-live="polite">
+          <span class="capture-strip-label"><i></i> Live capture</span>
+          <span class="capture-count"><b id="count-attempts">0</b> attempts</span>
+          <span class="capture-count failed"><b id="count-failed">0</b> failed</span>
+          <span class="capture-count granted"><b id="count-granted">0</b> granted</span>
+        </div>
+
+        <section class="form-wrap">
+          <div id="form-view">
+            <p class="eyebrow dark"><i></i> Employee sign-in</p>
+            <h2>Welcome back.</h2>
+            <p class="sub">Use your Northwind account to continue.</p>
+
+            <form id="login-form" novalidate>
+              <div class="field">
+                <label for="email">Work email</label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  inputmode="email"
+                  autocomplete="username"
+                  spellcheck="false"
+                  autocapitalize="none"
+                  placeholder="priya.nair@northwind.demo"
+                  required
+                />
+              </div>
+
+              <div class="field">
+                <div class="label-row">
+                  <label for="password">Password</label>
+                  <span class="hint">Shared demo password</span>
+                </div>
+                <div class="password">
+                  <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    autocomplete="current-password"
+                    placeholder="Enter your password"
+                    required
+                  />
+                  <button id="reveal" type="button" aria-label="Show password" aria-pressed="false">Show</button>
+                </div>
+              </div>
+
+              <div class="row">
+                <label class="check">
+                  <input type="checkbox" checked />
+                  <span>Keep me signed in</span>
+                </label>
+                <span class="muted">SSO unavailable</span>
+              </div>
+
+              <div id="message" class="message" role="alert" aria-live="polite"></div>
+
+              <button class="primary" id="submit" type="submit">
+                <span id="submit-label">Sign in</span>
+                <span aria-hidden="true">→</span>
+              </button>
+            </form>
+
+            <section class="demo-card" aria-labelledby="demo-title">
+              <div class="demo-head">
+                <strong id="demo-title">Demo credentials</strong>
+                <span>click to fill</span>
+              </div>
+              <div class="cred-list">
+                <button type="button" class="cred" data-email="priya.nair@northwind.demo" data-password="Northwind#2026">
+                  <span class="avatar">PN</span>
+                  <span class="cred-body">
+                    <strong>Priya Nair</strong>
+                    <span>Finance Operations</span>
+                  </span>
+                  <code>priya.nair@northwind.demo</code>
+                </button>
+                <button type="button" class="cred" data-email="ravi.kumar@northwind.demo" data-password="Northwind#2026">
+                  <span class="avatar alt">RK</span>
+                  <span class="cred-body">
+                    <strong>Ravi Kumar</strong>
+                    <span>Engineering</span>
+                  </span>
+                  <code>ravi.kumar@northwind.demo</code>
+                </button>
+                <button type="button" class="cred" data-email="ananya.sen@northwind.demo" data-password="Northwind#2026">
+                  <span class="avatar warm">AS</span>
+                  <span class="cred-body">
+                    <strong>Ananya Sen</strong>
+                    <span>People Operations</span>
+                  </span>
+                  <code>ananya.sen@northwind.demo</code>
+                </button>
+              </div>
+              <p class="demo-foot">
+                Password <code>Northwind#2026</code>. Use a wrong password on purpose — that is the demo.
+              </p>
+            </section>
+
+            <section class="controls" aria-labelledby="controls-title">
+              <div class="controls-head">
+                <strong id="controls-title">Attack controls</strong>
+                <span id="recorded" class="recorded">0 events recorded</span>
+              </div>
+
+              <div class="control-row">
+                <label for="origin">Simulated source location</label>
+                <select id="origin">
+                  <option value="auto">Auto — rotating attacker infrastructure</option>
+                  <option value="mumbai">Mumbai, India</option>
+                  <option value="singapore">Singapore</option>
+                  <option value="ashburn">Ashburn, United States</option>
+                  <option value="amsterdam">Amsterdam, Netherlands (Tor exit)</option>
+                  <option value="saopaulo">São Paulo, Brazil</option>
+                  <option value="lagos">Lagos, Nigeria</option>
+                </select>
+              </div>
+
+              <div class="sim-buttons">
+                <button type="button" id="sim-ato">Brute force + takeover</button>
+                <button type="button" id="sim-spray">Password spray</button>
+                <button type="button" id="reset" class="ghost">Reset capture</button>
+              </div>
+
+              <p class="fineprint">
+                Manual attempts and simulator bursts are written to
+                <code>portal/data/login-events.json</code> and <code>portal/data/login-events.csv</code>. Aegis ingests
+                this capture every 2 seconds as the live <code>Northwind portal logins</code> Logs dataset.
+              </p>
+
+              <section class="request-log" aria-labelledby="request-log-title">
+                <div class="request-log-head">
+                  <strong id="request-log-title">Request log</strong>
+                  <span id="request-log-note">Every failed request is flagged</span>
+                </div>
+                <ol id="request-list" class="request-list">
+                  <li class="request-empty">No attempts yet. Sign in or run a simulator burst.</li>
+                </ol>
+                <p class="fineprint log-foot">
+                  Also ingested by Aegis as the live <code>Northwind portal logins</code> dataset.
+                  <a class="inline-link" id="console-link-dataset" href="http://localhost:5173/app/uploads">View in Data Input Hub →</a>
+                </p>
+              </section>
+            </section>
+          </div>
+
+          <section id="success-view" class="success-view" hidden>
+            <span class="success-mark" aria-hidden="true">✓</span>
+            <p class="eyebrow dark"><i></i> Access granted</p>
+            <h2 id="success-title">Welcome back, Priya.</h2>
+            <p class="sub" id="success-sub">You are signed in to the Northwind Employee Portal.</p>
+            <div class="success-facts" id="success-facts"></div>
+            <div class="success-note">
+              <strong>Aegis just saw this sign-in.</strong>
+              <span>The attempt, source and outcome are already in the live Logs dataset and the attempt register.</span>
+            </div>
+            <div class="success-actions">
+              <button type="button" class="primary" id="sign-out">Sign out</button>
+              <a class="console-link inline" id="console-link-2" href="http://localhost:5173/app/anomalies">
+                Watch it in Aegis <span aria-hidden="true">↗</span>
+              </a>
+            </div>
+          </section>
+        </section>
+
+        <footer class="panel-foot">
+          <span>Northwind · Employee Portal</span>
+          <span class="foot-mid"><i></i><span id="foot-status">Recording sign-in telemetry</span></span>
+          <span>Demo environment</span>
+        </footer>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/portal.js"></script>
+  </body>
+</html>

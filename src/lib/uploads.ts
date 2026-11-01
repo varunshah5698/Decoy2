@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Asset, AssetType, Criticality } from './types'
+import type { Asset, AssetType, Criticality, RiskLevel } from './types'
 
 export interface LogUploadSummary {
   total: number
@@ -23,9 +23,13 @@ export interface UploadedDataset {
   rejected: number
   uploadedBy: string
   uploadedAt: string
-  source: 'USER UPLOAD'
+  source: 'USER UPLOAD' | 'LIVE CAPTURE'
   assets: Asset[]
   logs?: LogUploadSummary
+  live?: boolean
+  provider?: string
+  risk?: { score: number; level: RiskLevel; verdict: string }
+  files?: { json: string; csv: string }
 }
 
 interface UploadsState {

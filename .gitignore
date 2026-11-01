@@ -10,6 +10,7 @@ dist
 .netlify
 .env*
 ml/.cache
+portal/data
 
 # local verification screenshots
 /*.png

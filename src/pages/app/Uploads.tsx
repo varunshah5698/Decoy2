@@ -7,12 +7,31 @@ import { UploadBadge } from '../../components/Badges'
 import { AlertTriangle, ArrowRight, Check, Download, FileSearch, Lock, ShieldCheck, Upload, X } from '../../components/Icons'
 import { sampleAssetsCsv, sampleLogsCsv, uploadedDatasets } from '../../data/seed'
 import { useAuth, useTheme, useToast } from '../../lib/store'
+import { useLoginCapture } from '../../lib/loginFeed'
+import { LOGIN_CSV_FILE, LOGIN_JSON_FILE, PORTAL_HOME, useLoginIntel } from '../../lib/loginIntel'
 import { parseObjects, rowsToAssets, rowsToLogSummary, useUploads, type UploadedDataset } from '../../lib/uploads'
 import { useDataScope, useScopeInfo } from '../../lib/dataScope'
-import { fmtInt, plural, timeAgo } from '../../lib/format'
+import { cx, fmtInt, plural, timeAgo } from '../../lib/format'
 import { TEAL, UPLOAD, hexA } from '../../lib/colors'
 
 type Kind = 'assets' | 'logs'
+
+type HistoryEntry = {
+  id: string
+  name: string
+  type: string
+  status: string
+  rows: number
+  accepted: number
+  rejected: number
+  uploadedBy: string
+  uploadedAt: string
+  source: string
+  live?: boolean
+  risk?: UploadedDataset['risk']
+  logs?: UploadedDataset['logs']
+  files?: UploadedDataset['files']
+}
 
 const FIELDS: Record<Kind, { key: string; label: string; required?: boolean; aliases: string[] }[]> = {
   assets: [
@@ -111,8 +130,10 @@ export default function Uploads() {
 
   const datasets = useUploads((s) => s.datasets)
   const addDataset = useUploads((s) => s.add)
+  const login = useLoginCapture()
   const scopeInfo = useScopeInfo()
   const setScopeId = useDataScope((s) => s.setScopeId)
+  const portalUrl = PORTAL_HOME
 
   const [file, setFile] = useState<File | null>(null)
   const [headers, setHeaders] = useState<string[]>([])
@@ -236,7 +257,20 @@ export default function Uploads() {
     }
   }, [headers, rows, mapping, kind])
 
-  const history = useMemo(() => [...datasets, ...uploadedDatasets], [datasets])
+  const history = useMemo<HistoryEntry[]>(
+    () => (login.dataset ? [login.dataset, ...datasets, ...uploadedDatasets] : [...datasets, ...uploadedDatasets]),
+    [datasets, login.dataset],
+  )
+
+  const resetCapture = async () => {
+    if (!window.confirm('Clear the live portal capture and its dataset?')) return
+    try {
+      await useLoginIntel.getState().resetRemote()
+      toast('Live capture cleared · the dataset will rebuild on the next sign-in')
+    } catch (error) {
+      toast(error instanceof Error ? error.message : 'The portal could not reset the capture.')
+    }
+  }
 
   const activate = (dataset: UploadedDataset) => {
     setScopeId(dataset.id)
@@ -380,6 +414,109 @@ export default function Uploads() {
       )}
 
       <div className="dash-grid">
+        <Panel
+          className="col-12"
+          title="Live capture · Northwind portal"
+          sub={
+            login.dataset
+              ? `${login.dataset.rows} sign-in requests auto-fetched · ${login.failed} failed · ${login.granted} granted`
+              : 'Waiting for the decoy portal — it feeds itself in as a dataset'
+          }
+          action={<span className="badge real">LIVE DATASET</span>}
+          bodyClass="panel-body"
+        >
+          {login.dataset ? (
+            <div className="live-capture-hub">
+              <div className="lch-metrics">
+                <div className={cx('lch-metric', login.failed > 0 && 'hot')}>
+                  <b>{login.failed}</b>
+                  <span>failed logins</span>
+                </div>
+                <div className="lch-metric">
+                  <b>{login.granted}</b>
+                  <span>granted</span>
+                </div>
+                <div className="lch-metric">
+                  <b>{login.analysis.metrics.attempts}</b>
+                  <span>requests</span>
+                </div>
+                <div className="lch-metric">
+                  <b>{login.accounts}</b>
+                  <span>accounts</span>
+                </div>
+                <div className="lch-metric">
+                  <b>{login.sources}</b>
+                  <span>source IPs</span>
+                </div>
+                <div className={cx('lch-risk', login.analysis.level.toLowerCase())}>
+                  <b>{login.analysis.score}</b>
+                  <span>{login.analysis.level} risk</span>
+                </div>
+              </div>
+
+              <div className="lch-body">
+                <p className="lch-note">
+                  <strong>{login.dataset.name}</strong> is a <code>Logs</code> dataset with no inventory scope. Every
+                  failed request is counted and flagged individually on the anomaly board; the cumulative risk score
+                  rebuilds on every 2-second poll.
+                </p>
+                <div className="lch-files">
+                  <span className="mono">{login.dataset.files?.json}</span>
+                  <span className="mono">{login.dataset.files?.csv}</span>
+                </div>
+              </div>
+
+              <div className="lch-actions">
+                <a className="btn btn-ghost btn-sm" href={LOGIN_JSON_FILE} download="login-events.json">
+                  <Download size={12} /> JSON
+                </a>
+                <a className="btn btn-ghost btn-sm" href={LOGIN_CSV_FILE} download="login-events.csv">
+                  <Download size={12} /> CSV
+                </a>
+                <button className="btn btn-ghost btn-sm" onClick={() => navigate('/app/anomalies')}>
+                  <FileSearch size={12} /> Evidence
+                </button>
+                {canUpload && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => void resetCapture()}>
+                    <X size={12} /> Reset capture
+                  </button>
+                )}
+                <a className="btn btn-primary btn-sm" href={portalUrl} target="_blank" rel="noreferrer">
+                  Open portal <ArrowRight size={12} />
+                </a>
+              </div>
+            </div>
+          ) : (
+            <div className="live-capture-hub empty">
+              <div className="lch-metrics">
+                <div className="lch-metric">
+                  <b>0</b>
+                  <span>failed logins</span>
+                </div>
+                <div className="lch-metric">
+                  <b>0</b>
+                  <span>requests</span>
+                </div>
+                <div className="lch-metric">
+                  <b>—</b>
+                  <span>risk score</span>
+                </div>
+              </div>
+              <div className="lch-body">
+                <p className="lch-note">
+                  No capture yet. Open the decoy portal, fail a sign-in a few times, and the request log becomes{' '}
+                  <strong>Northwind portal logins · live</strong> here on the next poll. Nothing needs uploading.
+                </p>
+              </div>
+              <div className="lch-actions">
+                <a className="btn btn-primary btn-sm" href={portalUrl} target="_blank" rel="noreferrer">
+                  Open decoy portal <ArrowRight size={12} />
+                </a>
+              </div>
+            </div>
+          )}
+        </Panel>
+
         <Panel
           className="col-8"
           title="Source file"
@@ -632,16 +769,24 @@ export default function Uploads() {
                   return (
                     <tr key={h.id}>
                       <td>
-                        <div className="cell-title">{h.name}</div>
+                        <div className="cell-title">
+                          {h.name} {h.live && <span className="badge real">LIVE</span>}
+                        </div>
                         <div className="cell-sub">
                           {h.id} · {h.uploadedBy}
+                          {h.live && h.risk ? ` · ${h.risk.level} ${h.risk.score}/100` : ''}
+                          {h.live && h.logs ? ` · ${h.logs.failedLogins} failed` : ''}
                         </div>
                       </td>
                       <td className="cell-sub">{h.type}</td>
                       <td>
-                        <span className={`badge ${h.status === 'ACCEPTED' ? 'low' : h.status === 'PARTIAL' ? 'medium' : 'critical'}`}>
-                          {h.status}
-                        </span>
+                        {h.live ? (
+                          <span className="badge real">AUTO-FETCH</span>
+                        ) : (
+                          <span className={`badge ${h.status === 'ACCEPTED' ? 'low' : h.status === 'PARTIAL' ? 'medium' : 'critical'}`}>
+                            {h.status}
+                          </span>
+                        )}
                       </td>
                       <td>
                         {canScope ? (
@@ -652,6 +797,10 @@ export default function Uploads() {
                               Use <ArrowRight size={10} />
                             </button>
                           )
+                        ) : h.live ? (
+                          <button type="button" className="panel-link" onClick={() => navigate('/app/anomalies')}>
+                            Evidence <ArrowRight size={10} />
+                          </button>
                         ) : (
                           <span className="dim mono">—</span>
                         )}

@@ -37,6 +37,8 @@ import { useFilters, useTheme } from '../../lib/store'
 import { openActionCount, useActions } from '../../lib/actionStore'
 import { buildRecommendations } from '../../lib/warnings'
 import { useUploads } from '../../lib/uploads'
+import { useLoginCapture } from '../../lib/loginFeed'
+import { PORTAL_HOME } from '../../lib/loginIntel'
 import { useScopedInventory, useScopeInfo } from '../../lib/dataScope'
 import { cx, fmtInt, fmtScore, plural, timeAgo } from '../../lib/format'
 import { median, spearman, stdev, mean } from '../../lib/stats'
@@ -68,8 +70,12 @@ export default function Dashboard() {
   const liveMl = useLiveMl()
 
   const uploadDatasets = useUploads((s) => s.datasets)
+  const login = useLoginCapture()
   const inventory = useScopedInventory()
   const scopeInfo = useScopeInfo()
+  const portalUrl = PORTAL_HOME
+  const loginLive = login.status === 'live'
+  const loginFailed = login.failed > 0
   const versioned = inventory.filter((a) => a.software.every((s) => s.version && s.version !== 'unknown')).length
   const coverage = Math.round((versioned / Math.max(1, inventory.length)) * 100)
 
@@ -637,6 +643,96 @@ export default function Dashboard() {
           </button>
         </div>
       </header>
+
+      <section
+        className={cx('lcs-strip', loginFailed && 'hot', login.status === 'offline' && 'offline')}
+        aria-label="Live identity capture from the Northwind decoy portal"
+      >
+        <div className="lcs-lead">
+          <span className="lcs-signal" aria-hidden="true">
+            <i />
+          </span>
+          <div className="lcs-copy">
+            <div className="lcs-title">
+              <strong>Live identity capture</strong>
+              <span className="lcs-source">
+                Northwind decoy portal ·{' '}
+                {loginLive
+                  ? `auto-fetch 2s${login.lastSync ? ` · synced ${timeAgo(login.lastSync)}` : ''}`
+                  : login.status === 'offline'
+                    ? 'portal offline · last capture kept'
+                    : 'connecting to portal'}
+              </span>
+            </div>
+            <p className="lcs-note">
+              {login.analysis.metrics.attempts
+                ? `${login.analysis.metrics.attempts} sign-in ${plural(login.analysis.metrics.attempts, 'request')} ingested as the live dataset. ${
+                    loginFailed
+                      ? `${login.failed} ${plural(login.failed, 'failure')} flagged and counted per request.`
+                      : 'No failures recorded yet.'
+                  }`
+                : 'No sign-in requests yet. Open the decoy portal, fail a login a few times, and the capture becomes a dataset here automatically.'}
+            </p>
+          </div>
+        </div>
+
+        <div className="lcs-metrics">
+          <div className={cx('lcs-metric', loginFailed && 'hot')}>
+            <b>{login.failed}</b>
+            <span>failed</span>
+          </div>
+          <div className="lcs-metric">
+            <b>{login.granted}</b>
+            <span>granted</span>
+          </div>
+          <div className="lcs-metric">
+            <b>{login.analysis.metrics.attempts}</b>
+            <span>attempts</span>
+          </div>
+          <div className="lcs-metric">
+            <b>{login.accounts}</b>
+            <span>accounts</span>
+          </div>
+          <div className="lcs-metric">
+            <b>{login.countries}</b>
+            <span>countries</span>
+          </div>
+          <div className={cx('lcs-risk', login.analysis.level.toLowerCase())}>
+            <b>{login.analysis.score}</b>
+            <span>{login.analysis.level} · risk score</span>
+          </div>
+        </div>
+
+        <div className="lcs-actions">
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/app/anomalies')}>
+            <Activity size={12} /> Analyse attempts
+          </button>
+          <a className="btn btn-primary btn-sm" href={portalUrl} target="_blank" rel="noreferrer">
+            Open decoy portal <ExternalLink size={12} />
+          </a>
+        </div>
+
+        {login.latestFailure && (
+          <div className="lcs-latest">
+            <AlertTriangle size={11} />
+            <span>
+              Latest failure · <b>{login.latestFailure.email}</b> from{' '}
+              {login.latestFailure.city ? `${login.latestFailure.city}, ` : ''}
+              {login.latestFailure.countryName} at{' '}
+              {new Date(login.latestFailure.at).toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+              })}
+              {login.latestFailure.isTor ? ' · Tor exit' : ''}
+            </span>
+            <button className="lcs-link" onClick={() => navigate('/app/anomalies')}>
+              Open evidence <ArrowRight size={10} />
+            </button>
+          </div>
+        )}
+      </section>
 
       <div className="mc-shell">
         <div className="mc-col-left">

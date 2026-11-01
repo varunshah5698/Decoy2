@@ -6,6 +6,7 @@ import { Activity, ArrowRight, Database, Info, RefreshCw, ShieldAlert, Zap } fro
 import { useAiPanel } from '../lib/aiStore'
 import { useLiveActiveAlerts, useLiveCounts, useLiveMl, useLiveSourceHealth } from '../lib/liveData'
 import { useScopedInventory, useScopeInfo } from '../lib/dataScope'
+import { useLoginCapture } from '../lib/loginFeed'
 import { MODEL_CARD } from '../lib/ml'
 import { fmtScore, cx, plural } from '../lib/format'
 
@@ -25,10 +26,11 @@ export default function AiBriefing() {
   const inventory = useScopedInventory()
   const scopeInfo = useScopeInfo()
   const inventoryCount = inventory.length
+  const login = useLoginCapture()
 
   useEffect(() => {
     generate('/app')
-  }, [generate, scopeInfo.id])
+  }, [generate, scopeInfo.id, login.analysis.metrics.attempts, login.failed, login.analysis.score])
 
   const ask = (prompt?: string) =>
     navigate('/app/ai', { state: prompt ? { prompt, nonce: Date.now() } : undefined })

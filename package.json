@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "demo": "node scripts/demo.mjs",
+    "portal": "node portal/server.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "start": "node server/standalone.mjs",

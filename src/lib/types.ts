@@ -124,6 +124,16 @@ export interface LogWindow {
   anomalyScore: number
   anomaly: boolean
   reason?: string
+  at?: string
+  successes?: number
+  attemptsSoFar?: number
+  failuresSoFar?: number
+  riskScore?: number
+  account?: string
+  sourceIp?: string
+  country?: string
+  level?: RiskLevel
+  kind?: 'demo' | 'live'
 }
 
 export interface TrafficPoint {

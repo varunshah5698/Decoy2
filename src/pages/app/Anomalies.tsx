@@ -17,7 +17,8 @@ import {
 } from '../../components/Icons'
 import { anomalyWindows } from '../../data/seed'
 import { useTheme } from '../../lib/store'
-import { cx } from '../../lib/format'
+import { cx, timeAgo } from '../../lib/format'
+import { useLoginCapture } from '../../lib/loginFeed'
 import { mean, median, quantile, stdev } from '../../lib/stats'
 import type { LogWindow } from '../../lib/types'
 import './anomalies.css'
@@ -35,50 +36,29 @@ const METRICS: { id: Metric; label: string; unit: string; peakLabel: string }[] 
 ]
 
 const metricValue = (w: LogWindow, metric: Metric) =>
-  metric === 'score' ? w.anomalyScore : metric === 'logins' ? w.failedLogins : w.rps
+  metric === 'score' ? w.anomalyScore : metric === 'logins' ? (w.failuresSoFar ?? w.failedLogins) : w.rps
 
 const fmtMetric = (metric: Metric, value: number) => (metric === 'score' ? value.toFixed(2) : String(Math.round(value)))
 
 const score2 = (n: number) => n.toFixed(2)
 
 const reasonMeta = (reason?: string) => {
-  if (reason?.toLowerCase().includes('credential')) return { icon: KeyRound, tone: 'navy', short: 'Credential stuffing' }
-  if (reason?.toLowerCase().includes('country')) return { icon: Globe2, tone: 'navy', short: 'Geo novelty' }
-  if (reason?.toLowerCase().includes('off-hours')) return { icon: Activity, tone: '', short: 'Off-hours activity' }
+  const text = reason?.toLowerCase() ?? ''
+  if (text.includes('takeover')) return { icon: ShieldAlert, tone: 'navy', short: 'Account takeover' }
+  if (text.includes('credential')) return { icon: KeyRound, tone: 'navy', short: 'Credential stuffing' }
+  if (text.includes('spray')) return { icon: Activity, tone: 'navy', short: 'Password spray' }
+  if (text.includes('travel')) return { icon: Globe2, tone: 'navy', short: 'Impossible travel' }
+  if (text.includes('country')) return { icon: Globe2, tone: 'navy', short: 'Geo novelty' }
+  if (text.includes('scripted')) return { icon: Zap, tone: '', short: 'Scripted client' }
+  if (text.includes('distributed')) return { icon: Layers, tone: '', short: 'Distributed activity' }
+  if (text.includes('off-hours')) return { icon: Activity, tone: '', short: 'Off-hours activity' }
   return { icon: Zap, tone: '', short: 'Brute-force burst' }
 }
 
-const flagged = anomalyWindows.filter((w) => w.anomaly)
-const watch = anomalyWindows.filter((w) => !w.anomaly && w.anomalyScore > -0.1)
-const baseline = anomalyWindows.filter((w) => !w.anomaly && w.anomalyScore <= -0.1)
-const flagRate = flagged.length / anomalyWindows.length
-const flaggedLoad = flagged.reduce((sum, w) => sum + w.failedLogins, 0)
-const normalLoad = anomalyWindows.filter((w) => !w.anomaly).reduce((sum, w) => sum + w.failedLogins, 0)
-const scores = anomalyWindows.map((w) => w.anomalyScore)
-const maxLogins = Math.max(...anomalyWindows.map((w) => w.failedLogins))
-const maxIps = Math.max(...anomalyWindows.map((w) => w.distinctIps))
-const maxRps = Math.max(...anomalyWindows.map((w) => w.rps))
-
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const dayStats = DAYS.map((day) => {
-  const windows = anomalyWindows.filter((w) => w.label.startsWith(day))
-  return {
-    day,
-    logins: Math.max(...windows.map((w) => w.failedLogins)),
-    ips: Math.max(...windows.map((w) => w.distinctIps)),
-    rps: Math.max(...windows.map((w) => w.rps)),
-    flagged: windows.filter((w) => w.anomaly).length,
-    count: windows.length,
-  }
-})
-
-const mix = flagged
-  .map((w) => ({ id: w.id, label: reasonMeta(w.reason).short, logins: w.failedLogins, reason: w.reason ?? '' }))
-  .sort((a, b) => b.logins - a.logins)
-
 const MIX_COLORS = ['var(--an-orange)', 'var(--an-bar-2)', 'var(--an-bar-3)', 'var(--an-bar-4)']
 const stat2 = (n: number) => (Math.abs(n) < 0.005 ? '0.00' : n.toFixed(2))
-const blockCount = (value: number, max: number) => Math.max(1, Math.round((value / max) * 10))
+const blockCount = (value: number, max: number) => Math.max(1, Math.round((value / Math.max(1, max)) * 10))
 
 function GaugeArc({ segments, total }: { segments: { count: number; color: string }[]; total: number }) {
   const size = 268
@@ -109,7 +89,7 @@ function GaugeArc({ segments, total }: { segments: { count: number; color: strin
   })
 
   return (
-    <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${segments[0].count} of ${total} windows flagged`}>
+    <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${segments[0].count} of ${total} requests flagged`}>
       <circle
         cx={center}
         cy={center}
@@ -122,7 +102,7 @@ function GaugeArc({ segments, total }: { segments: { count: number; color: strin
         transform={`rotate(135 ${center} ${center})`}
       />
       {segments.map((segment) => {
-        const degrees = (segment.count / total) * sweep
+        const degrees = (segment.count / Math.max(1, total)) * sweep
         const length = (circum * degrees) / 360
         const rotation = 135 + travelled + ((gap / circum) * 360) / 2
         travelled += degrees
@@ -187,9 +167,81 @@ function CardHead({
 
 export default function Anomalies() {
   const theme = useTheme((s) => s.theme)
+  const capture = useLoginCapture()
   const [selected, setSelected] = useState<LogWindow | null>(null)
   const [onlyAnomalies, setOnlyAnomalies] = useState(false)
   const [metric, setMetric] = useState<Metric>('score')
+
+  const liveCapture = capture.windows.length > 0
+  const windows = liveCapture ? capture.windows : anomalyWindows
+
+  /* In live mode every failed request is a flag, regardless of the score band. */
+  const flagged = liveCapture
+    ? windows.filter((w) => w.failedLogins > 0)
+    : windows.filter((w) => w.anomaly)
+  const watch = liveCapture
+    ? windows.filter((w) => !w.failedLogins && w.anomaly)
+    : windows.filter((w) => !w.anomaly && w.anomalyScore > -0.1)
+  const baseline = liveCapture
+    ? windows.filter((w) => !w.failedLogins && !w.anomaly)
+    : windows.filter((w) => !w.anomaly && w.anomalyScore <= -0.1)
+
+  const flagRate = flagged.length / Math.max(1, windows.length)
+  const flaggedLoad = flagged.reduce((sum, w) => sum + w.failedLogins, 0)
+  const normalLoad = liveCapture
+    ? windows.length - flagged.length
+    : windows.filter((w) => !w.anomaly).reduce((sum, w) => sum + w.failedLogins, 0)
+  const scores = windows.map((w) => w.anomalyScore)
+  const maxLogins = Math.max(1, ...windows.map((w) => w.failuresSoFar ?? w.failedLogins))
+  const maxIps = Math.max(1, ...windows.map((w) => w.distinctIps))
+  const maxRps = Math.max(1, ...windows.map((w) => w.rps))
+
+  const printStats = useMemo(() => {
+    if (!liveCapture) {
+      return DAYS.map((day) => {
+        const dayWindows = windows.filter((w) => w.label.startsWith(day))
+        return {
+          day,
+          logins: Math.max(0, ...dayWindows.map((w) => w.failedLogins)),
+          ips: Math.max(0, ...dayWindows.map((w) => w.distinctIps)),
+          rps: Math.max(0, ...dayWindows.map((w) => w.rps)),
+          flagged: dayWindows.filter((w) => w.anomaly).length,
+          count: dayWindows.length,
+        }
+      })
+    }
+    const buckets = Math.max(1, Math.min(6, windows.length))
+    return Array.from({ length: buckets }, (_, index) => {
+      const start = Math.floor((index * windows.length) / buckets)
+      const end = Math.max(start + 1, Math.floor(((index + 1) * windows.length) / buckets))
+      const slice = windows.slice(start, end)
+      const last = slice[slice.length - 1]
+      return {
+        day: last.label.includes(' ') ? last.label.split(' ').pop() ?? last.label : last.label,
+        logins: Math.max(0, ...slice.map((w) => w.failuresSoFar ?? w.failedLogins)),
+        ips: Math.max(0, ...slice.map((w) => w.distinctIps)),
+        rps: Math.max(0, ...slice.map((w) => w.rps)),
+        flagged: slice.filter((w) => w.failedLogins > 0).length,
+        count: slice.length,
+      }
+    })
+  }, [liveCapture, windows])
+
+  const mix = useMemo(() => {
+    if (!liveCapture) {
+      return flagged
+        .map((w) => ({ id: w.id, label: reasonMeta(w.reason).short, logins: w.failedLogins, reason: w.reason ?? '' }))
+        .sort((a, b) => b.logins - a.logins)
+    }
+    const groups = new Map<string, { id: string; label: string; logins: number; reason: string }>()
+    flagged.forEach((w) => {
+      const meta = reasonMeta(w.reason)
+      const entry = groups.get(meta.short) ?? { id: `MIX-${meta.short}`, label: meta.short, logins: 0, reason: w.reason ?? '' }
+      entry.logins += 1
+      groups.set(meta.short, entry)
+    })
+    return [...groups.values()].sort((a, b) => b.logins - a.logins)
+  }, [liveCapture, flagged])
 
   const dark = theme === 'dark'
   const accent = dark ? '#ff6a36' : '#ff5a1f'
@@ -199,8 +251,8 @@ export default function Anomalies() {
   const cardColor = dark ? '#121f2c' : '#fffdf9'
 
   const peak = useMemo(
-    () => [...anomalyWindows].sort((a, b) => metricValue(b, metric) - metricValue(a, metric))[0],
-    [metric],
+    () => [...windows].sort((a, b) => metricValue(b, metric) - metricValue(a, metric))[0] ?? windows[0],
+    [windows, metric],
   )
 
   const meta = METRICS.find((m) => m.id === metric)!
@@ -208,15 +260,16 @@ export default function Anomalies() {
   const chartOption = useMemo(() => {
     const lineColor = metric === 'rps' ? (dark ? '#8fa3b8' : '#8d99a8') : metric === 'logins' ? navy : accent
     const areaTop = metric === 'score' ? accent : lineColor
-    const values = anomalyWindows.map((w) => metricValue(w, metric))
-    const allAnomalies = anomalyWindows.map((w) => w.anomaly)
+    const values = windows.map((w) => metricValue(w, metric))
+    const allAnomalies = windows.map((w) => w.anomaly)
+    const labelInterval = liveCapture ? Math.max(1, Math.ceil(windows.length / 10)) : 2
 
     const featureBar = (label: string, value: number, max: number, color: string) =>
       `<div style="display:grid;grid-template-columns:76px 34px minmax(0,1fr);align-items:center;gap:7px;font:500 8.5px ${MONO};color:#8fa3b8">
         <span style="letter-spacing:.02em">${label}</span>
         <span style="color:#e9f0f8;text-align:right">${value}</span>
         <span style="display:block;height:4px;border-radius:99px;background:rgba(255,255,255,.09)">
-          <span style="display:block;height:100%;width:${Math.round((value / max) * 100)}%;border-radius:99px;background:${color}"></span>
+          <span style="display:block;height:100%;width:${Math.round((value / Math.max(1, max)) * 100)}%;border-radius:99px;background:${color}"></span>
         </span>
       </div>`
 
@@ -226,14 +279,14 @@ export default function Anomalies() {
       xAxis: {
         type: 'category',
         boundaryGap: false,
-        data: anomalyWindows.map((w) => w.label),
+        data: windows.map((w) => w.label),
         axisLine: { lineStyle: { color: gridColor } },
         axisTick: { show: false },
         axisLabel: {
           color: axisColor,
           fontSize: 8.5,
           fontFamily: MONO,
-          interval: 2,
+          interval: labelInterval,
           margin: 12,
         },
       },
@@ -264,22 +317,24 @@ export default function Anomalies() {
         },
         formatter: (params: any) => {
           const index = params?.[0]?.dataIndex ?? 0
-          const w = anomalyWindows[index]
+          const w = windows[index]
           const value = metricValue(w, metric)
-          const prev = index > 0 ? metricValue(anomalyWindows[index - 1], metric) : null
+          const prev = index > 0 ? metricValue(windows[index - 1], metric) : null
           const delta = prev == null ? null : value - prev
+          const failed = liveCapture ? w.failedLogins > 0 : w.anomaly
           return `<div style="min-width:206px">
             <div style="display:flex;justify-content:space-between;gap:18px;font:500 8.5px ${MONO};letter-spacing:.12em;text-transform:uppercase;color:#7d8ea3">
               <span>${w.id} · ${w.label}</span>
-              <span style="color:${w.anomaly ? '#ff9b74' : '#7fe0d2'}">${w.anomaly ? 'Flagged' : 'Baseline'}</span>
+              <span style="color:${failed ? '#ff9b74' : '#7fe0d2'}">${liveCapture ? (w.failedLogins ? 'Failed' : 'Granted') : w.anomaly ? 'Flagged' : 'Baseline'}</span>
             </div>
+            ${liveCapture && w.account ? `<div style="margin-top:7px;font:500 9.5px ${MONO};color:#c9d8ea">${w.account}${w.sourceIp ? ` · ${w.sourceIp}` : ''}</div>` : ''}
             <div style="display:flex;align-items:baseline;gap:7px;margin-top:9px">
               <span style="font:600 26px/1 ${DISPLAY};letter-spacing:-.045em;color:#f4f8fc">${fmtMetric(metric, value)}</span>
-              <span style="font:500 8.5px ${MONO};color:#8fa3b8">${meta.unit}</span>
+              <span style="font:500 8.5px ${MONO};color:#8fa3b8">${liveCapture && metric === 'logins' ? 'failures so far' : meta.unit}</span>
               ${delta == null ? '' : `<span style="margin-left:auto;font:500 8.5px ${MONO};color:${delta > 0 ? '#ff9b74' : '#7fe0d2'}">${delta > 0 ? '+' : ''}${fmtMetric(metric, delta)}</span>`}
             </div>
             <div style="margin-top:11px;display:grid;gap:5px">
-              ${featureBar('Failed logins', w.failedLogins, maxLogins, '#ff7a45')}
+              ${featureBar(liveCapture ? 'Failures so far' : 'Failed logins', w.failuresSoFar ?? w.failedLogins, maxLogins, '#ff7a45')}
               ${featureBar('Distinct IPs', w.distinctIps, maxIps, '#c9d8ea')}
               ${featureBar('Requests /s', w.rps, maxRps, '#7f93a9')}
             </div>
@@ -340,38 +395,64 @@ export default function Anomalies() {
         },
       ],
     }
-  }, [metric, dark, accent, navy, axisColor, gridColor, cardColor, meta])
+  }, [metric, dark, accent, navy, axisColor, gridColor, cardColor, meta, windows, liveCapture, maxLogins, maxIps, maxRps])
 
   const scrollToRegister = () => document.getElementById('an-register')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
-  const rows = onlyAnomalies ? flagged : anomalyWindows
+  const rows = onlyAnomalies ? flagged : windows
 
   const peakValue = metricValue(peak, metric)
+  const peakLabel = liveCapture && metric === 'logins' ? 'peak cumulative failures' : meta.peakLabel
+  const liveStatus =
+    capture.status === 'live'
+      ? capture.lastSync
+        ? `live · synced ${timeAgo(capture.lastSync)}`
+        : 'live · syncing'
+      : capture.status === 'offline'
+        ? 'portal offline · last capture'
+        : 'live · connecting'
+
+  const outcome = (w: LogWindow) => (w.failedLogins > 0 ? 'FAILED' : 'GRANTED')
 
   return (
     <div className="anomalies-page">
       <div className="an-shell">
         <header className="an-head">
           <div className="an-head-copy">
-            <span className="an-eyebrow">Component 09 · Anomaly detection</span>
+            <span className="an-eyebrow">Component 09 · Anomaly detection{liveCapture ? ' · live capture' : ''}</span>
             <h1>
               Behaviour that breaks <em>the baseline</em>
             </h1>
             <p>
-              Auth logs are reduced to six-hour windows, compared against the learned baseline, and only deviations
-              above the threshold surface with their evidence attached.
+              {liveCapture
+                ? 'Every sign-in request from the Northwind decoy portal becomes a window here. Each failure is flagged and counted as it arrives; repeated attempts escalate the cumulative risk score.'
+                : 'Auth logs are reduced to six-hour windows, compared against the learned baseline, and only deviations above the threshold surface with their evidence attached.'}
             </p>
           </div>
           <div className="an-head-side">
             <div className="an-pillrow">
-              <span className="an-pill">
-                <span className="an-dot" />
-                User upload
-              </span>
-              <span className="an-pill ghost">Demo windows · {anomalyWindows.length}</span>
+              {liveCapture ? (
+                <>
+                  <span className="an-pill" style={capture.status === 'offline' ? { opacity: 0.75 } : undefined}>
+                    <span className="an-dot" />
+                    {liveStatus}
+                  </span>
+                  <span className="an-pill ghost">
+                    {windows.length} attempts · {capture.failed} failed
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="an-pill">
+                    <span className="an-dot" />
+                    Live capture · waiting
+                  </span>
+                  <span className="an-pill ghost">Demo windows · {anomalyWindows.length}</span>
+                </>
+              )}
             </div>
             <button className="an-btn dark" onClick={scrollToRegister}>
-              Window register <ArrowRight size={13} />
+              {liveCapture ? 'Attempt register' : 'Window register'} <ArrowRight size={13} />
             </button>
           </div>
         </header>
@@ -380,8 +461,12 @@ export default function Anomalies() {
           <section className="an-card an-gauge-card">
             <CardHead
               icon={<Gauge size={16} />}
-              title="Flag exposure"
-              sub="18 windows across the demo week"
+              title={liveCapture ? 'Failed-request exposure' : 'Flag exposure'}
+              sub={
+                liveCapture
+                  ? `${capture.failed} failed of ${windows.length} recorded ${windows.length === 1 ? 'attempt' : 'attempts'}`
+                  : '18 windows across the demo week'
+              }
               action={
                 <button className="an-icon-btn" aria-label="About the gauge" onClick={scrollToRegister}>
                   <Info size={13} />
@@ -391,7 +476,7 @@ export default function Anomalies() {
             <div className="an-gauge-body">
               <div className="an-gauge-ring">
                 <GaugeArc
-                  total={anomalyWindows.length}
+                  total={windows.length}
                   segments={[
                     { count: flagged.length, color: 'var(--an-orange)' },
                     { count: watch.length, color: 'var(--an-watch)' },
@@ -401,36 +486,36 @@ export default function Anomalies() {
                 <div className="an-gauge-center">
                   <div className="an-gauge-value">
                     {String(flagged.length).padStart(2, '0')}
-                    <small>/{anomalyWindows.length}</small>
+                    <small>/{windows.length}</small>
                   </div>
-                  <div className="an-gauge-label">flagged windows</div>
+                  <div className="an-gauge-label">{liveCapture ? 'failed requests' : 'flagged windows'}</div>
                 </div>
               </div>
               <div className="an-gauge-legend">
                 <span>
-                  <i style={{ background: 'var(--an-orange)' }} /> Flagged · {flagged.length}
+                  <i style={{ background: 'var(--an-orange)' }} /> {liveCapture ? 'Failed' : 'Flagged'} · {flagged.length}
                 </span>
                 <span>
-                  <i style={{ background: 'var(--an-watch)' }} /> Watch · {watch.length}
+                  <i style={{ background: 'var(--an-watch)' }} /> {liveCapture ? 'Elevated grant' : 'Watch'} · {watch.length}
                 </span>
                 <span>
-                  <i style={{ background: 'var(--an-slate-2)' }} /> Baseline · {baseline.length}
+                  <i style={{ background: 'var(--an-slate-2)' }} /> {liveCapture ? 'Clean grant' : 'Baseline'} · {baseline.length}
                 </span>
               </div>
               <div className="an-split-stats">
                 <div className="an-split-stat">
                   <Zap size={13} />
-                  <b>{score2(Math.max(...scores))}</b>
+                  <b>{score2(Math.max(0, ...scores))}</b>
                   <span>peak score</span>
                 </div>
                 <div className="an-split-stat">
                   <ShieldAlert size={13} />
                   <b>{Math.round(flagRate * 100)}%</b>
-                  <span>flag rate</span>
+                  <span>{liveCapture ? 'failure rate' : 'flag rate'}</span>
                 </div>
                 <div className="an-split-stat">
                   <Activity size={13} />
-                  <b>{score2(median(scores))}</b>
+                  <b>{scores.length ? score2(median(scores)) : '0.00'}</b>
                   <span>median score</span>
                 </div>
               </div>
@@ -442,7 +527,7 @@ export default function Anomalies() {
               icon={<Activity size={16} />}
               tone="orange"
               title="Anomaly signal"
-              sub="Six-hour windows · threshold held at 0.20"
+              sub={liveCapture ? 'One window per sign-in request · threshold held at 0.20' : 'Six-hour windows · threshold held at 0.20'}
               action={
                 <div className="an-seg" role="tablist" aria-label="Chart metric">
                   {METRICS.map((m) => (
@@ -453,7 +538,7 @@ export default function Anomalies() {
                       className={cx(metric === m.id && 'on')}
                       onClick={() => setMetric(m.id)}
                     >
-                      {m.label}
+                      {liveCapture && m.id === 'logins' ? 'Failures' : m.label}
                     </button>
                   ))}
                 </div>
@@ -464,15 +549,22 @@ export default function Anomalies() {
                 <div className="an-hero-figure">
                   <div className="an-hero-num">
                     {fmtMetric(metric, peakValue)}
-                    <small>{metric === 'score' ? '' : metric === 'logins' ? 'logins' : 'req/s'}</small>
+                    <small>
+                      {metric === 'score' ? '' : metric === 'logins' ? (liveCapture ? 'failures' : 'logins') : 'req/s'}
+                    </small>
                   </div>
                   <div className="an-hero-label">
-                    <span>{meta.peakLabel}</span>
+                    <span>{peakLabel}</span>
                     <span className="an-chip soft">{peak.label}</span>
-                    {metric === 'score' && (
+                    {metric === 'score' && peakValue > THRESHOLD && (
                       <span className="an-chip alert">+{score2(peakValue - THRESHOLD)} over threshold</span>
                     )}
-                    {metric !== 'score' && peak.anomaly && <span className="an-chip alert">flagged window</span>}
+                    {liveCapture && peak.level && (
+                      <span className={cx('an-chip', peak.level === 'LOW' ? 'soft' : 'alert')}>
+                        {peak.level} · {peak.riskScore ?? 0}/100
+                      </span>
+                    )}
+                    {!liveCapture && metric !== 'score' && peak.anomaly && <span className="an-chip alert">flagged window</span>}
                   </div>
                 </div>
                 <div className="an-hero-actions">
@@ -488,16 +580,18 @@ export default function Anomalies() {
 
               <div className="an-hero-foot">
                 <div className="an-hero-cell orange">
-                  <b>{flagged.length} of {anomalyWindows.length}</b>
-                  <span>windows above threshold</span>
+                  <b>
+                    {flagged.length} of {windows.length}
+                  </b>
+                  <span>{liveCapture ? 'requests flagged as failed' : 'windows above threshold'}</span>
                 </div>
                 <div className="an-hero-cell navy">
                   <b>{score2(THRESHOLD)}</b>
                   <span>fixed cut · auditable</span>
                 </div>
                 <div className="an-hero-cell">
-                  <b>{score2(median(scores))}</b>
-                  <span>median score · full week</span>
+                  <b>{scores.length ? score2(median(scores)) : '0.00'}</b>
+                  <span>{liveCapture ? 'median score · full capture' : 'median score · full week'}</span>
                 </div>
               </div>
             </div>
@@ -508,28 +602,34 @@ export default function Anomalies() {
               icon={<BarChart3 size={16} />}
               tone="soft"
               title="Signal mix"
-              sub="Failed logins by driver"
-              action={<span className="an-chip soft">{flaggedLoad} logins</span>}
+              sub={liveCapture ? 'Failed sign-ins by driver' : 'Failed logins by driver'}
+              action={<span className="an-chip soft">{flaggedLoad} {liveCapture ? 'failed' : 'logins'}</span>}
             />
             <div className="an-mix-body">
               <div className="an-mix-rows">
+                {mix.length === 0 && (
+                  <div className="an-note">
+                    <Info size={12} />
+                    <span>No failed sign-ins in this capture yet. Fail a login on the decoy portal and it will appear here on the next poll.</span>
+                  </div>
+                )}
                 {mix.map((item, index) => (
                   <div className="an-mix-row" key={item.id}>
                     <div className="an-mix-line">
                       <span>{item.label}</span>
-                      <b>{((item.logins / flaggedLoad) * 100).toFixed(1)}%</b>
+                      <b>{((item.logins / Math.max(1, flaggedLoad)) * 100).toFixed(1)}%</b>
                     </div>
                     <div className="an-mix-bar">
                       <i
                         style={{
-                          width: `${Math.max((item.logins / flaggedLoad) * 100, 3)}%`,
+                          width: `${Math.max((item.logins / Math.max(1, flaggedLoad)) * 100, 3)}%`,
                           background: MIX_COLORS[index % MIX_COLORS.length],
                         }}
                       />
                     </div>
                     <div className="an-mix-meta">
                       <span>{item.id}</span>
-                      <span>{item.logins} logins</span>
+                      <span>{item.logins} {liveCapture ? 'failed' : 'logins'}</span>
                     </div>
                   </div>
                 ))}
@@ -537,31 +637,31 @@ export default function Anomalies() {
 
               <div className="an-compare">
                 <div className="an-compare-head">
-                  <b>Flagged vs baseline load</b>
-                  <span>6h windows</span>
+                  <b>{liveCapture ? 'Failed vs granted requests' : 'Flagged vs baseline load'}</b>
+                  <span>{liveCapture ? 'attempts' : '6h windows'}</span>
                 </div>
                 <div className="an-compare-cols">
                   <div className="an-compare-col">
                     <div className="an-compare-track">
-                      <div className="an-compare-fill orange" style={{ height: `${(flaggedLoad / flaggedLoad) * 100}%` }} />
+                      <div className="an-compare-fill orange" style={{ height: `${(flaggedLoad / Math.max(1, windows.length)) * 100}%` }} />
                     </div>
                     <div className="an-compare-val">
                       <b>{flaggedLoad}</b>
-                      <span>flagged</span>
+                      <span>failed</span>
                     </div>
                   </div>
                   <div className="an-compare-col">
                     <div className="an-compare-track">
-                      <div className="an-compare-fill navy" style={{ height: `${(normalLoad / flaggedLoad) * 100}%` }} />
+                      <div className="an-compare-fill navy" style={{ height: `${(normalLoad / Math.max(1, windows.length)) * 100}%` }} />
                     </div>
                     <div className="an-compare-val">
                       <b>{normalLoad}</b>
-                      <span>baseline</span>
+                      <span>granted</span>
                     </div>
                   </div>
                 </div>
                 <div className="an-mix-cta">
-                  <span className="an-chip soft">{flagged.length} windows carry the load</span>
+                  <span className="an-chip soft">{flagged.length} {liveCapture ? 'failed requests' : 'windows carry the load'}</span>
                   <button className="an-link" onClick={scrollToRegister}>
                     Open register <ArrowRight size={11} />
                   </button>
@@ -574,13 +674,13 @@ export default function Anomalies() {
             <CardHead
               icon={<ShieldAlert size={16} />}
               title="Priority queue"
-              sub="Flagged windows, highest score first"
+              sub={liveCapture ? 'Flagged sign-ins, highest cumulative risk first' : 'Flagged windows, highest score first'}
               action={<span className="an-chip alert">needs review</span>}
             />
             <div className="an-queue-body">
               <div className="an-queue-head">
-                <span>Window / driver</span>
-                <span>Share</span>
+                <span>{liveCapture ? 'Attempt / driver' : 'Window / driver'}</span>
+                <span>{liveCapture ? 'Hits' : 'Share'}</span>
                 <span>Score</span>
               </div>
               <div className="an-queue-rows">
@@ -596,11 +696,13 @@ export default function Anomalies() {
                             <DriverIcon size={13} />
                           </span>
                           <span className="an-queue-name">
-                            <b>{w.label}</b>
-                            <span>{w.reason}</span>
+                            <b>{w.account ?? w.label}</b>
+                            <span>{liveCapture ? `${w.label} · ${w.reason}` : w.reason}</span>
                           </span>
                         </span>
-                        <span className="an-queue-share">{((w.failedLogins / flaggedLoad) * 100).toFixed(1)}%</span>
+                        <span className="an-queue-share">
+                          {liveCapture ? `${w.failuresSoFar ?? 1} hit${(w.failuresSoFar ?? 1) === 1 ? '' : 's'}` : `${((w.failedLogins / Math.max(1, flaggedLoad)) * 100).toFixed(1)}%`}
+                        </span>
                         <span className="an-score-pill">{score2(w.anomalyScore)}</span>
                       </button>
                     )
@@ -616,7 +718,12 @@ export default function Anomalies() {
           </section>
 
           <section className="an-card an-print-card">
-            <CardHead icon={<Grid3X3 size={16} />} tone="soft" title="Feature print" sub="Peak intensity per day" />
+            <CardHead
+              icon={<Grid3X3 size={16} />}
+              tone="soft"
+              title="Feature print"
+              sub={liveCapture ? 'Peak intensity per capture slice' : 'Peak intensity per day'}
+            />
             <div className="an-print-body">
               <div className="an-print-hero">
                 <div>
@@ -625,17 +732,19 @@ export default function Anomalies() {
                     <small>%</small>
                   </div>
                   <div className="an-print-note">
-                    of windows flagged across {DAYS.length} days · {flagged.length} of {anomalyWindows.length}
+                    {liveCapture
+                      ? `of ${windows.length} attempts flagged · ${printStats.length} capture slices`
+                      : `of windows flagged across ${DAYS.length} days · ${flagged.length} of ${windows.length}`}
                   </div>
                 </div>
               </div>
 
               <div className="an-print-grid">
-                {dayStats.map((day) => (
+                {printStats.map((day) => (
                   <div
                     className="an-print-col"
                     key={day.day}
-                    title={`${day.day} · ${day.count} windows · ${day.flagged} flagged · peak ${day.logins} logins / ${day.ips} IPs / ${day.rps} rps`}
+                    title={`${day.day} · ${day.count} ${liveCapture ? 'attempts' : 'windows'} · ${day.flagged} flagged · peak ${day.logins} failures / ${day.ips} IPs / ${day.rps} rps`}
                   >
                     <span className={cx('an-print-flag', day.flagged > 0 && 'on')} aria-hidden="true" />
                     <div className="an-print-stacks">
@@ -679,9 +788,9 @@ export default function Anomalies() {
                   <Layers size={16} />
                 </span>
                 <div>
-                  <h2 className="an-card-title">Window register</h2>
+                  <h2 className="an-card-title">{liveCapture ? 'Attempt register' : 'Window register'}</h2>
                   <div className="an-card-sub">
-                    {rows.length} windows · {flagged.length} flagged · evidence recorded per window
+                    {rows.length} {liveCapture ? 'sign-in requests' : 'windows'} · {flagged.length} flagged · evidence recorded per {liveCapture ? 'request' : 'window'}
                   </div>
                 </div>
               </div>
@@ -693,7 +802,7 @@ export default function Anomalies() {
                     className={cx(!onlyAnomalies && 'on')}
                     onClick={() => setOnlyAnomalies(false)}
                   >
-                    All windows
+                    {liveCapture ? 'All attempts' : 'All windows'}
                   </button>
                   <button
                     role="tab"
@@ -701,7 +810,7 @@ export default function Anomalies() {
                     className={cx(onlyAnomalies && 'on')}
                     onClick={() => setOnlyAnomalies(true)}
                   >
-                    Flagged
+                    {liveCapture ? 'Failed' : 'Flagged'}
                   </button>
                 </div>
               </div>
@@ -709,61 +818,113 @@ export default function Anomalies() {
             <div className="an-register-scroll">
               <table className="an-table">
                 <thead>
-                  <tr>
-                    <th>Window</th>
-                    <th className="right">Failed logins</th>
-                    <th className="right">Distinct IPs</th>
-                    <th className="right">RPS</th>
-                    <th className="right">Country novelty</th>
-                    <th className="right">Score</th>
-                    <th>Finding</th>
-                  </tr>
+                  {liveCapture ? (
+                    <tr>
+                      <th>Attempt</th>
+                      <th>Account</th>
+                      <th>Source IP</th>
+                      <th>Location</th>
+                      <th>Outcome</th>
+                      <th className="right">Risk</th>
+                      <th>Finding</th>
+                    </tr>
+                  ) : (
+                    <tr>
+                      <th>Window</th>
+                      <th className="right">Failed logins</th>
+                      <th className="right">Distinct IPs</th>
+                      <th className="right">RPS</th>
+                      <th className="right">Country novelty</th>
+                      <th className="right">Score</th>
+                      <th>Finding</th>
+                    </tr>
+                  )}
                 </thead>
                 <tbody>
-                  {rows.map((w) => (
-                    <tr
-                      key={w.id}
-                      className={cx('clickable', w.anomaly && 'flagged')}
-                      onClick={() => setSelected(w)}
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') setSelected(w)
-                      }}
-                    >
-                      <td>
-                        <span className="an-cell-window">{w.label}</span>{' '}
-                        <span className="an-cell-mono" style={{ color: 'var(--an-muted-2)' }}>
-                          {w.id}
-                        </span>
-                      </td>
-                      <td className="right an-cell-mono">{w.failedLogins}</td>
-                      <td className="right an-cell-mono">{w.distinctIps}</td>
-                      <td className="right an-cell-mono">{w.rps}</td>
-                      <td className="right an-cell-mono">{w.countryNovelty}</td>
-                      <td className="right">
-                        <span className={cx('an-cell-score', !w.anomaly && 'quiet')}>{score2(w.anomalyScore)}</span>
-                      </td>
-                      <td>
-                        {w.anomaly ? (
-                          <span className="an-finding">
-                            <i />
-                            {w.reason}
-                          </span>
+                  {rows.map((w) => {
+                    const failed = w.failedLogins > 0
+                    return (
+                      <tr
+                        key={w.id}
+                        className={cx('clickable', failed && 'flagged')}
+                        onClick={() => setSelected(w)}
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') setSelected(w)
+                        }}
+                      >
+                        {liveCapture ? (
+                          <>
+                            <td>
+                              <span className="an-cell-window">{w.label}</span>{' '}
+                              <span className="an-cell-mono" style={{ color: 'var(--an-muted-2)' }}>
+                                {w.id}
+                              </span>
+                            </td>
+                            <td className="an-cell-mono">{w.account}</td>
+                            <td className="an-cell-mono">{w.sourceIp}</td>
+                            <td className="an-cell-mono">{w.country}</td>
+                            <td>
+                              <span className={cx('an-outcome', failed ? 'failed' : 'granted')}>
+                                {outcome(w)}
+                              </span>
+                            </td>
+                            <td className="right">
+                              <span className={cx('an-cell-score', !failed && 'quiet')}>{w.riskScore ?? '—'}</span>
+                              <span className="an-cell-mono" style={{ marginLeft: 6, color: 'var(--an-muted-2)' }}>
+                                {w.level}
+                              </span>
+                            </td>
+                            <td>
+                              <span className={cx('an-finding', !failed && 'quiet')}>
+                                {failed && <i />}
+                                {failed ? w.reason : w.reason ?? 'within baseline'}
+                              </span>
+                            </td>
+                          </>
                         ) : (
-                          <span className="an-finding quiet">within baseline</span>
+                          <>
+                            <td>
+                              <span className="an-cell-window">{w.label}</span>{' '}
+                              <span className="an-cell-mono" style={{ color: 'var(--an-muted-2)' }}>
+                                {w.id}
+                              </span>
+                            </td>
+                            <td className="right an-cell-mono">{w.failedLogins}</td>
+                            <td className="right an-cell-mono">{w.distinctIps}</td>
+                            <td className="right an-cell-mono">{w.rps}</td>
+                            <td className="right an-cell-mono">{w.countryNovelty}</td>
+                            <td className="right">
+                              <span className={cx('an-cell-score', !w.anomaly && 'quiet')}>{score2(w.anomalyScore)}</span>
+                            </td>
+                            <td>
+                              {w.anomaly ? (
+                                <span className="an-finding">
+                                  <i />
+                                  {w.reason}
+                                </span>
+                              ) : (
+                                <span className="an-finding quiet">within baseline</span>
+                              )}
+                            </td>
+                          </>
                         )}
-                      </td>
-                    </tr>
-                  ))}
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
             <div className="an-table-foot">
               <span className="an-inline">
-                <ShieldCheck size={12} /> Missing optional log fields are tolerated; missing timestamp or event type
-                rejects the row.
+                <ShieldCheck size={12} />{' '}
+                {liveCapture
+                  ? 'Every request is ingested automatically from the Northwind portal; passwords are never stored or sent to Aegis.'
+                  : 'Missing optional log fields are tolerated; missing timestamp or event type rejects the row.'}
               </span>
-              <span className="an-mono">n={rows.length} · scroll</span>
+              <span className="an-mono">
+                {liveCapture ? `n=${rows.length} · auto-fetch 2s` : `n=${rows.length} · scroll`}
+              </span>
             </div>
           </section>
 
@@ -771,15 +932,16 @@ export default function Anomalies() {
             <div className="an-foot-body">
               <div className="an-foot-stats">
                 <div className="an-foot-label">
-                  Layer B · statistics <span className="an-chip soft">demo windows</span>
+                  Layer B · statistics{' '}
+                  <span className="an-chip soft">{liveCapture ? 'live capture' : 'demo windows'}</span>
                 </div>
                 <div className="an-foot-grid">
                   {[
-                    { label: 'Mean score', value: stat2(mean(scores)) },
-                    { label: 'Median', value: stat2(median(scores)) },
-                    { label: 'p95', value: stat2(quantile(scores, 0.95)) },
-                    { label: 'Dispersion σ', value: stat2(stdev(scores)) },
-                    { label: 'Flag rate', value: `${(flagRate * 100).toFixed(1)}%` },
+                    { label: 'Mean score', value: scores.length ? stat2(mean(scores)) : '0.00' },
+                    { label: 'Median', value: scores.length ? stat2(median(scores)) : '0.00' },
+                    { label: 'p95', value: scores.length ? stat2(quantile(scores, 0.95)) : '0.00' },
+                    { label: 'Dispersion σ', value: scores.length ? stat2(stdev(scores)) : '0.00' },
+                    { label: liveCapture ? 'Failure rate' : 'Flag rate', value: `${(flagRate * 100).toFixed(1)}%` },
                   ].map((stat) => (
                     <div className="an-foot-cell" key={stat.label}>
                       <b>{stat.value}</b>
@@ -791,12 +953,20 @@ export default function Anomalies() {
               <div className="an-method">
                 <div className="an-foot-label">How the score is built</div>
                 <div className="an-method-steps">
-                  {[
-                    ['Reduce logs', 'Six-hour windows per destination asset.'],
-                    ['Build features', 'Failures, distinct IPs, RPS, geo novelty.'],
-                    ['Score isolation', 'Precomputed IsolationForest-aligned scores.'],
-                    ['Apply threshold', 'Fixed 0.20 cut keeps the demo auditable.'],
-                  ].map(([title, body], index) => (
+                  {(liveCapture
+                    ? [
+                        ['Ingest request', 'The portal writes JSON + CSV; Aegis polls every 2 seconds.'],
+                        ['Build features', 'Failures, distinct IPs, RPS, geo novelty per attempt.'],
+                        ['Score cumulative risk', 'Deterministic 0–100 score rebuilt after each request.'],
+                        ['Flag failures', 'Every failed request is flagged; score sets the severity.'],
+                      ]
+                    : [
+                        ['Reduce logs', 'Six-hour windows per destination asset.'],
+                        ['Build features', 'Failures, distinct IPs, RPS, geo novelty.'],
+                        ['Score isolation', 'Precomputed IsolationForest-aligned scores.'],
+                        ['Apply threshold', 'Fixed 0.20 cut keeps the demo auditable.'],
+                      ]
+                  ).map(([title, body], index) => (
                     <div className="an-method-step" key={title}>
                       <i>{String(index + 1).padStart(2, '0')}</i>
                       <div>
@@ -809,8 +979,9 @@ export default function Anomalies() {
                 <div className="an-note">
                   <Info size={12} />
                   <span>
-                    These window-level scores are demonstration data, not a claim that a model detected these events
-                    in a live environment.
+                    {liveCapture
+                      ? 'Windows are derived directly from the live portal capture. The score is deterministic, so the same request sequence always yields the same verdict.'
+                      : 'These window-level scores are demonstration data, not a claim that a model detected these events in a live environment.'}
                   </span>
                 </div>
               </div>
@@ -823,27 +994,89 @@ export default function Anomalies() {
         {selected && (
           <>
             <DrawerHead
-              overline={`${selected.id} · ${selected.anomaly ? 'FLAGGED' : 'WITHIN BASELINE'}`}
-              title={selected.label}
+              overline={`${selected.id} · ${
+                selected.kind === 'live'
+                  ? selected.failedLogins > 0
+                    ? 'FAILED REQUEST'
+                    : 'ACCESS GRANTED'
+                  : selected.anomaly
+                    ? 'FLAGGED'
+                    : 'WITHIN BASELINE'
+              }`}
+              title={selected.kind === 'live' && selected.account ? selected.account : selected.label}
               onClose={() => setSelected(null)}
               meta={
-                <span className="inline-flex" style={{ gap: 8 }}>
-                  <span className="badge upload">USER UPLOAD</span>
-                  <span className="badge simulated">demo windows</span>
-                </span>
+                selected.kind === 'live' ? (
+                  <span className="inline-flex" style={{ gap: 8 }}>
+                    <span className="badge upload">LIVE CAPTURE</span>
+                    {selected.level && (
+                      <span className={`badge ${selected.level.toLowerCase()}`}>
+                        {selected.level} · {selected.riskScore ?? 0}/100
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="inline-flex" style={{ gap: 8 }}>
+                    <span className="badge upload">USER UPLOAD</span>
+                    <span className="badge simulated">demo windows</span>
+                  </span>
+                )
               }
             />
             <div className="drawer-body">
               <div className="drawer-section">
                 <p className="an-drawer-note">
-                  {selected.anomaly
-                    ? selected.reason
-                    : 'This window sits inside the learned baseline. No alert was raised.'}
+                  {selected.kind === 'live'
+                    ? selected.failedLogins > 0
+                      ? `Failed sign-in for ${selected.account} from ${selected.sourceIp} (${selected.country}). ${selected.reason}. The request is flagged and counted even when the cumulative score is still below the HIGH band.`
+                      : `Sign-in granted for ${selected.account} from ${selected.sourceIp} (${selected.country}). ${selected.reason}.`
+                    : selected.anomaly
+                      ? selected.reason
+                      : 'This window sits inside the learned baseline. No alert was raised.'}
                 </p>
               </div>
               <div className="drawer-section">
                 <h3>Features</h3>
                 <div className="provenance-list">
+                  {selected.kind === 'live' && (
+                    <>
+                      <div className="provenance-row">
+                        <span className="check">✓</span>
+                        <span>Outcome</span>
+                        <span className="time">{outcome(selected)}</span>
+                      </div>
+                      <div className="provenance-row">
+                        <span className="check">✓</span>
+                        <span>Account</span>
+                        <span className="time">{selected.account}</span>
+                      </div>
+                      <div className="provenance-row">
+                        <span className="check">✓</span>
+                        <span>Source IP</span>
+                        <span className="time">{selected.sourceIp}</span>
+                      </div>
+                      <div className="provenance-row">
+                        <span className="check">✓</span>
+                        <span>Location</span>
+                        <span className="time">{selected.country}</span>
+                      </div>
+                      <div className="provenance-row">
+                        <span className="check">✓</span>
+                        <span>Requests so far</span>
+                        <span className="time">{selected.attemptsSoFar ?? 1}</span>
+                      </div>
+                      <div className="provenance-row">
+                        <span className="check">✓</span>
+                        <span>Failures so far</span>
+                        <span className="time">{selected.failuresSoFar ?? selected.failedLogins}</span>
+                      </div>
+                      <div className="provenance-row">
+                        <span className="check">✓</span>
+                        <span>Cumulative risk score</span>
+                        <span className="time">{selected.riskScore ?? 0}/100</span>
+                      </div>
+                    </>
+                  )}
                   <div className="provenance-row">
                     <span className="check">✓</span>
                     <span>Failed logins</span>
@@ -875,13 +1108,21 @@ export default function Anomalies() {
                 <h3>Suggested next step</h3>
                 <div className="action-box">
                   <strong style={{ fontSize: 12 }}>
-                    {selected.anomaly
-                      ? selected.reason?.toLowerCase().includes('country')
-                        ? 'Verify the user, revoke sessions, and challenge the sign-in from the new region.'
-                        : selected.reason?.toLowerCase().includes('credential')
-                          ? 'Rate-limit the login surface and force step-up authentication.'
-                          : 'Correlate source IPs with the firewall log and confirm whether the burst was authorised.'
-                      : 'No action. Keep this window as part of the baseline.'}
+                    {selected.kind === 'live'
+                      ? selected.level === 'CRITICAL' || selected.level === 'HIGH'
+                        ? `Revoke sessions for ${selected.account}, force a password reset and re-enrol MFA. Block ${selected.sourceIp} while the capture is reviewed.`
+                        : selected.level === 'MEDIUM'
+                          ? `Rate-limit ${selected.sourceIp} and require MFA for ${selected.account} on the next sign-in.`
+                          : selected.failedLogins > 0
+                            ? 'No containment yet. The failure is preserved in the capture; re-check if the account or source repeats.'
+                            : 'No action. This request sits inside the capture baseline.'
+                      : selected.anomaly
+                        ? selected.reason?.toLowerCase().includes('country')
+                          ? 'Verify the user, revoke sessions, and challenge the sign-in from the new region.'
+                          : selected.reason?.toLowerCase().includes('credential')
+                            ? 'Rate-limit the login surface and force step-up authentication.'
+                            : 'Correlate source IPs with the firewall log and confirm whether the burst was authorised.'
+                        : 'No action. Keep this window as part of the baseline.'}
                   </strong>
                 </div>
               </div>

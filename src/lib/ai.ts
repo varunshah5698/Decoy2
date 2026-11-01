@@ -21,6 +21,8 @@ import {
 } from './liveData'
 import { useUploads } from './uploads'
 import { normalizeScopeId, scopeInfo, scopedInventory, useDataScope } from './dataScope'
+import { LOGIN_LEVELS, LOGIN_POLL_MS } from './loginIntel'
+import { currentLoginCapture } from './loginFeed'
 import { plural } from './format'
 import type { Role } from './store'
 import type { Alert, Asset } from './types'
@@ -109,6 +111,110 @@ export interface AnalystContext {
   anomalies: {
     flagged: { window: string; reason: string; failedLogins: number; distinctIps: number; rps: number; score: number }[]
     baselineNote: string
+  }
+  liveLogin: {
+    status: string
+    source: string
+    lastSync: string | null
+    pollSeconds: number
+    dataset: {
+      id: string
+      name: string
+      type: string
+      rows: number
+      failed: number
+      granted: number
+      autoFetch: boolean
+      files: { json: string; csv: string } | null
+    } | null
+    windows: number
+    flaggedWindows: number
+    risk: {
+      score: number
+      rawScore: number
+      level: string
+      verdict: string
+      delta: number
+      windowSeconds: number
+      firstAt: string | null
+      lastAt: string | null
+    }
+    metrics: {
+      attempts: number
+      failures: number
+      successes: number
+      failureRate: number
+      accounts: number
+      targetedAccounts: number
+      ips: number
+      countries: number
+      recentFailures: number
+      peakPerMinute: number
+      torEvents: number
+      scriptEvents: number
+      simulatedEvents: number
+      offHours: number
+    }
+    contributors: { id: string; label: string; value: number; max: number; note: string }[]
+    findings: {
+      severity: string
+      title: string
+      detail: string
+      evidence: string[]
+      technique: { id: string; name: string }
+      action: string
+    }[]
+    techniques: { id: string; name: string }[]
+    accounts: {
+      email: string
+      attempts: number
+      failures: number
+      successes: number
+      ips: number
+      countries: string[]
+      takeover: boolean
+    }[]
+    sources: {
+      ip: string
+      attempts: number
+      failures: number
+      successes: number
+      accounts: string[]
+      countries: string[]
+      tor: boolean
+    }[]
+    takeover: {
+      email: string
+      failuresBefore: number
+      successAt: string
+      ip: string
+      country: string
+      city: string
+      isTor: boolean
+    } | null
+    impossibleTravel: {
+      email: string
+      from: string
+      to: string
+      minutes: number
+      distanceKm: number
+      speedKmh: number
+    } | null
+    narrative: string
+    recommendations: string[]
+    recentEvents: {
+      id: string
+      at: string
+      email: string
+      success: boolean
+      sourceIp: string
+      country: string
+      city?: string
+      reason?: string
+      isTor: boolean
+      simulated: boolean
+    }[]
+    note: string
   }
   traffic: {
     latest: { time: string; rps: number; failed: number; anomaly: boolean }[]
@@ -263,7 +369,16 @@ export function buildAnalystContext(
   const sorted = [...liveActive].sort((a, b) => b.score - a.score)
   const top = sorted.slice(0, 8)
   const patchPlan = buildPatchPlan(liveActive, livePosture)
-  const flagged = anomalyWindows.filter((w) => w.anomaly)
+  const liveLogin = currentLoginCapture()
+  const loginAnalysis = liveLogin.analysis
+  const liveWindows = liveLogin.windows
+  const flagged = liveWindows.length
+    ? liveWindows.filter((w) => w.failedLogins > 0)
+    : anomalyWindows.filter((w) => w.anomaly)
+  const loginRecent = [...liveLogin.events]
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+    .slice(0, 12)
+  const contextDatasets = liveLogin.dataset ? [liveLogin.dataset, ...uploadDatasets] : uploadDatasets
 
   const byType: Record<string, number> = {}
   const byCriticality: Record<string, number> = {}
@@ -343,11 +458,31 @@ export function buildAnalystContext(
     }))
   }
   if (component.id === 9) {
-    pageData.flaggedWindows = flagged
+    const scopedWindows = liveWindows.length ? liveWindows : anomalyWindows
+    pageData.mode = liveWindows.length ? 'live Northwind portal capture' : 'seeded demo windows'
+    pageData.flaggedWindows = flagged.map((w) => ({
+      window: w.label,
+      account: w.account ?? null,
+      sourceIp: w.sourceIp ?? null,
+      country: w.country ?? null,
+      outcome: w.failedLogins > 0 ? 'FAILED' : 'GRANTED',
+      reason: w.reason ?? '',
+      failedLogins: w.failedLogins,
+      distinctIps: w.distinctIps,
+      rps: w.rps,
+      riskScore: w.riskScore ?? null,
+      isolationScore: w.anomalyScore,
+    }))
     pageData.baseline = {
-      meanRps: Math.round((anomalyWindows.reduce((s, w) => s + w.rps, 0) / anomalyWindows.length) * 10) / 10,
-      meanFailedLogins: Math.round((anomalyWindows.reduce((s, w) => s + w.failedLogins, 0) / anomalyWindows.length) * 10) / 10,
+      windows: scopedWindows.length,
+      flagged: flagged.length,
+      meanRps: Math.round((scopedWindows.reduce((s, w) => s + w.rps, 0) / Math.max(1, scopedWindows.length)) * 10) / 10,
+      meanFailedLogins:
+        Math.round((scopedWindows.reduce((s, w) => s + w.failedLogins, 0) / Math.max(1, scopedWindows.length)) * 10) / 10,
     }
+    pageData.note = liveWindows.length
+      ? 'The anomaly board is driven by the live portal dataset: one window per sign-in request. Every failed request is flagged, even when the cumulative risk score is still low.'
+      : 'The anomaly board is showing seeded demo windows because the portal has no captured sign-ins yet.'
   }
   if (component.id === 10) {
     pageData.note = 'The simulator re-runs the deterministic score when an asset is patched, made internet-facing or reclassified.'
@@ -376,7 +511,7 @@ export function buildAnalystContext(
   }
   if (component.id === 16) {
     pageData.datasets = [
-      ...uploadDatasets.map((d) => ({
+      ...contextDatasets.map((d) => ({
         name: d.name,
         type: d.type,
         status: d.status,
@@ -384,7 +519,10 @@ export function buildAnalystContext(
         accepted: d.accepted,
         rejected: d.rejected,
         uploadedAt: d.uploadedAt,
-        source: 'USER UPLOAD',
+        source: d.source ?? 'USER UPLOAD',
+        live: Boolean(d.live),
+        failedLogins: d.logs?.failedLogins ?? null,
+        risk: d.risk ?? null,
       })),
       ...uploadedDatasets.map((d) => ({
         name: d.name,
@@ -397,6 +535,13 @@ export function buildAnalystContext(
         source: d.source,
       })),
     ]
+    pageData.liveCapture = {
+      dataset: liveLogin.dataset?.name ?? null,
+      rows: liveLogin.analysis.metrics.attempts,
+      failed: liveLogin.failed,
+      granted: liveLogin.granted,
+      autoFetch: liveLogin.status === 'live',
+    }
   }
 
   return {
@@ -418,12 +563,12 @@ export function buildAnalystContext(
     asOf: DEMO_NOW.toISOString(),
     workspace: {
       scope: { id: scope.id, kind: scope.kind, label: scope.label, detail: scope.detail },
-      datasetCount: uploadDatasets.length,
+      datasetCount: contextDatasets.length,
       datasets: uploadDatasets
         .filter((d) => d.assets.length > 0)
         .slice(0, 20)
         .map((d) => ({ id: d.id, name: d.name, assets: d.assets.length })),
-      note: 'The workspace dataset scope decides which inventory and correlated alerts are shown. Threat intel from NVD, CISA KEV and FIRST EPSS stays live in every scope.',
+      note: 'The workspace dataset scope decides which inventory and correlated alerts are shown. Threat intel from NVD, CISA KEV and FIRST EPSS stays live in every scope. The live Northwind portal capture is a Logs dataset for the anomaly board and does not change the asset scope.',
     },
     organisation: {
       postureScore: livePosture,
@@ -487,13 +632,81 @@ export function buildAnalystContext(
     anomalies: {
       flagged: flagged.map((w) => ({
         window: w.label,
+        account: w.account ?? null,
+        sourceIp: w.sourceIp ?? null,
+        outcome: w.failedLogins > 0 ? 'FAILED' : 'GRANTED',
         reason: w.reason ?? 'anomalous window',
         failedLogins: w.failedLogins,
         distinctIps: w.distinctIps,
         rps: w.rps,
+        riskScore: w.riskScore ?? null,
         score: w.anomalyScore,
       })),
-      baselineNote: 'A window is flagged when failed logins, source diversity or request rate move outside the seeded baseline.',
+      baselineNote: liveWindows.length
+        ? 'One window per live sign-in request. Every failed request is flagged and counted; the cumulative risk score sets the severity.'
+        : 'A window is flagged when failed logins, source diversity or request rate move outside the seeded baseline.',
+    },
+    liveLogin: {
+      status: liveLogin.status,
+      source: 'Northwind decoy portal · fictional demo accounts',
+      lastSync: liveLogin.lastSync,
+      pollSeconds: LOGIN_POLL_MS / 1000,
+      dataset: liveLogin.dataset
+        ? {
+            id: liveLogin.dataset.id,
+            name: liveLogin.dataset.name,
+            type: liveLogin.dataset.type,
+            rows: liveLogin.dataset.rows,
+            failed: liveLogin.failed,
+            granted: liveLogin.granted,
+            autoFetch: liveLogin.status === 'live',
+            files: liveLogin.dataset.files ?? null,
+          }
+        : null,
+      windows: liveWindows.length,
+      flaggedWindows: flagged.length,
+      risk: {
+        score: loginAnalysis.score,
+        rawScore: loginAnalysis.rawScore,
+        level: loginAnalysis.level,
+        verdict: loginAnalysis.verdict,
+        delta: loginAnalysis.scoreDelta,
+        windowSeconds: Math.round(loginAnalysis.windowMs / 1000),
+        firstAt: loginAnalysis.firstAt,
+        lastAt: loginAnalysis.lastAt,
+      },
+      metrics: loginAnalysis.metrics,
+      contributors: loginAnalysis.contributors,
+      findings: loginAnalysis.findings.map((finding) => ({
+        severity: finding.severity,
+        title: finding.title,
+        detail: finding.detail,
+        evidence: finding.evidence,
+        technique: finding.technique,
+        action: finding.action,
+      })),
+      techniques: loginAnalysis.techniques,
+      accounts: loginAnalysis.accounts.slice(0, 8),
+      sources: loginAnalysis.sources.slice(0, 8),
+      takeover: loginAnalysis.takeover,
+      impossibleTravel: loginAnalysis.impossibleTravel,
+      narrative: loginAnalysis.narrative,
+      recommendations: loginAnalysis.recommendations,
+      recentEvents: loginRecent.map((event) => ({
+        id: event.id,
+        at: event.at,
+        email: event.email,
+        success: event.success,
+        sourceIp: event.sourceIp,
+        country: event.country,
+        city: event.city,
+        reason: event.reason,
+        isTor: Boolean(event.isTor),
+        simulated: Boolean(event.simulated),
+      })),
+      note: loginAnalysis.metrics.attempts
+        ? `The live capture is ingested automatically as the Logs dataset "${liveLogin.dataset?.name ?? 'Northwind portal logins'}". Every failed request is flagged and counted individually; the cumulative risk score is deterministic. Accounts, addresses and geolocation are fictional demo values, and passwords are never stored.`
+        : 'No portal sign-ins have been captured yet. The decoy portal writes portal/data/login-events.json and .csv, and Aegis polls it automatically. Do not invent capture numbers.',
     },
     traffic: {
       latest: trafficSeries.slice(-12).map((t) => ({
@@ -520,9 +733,9 @@ export function buildAnalystContext(
         .map((a) => a.name),
     },
     userUploads: {
-      datasetCount: uploadDatasets.length,
+      datasetCount: contextDatasets.length,
       assetsTotal: uploadedAssets.length,
-      datasets: uploadDatasets.slice(0, 20).map((d) => ({
+      datasets: contextDatasets.slice(0, 20).map((d) => ({
         name: d.name,
         type: d.type,
         status: d.status,
@@ -530,6 +743,9 @@ export function buildAnalystContext(
         accepted: d.accepted,
         rejected: d.rejected,
         uploadedAt: d.uploadedAt,
+        source: d.source ?? 'USER UPLOAD',
+        live: Boolean(d.live),
+        failedLogins: d.logs?.failedLogins ?? null,
       })),
       assets: uploadedAssets.slice(0, 50).map((a) => ({
         name: a.name,
@@ -539,7 +755,7 @@ export function buildAnalystContext(
         internetFacing: a.internetFacing,
         software: a.software.map((s) => `${s.vendor} ${s.product} ${s.version}`),
       })),
-      logs: uploadDatasets
+      logs: contextDatasets
         .filter((d) => d.logs)
         .slice(0, 20)
         .map((d) => ({
@@ -553,13 +769,13 @@ export function buildAnalystContext(
           lastTimestamp: d.logs!.lastTimestamp,
         })),
       note:
-        uploadDatasets.length > 0
-          ? `These datasets were accepted by an admin in the Data Input Hub. The current workspace scope is ${scope.label}. Assets carry source USER UPLOAD. Log uploads are summarised, not replayed event by event.`
-          : `No customer uploads have been accepted in this browser yet. The workspace scope is ${scope.label}.`,
+        contextDatasets.length > 0
+          ? `These datasets are shown in the Data Input Hub. The live Northwind portal capture (${liveLogin.analysis.metrics.attempts} login requests, ${liveLogin.failed} failed) is auto-fetched as a Logs dataset and does not change the asset scope. Any remaining datasets were accepted by an admin. Logs are summarised, not replayed event by event. The current workspace scope is ${scope.label}.`
+          : `No datasets have arrived yet. The workspace scope is ${scope.label}. Open the decoy portal to produce a live login capture.`,
     },
     pageData,
     policy:
-      'Demo seed: assets, logs, authentication events, geolocation and traffic are simulated. NVD, CISA KEV and FIRST EPSS identifiers are real public records; CERT-In is a sample feed; MITRE ATT&CK is a trimmed offline subset. Never present demo telemetry as a real observation.',
+      'Demo seed: assets, logs, authentication events, geolocation and traffic are simulated. The live login capture is written by the local Northwind decoy portal and auto-ingested as a Logs dataset; its accounts, addresses and geolocation are fictional and passwords are never stored. There is no dedicated login page or login-screen component: the auto-ingested capture is examined on the Dashboard capture strip, the Anomalies attempt register and the Data Input Hub dataset history. NVD, CISA KEV and FIRST EPSS identifiers are real public records; CERT-In is a sample feed; MITRE ATT&CK is a trimmed offline subset. Never present demo telemetry as a real observation.',
   }
 }
 
@@ -686,12 +902,19 @@ export function localBriefing(ctx: AnalystContext): string {
   const [first, second, third] = ctx.topAlerts
   const patch = ctx.patchPlan[0]
   const anomaly = ctx.anomalies.flagged[0]
+  const login = ctx.liveLogin
+  const loginFinding = login.findings[0]
   const degraded = ctx.sources.filter((s) => s.status === 'DEGRADED')
 
   const lines: string[] = []
   lines.push(
     `**Bottom line.** Posture score is **${org.postureScore}/100** for **${ctx.workspace.scope.label}** (higher is better) with **${org.activeAlerts} active alerts**, including **${org.critical} critical** and **${org.kevLinked} KEV-linked** cases.`,
   )
+  if (login.metrics.attempts > 0) {
+    lines.push(
+      `The live Northwind capture holds **${login.metrics.attempts} sign-in ${login.metrics.attempts === 1 ? 'request' : 'requests'}** — **${login.metrics.failures} failed**, **${login.metrics.successes} granted** — across ${login.metrics.accounts} ${plural(login.metrics.accounts, 'account')} and ${login.metrics.ips} source ${plural(login.metrics.ips, 'address', 'addresses')}. Login risk is **${login.risk.score}/100 ${login.risk.level}** (${login.risk.verdict}).`,
+    )
+  }
   lines.push('')
   lines.push('**What matters now**')
   const bullets = [first, second, third].filter(Boolean)
@@ -711,7 +934,13 @@ export function localBriefing(ctx: AnalystContext): string {
     `2. ${org.versionUnknown > 0 ? `Verify the ${org.versionUnknown} unverified version${org.versionUnknown === 1 ? '' : 's'} so the relevance gate can score them.` : 'Keep the version gate current so suppressed candidates stay suppressed for the right reason.'}`,
   )
   lines.push(
-    `3. ${anomaly ? `Have the SOC review the ${anomaly.window} window: ${truncate(anomaly.reason, 80).replace(/\.$/, '')}.` : 'Confirm the simulated log pipeline is still feeding the anomaly baseline.'}`,
+    `3. ${
+      loginFinding
+        ? `Act on the live capture: **${loginFinding.title}** — ${truncate(loginFinding.action, 120)}`
+        : anomaly
+          ? `Have the SOC review the ${anomaly.window} attempt: ${truncate(anomaly.reason, 80).replace(/\.$/, '')}.`
+          : 'Open the decoy portal and fail a sign-in so the live capture dataset has something to score.'
+    }`,
   )
   lines.push('')
   lines.push('**Model second opinion**')
@@ -730,7 +959,7 @@ export function localBriefing(ctx: AnalystContext): string {
   }
   lines.push('')
   lines.push(
-    `**Data note.** Posture and telemetry are simulated demo data${degraded.length ? `; ${degraded.map((d) => d.source).join(', ')} is marked degraded` : ''}. Scores are deterministic.`,
+    `**Data note.** Posture and CVE telemetry are simulated${degraded.length ? `; ${degraded.map((d) => d.source).join(', ')} is marked degraded` : ''}. The login capture comes from the fictional Northwind decoy portal and is auto-ingested as a dataset; passwords are never stored. Scores are deterministic.`,
   )
   return lines.join('\n')
 }

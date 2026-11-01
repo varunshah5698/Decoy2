@@ -1212,6 +1212,43 @@
   font-weight: 500;
 }
 
+.an-outcome {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  border: 1px solid transparent;
+}
+
+.an-outcome.failed {
+  color: #b83c0d;
+  background: var(--an-orange-soft);
+  border-color: rgba(255, 90, 31, 0.22);
+}
+
+.an-outcome.granted {
+  color: var(--an-green);
+  background: var(--an-green-soft);
+  border-color: rgba(31, 138, 91, 0.2);
+}
+
+[data-theme='dark'] .an-outcome.failed {
+  color: #ffb08d;
+  background: rgba(255, 106, 54, 0.14);
+  border-color: rgba(255, 106, 54, 0.25);
+}
+
+[data-theme='dark'] .an-outcome.granted {
+  color: #7fe0b8;
+  background: rgba(70, 192, 138, 0.12);
+  border-color: rgba(70, 192, 138, 0.24);
+}
+
 .an-finding {
   display: inline-flex;
   align-items: center;

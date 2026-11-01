@@ -8,10 +8,10 @@ import {
   ArrowRight,
   Check,
   ChevronDown,
-  Database,
   Gauge,
   Info,
   RefreshCw,
+  ShieldAlert,
   Sparkles,
   Zap,
 } from '../../components/Icons'
@@ -20,6 +20,7 @@ import { useAiPanel } from '../../lib/aiStore'
 import { useAuth } from '../../lib/store'
 import { useScopedInventory, useScopeInfo } from '../../lib/dataScope'
 import { useUploads } from '../../lib/uploads'
+import { useLoginCapture } from '../../lib/loginFeed'
 import { cx, plural } from '../../lib/format'
 import './ai.css'
 
@@ -43,14 +44,16 @@ const SUGGESTIONS = [
     icon: Gauge,
   },
   {
-    title: 'Explain EPSS vs CVSS',
-    detail: 'A general answer, no dashboard needed',
-    prompt: 'Explain EPSS vs CVSS and when each one matters. Keep it practical and concise.',
-    icon: Database,
+    title: 'What happened on the portal?',
+    detail: 'Failed sign-ins, sources and takeover risk',
+    prompt:
+      'Analyse the live Northwind portal capture. How many sign-ins failed, which accounts, IPs and countries were involved, what is the cumulative risk score, and what should I do next?',
+    icon: ShieldAlert,
   },
 ]
 
 const QUICK_PROMPTS = [
+  'Summarise the live portal failures and quote the risk score.',
   'Summarise the top three risks with evidence.',
   'Walk me through the deterministic scoring formula.',
   'Where is the data incomplete or simulated?',
@@ -112,6 +115,7 @@ export default function AiAnalyst() {
   const counts = useLiveCounts()
   const posture = useLivePosture()
   const sourceHealth = useLiveSourceHealth()
+  const login = useLoginCapture()
 
   const inventory = useScopedInventory()
   const scopeInfo = useScopeInfo()
@@ -190,8 +194,8 @@ export default function AiAnalyst() {
               Aegis <em>Copilot</em>.
             </h1>
             <p>
-              Ask anything — this workspace or the wider world. Workspace answers cite the same demo numbers on
-              screen; general questions get a normal chatbot.
+              Ask anything — this workspace or the wider world. Workspace answers cite the same numbers on screen,
+              including the live Northwind portal capture; general questions get a normal chatbot.
             </p>
           </div>
           <div className="xp-head-side">
@@ -431,7 +435,7 @@ export default function AiAnalyst() {
                   <span>
                     <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline
                   </span>
-                  <span>Demo workspace · general knowledge</span>
+                  <span>Live portal dataset · general knowledge</span>
                 </div>
               </div>
             </form>
@@ -528,6 +532,16 @@ export default function AiAnalyst() {
                       {sourceHealth.length} · {degraded} degraded
                     </strong>
                   </div>
+                  <div className="ai-page-fact">
+                    <span>Portal capture</span>
+                    <strong>
+                      {login.status === 'live'
+                        ? `${login.failed} failed · ${login.granted} granted`
+                        : login.status === 'offline'
+                          ? 'Offline · retrying'
+                          : 'Connecting…'}
+                    </strong>
+                  </div>
                   {uploadDatasets.length > 0 && (
                     <div className="ai-page-fact">
                       <span>Uploads</span>
@@ -537,8 +551,13 @@ export default function AiAnalyst() {
                 </div>
 
                 <p className="ai-context-note">
-                  Answers use these live demo numbers. Telemetry is simulated; NVD, CISA KEV and FIRST EPSS records
-                  are real.
+                  Answers use these live numbers. Telemetry is simulated; NVD, CISA KEV and FIRST EPSS records are
+                  real.
+                </p>
+                <p className="ai-context-note">
+                  The Northwind portal capture is real sign-in traffic, ingested automatically as a Logs dataset —
+                  currently {login.failed} failed and {login.granted} granted of {login.analysis.metrics.attempts}{' '}
+                  attempts.
                 </p>
               </div>
             </section>

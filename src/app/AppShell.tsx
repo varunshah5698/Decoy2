@@ -24,6 +24,7 @@ import { DataScopeSwitch } from '../components/DataScopeSwitch'
 import { navGroups, pageTitle, routeById } from './catalog'
 import { canAccess } from '../lib/access'
 import { latestLiveFetch, useLiveFeeds } from '../lib/liveFeeds'
+import { useLoginIntel } from '../lib/loginIntel'
 import { normalizeScopeId, useDataScope, useScopedInventory } from '../lib/dataScope'
 import { cx, initials, plural, timeAgo } from '../lib/format'
 
@@ -68,6 +69,12 @@ export default function AppShell() {
 
   useEffect(() => {
     void useLiveFeeds.getState().syncAll()
+  }, [])
+
+  useEffect(() => {
+    const capture = useLoginIntel.getState()
+    capture.start()
+    return () => useLoginIntel.getState().stop()
   }, [])
 
   useEffect(() => {

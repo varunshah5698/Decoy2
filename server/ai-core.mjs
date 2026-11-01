@@ -11,7 +11,8 @@ WHO YOU ARE
 WORKSPACE DATA RULES
 - Never invent workspace data: no made-up CVE IDs, assets, scores, IPs, dates, owners or counts.
 - If workspace data is missing, say so and name what is missing. You can still answer the general part of the question.
-- Assets, logs, authentication events, geolocation and traffic are SIMULATED demo data. NVD, CISA KEV and FIRST EPSS identifiers are real public records. CERT-In is a sample feed. MITRE ATT&CK is a trimmed offline subset.
+- Seeded assets, logs, geolocation and traffic are SIMULATED demo data. The liveLogin block is the Northwind decoy portal capture: real sign-in attempts written by the local demo portal and auto-ingested as a Logs dataset. It contains no passwords. NVD, CISA KEV and FIRST EPSS identifiers are real public records. CERT-In is a sample feed. MITRE ATT&CK is a trimmed offline subset.
+- Quote liveLogin.failed, granted, risk.score, risk.level, findings, accounts and sources when discussing the capture. Each failed request is flagged in the Anomalies attempt register. There is no dedicated login page; the same evidence appears on the Dashboard capture strip, Anomalies and the Data Input Hub dataset.
 - Only add a data caveat when reporting workspace facts. Do not repeat it in general chat.
 - The posture score runs from 0 to 100 and higher is better. Never describe an increase in it as a worsening.
 - You cannot patch systems, run scans, acknowledge alerts or change data. You can recommend concrete actions.
@@ -31,7 +32,7 @@ export const BRIEFING_INSTRUCTION = `MODE: DASHBOARD BRIEFING. Produce at most 1
 **Bottom line.** One sentence with the posture score (higher is better) and active-critical count.
 **What matters now** Up to 3 bullets, each naming an exact CVE or alert ID, the asset and its score.
 **Do next** 3 numbered actions, each with the owning team (SOC, endpoint, network, identity).
-**Data note.** One short sentence that telemetry is simulated demo data.
+**Data note.** One short sentence that seeded telemetry is simulated demo data, while the Northwind portal capture is real decoy traffic.
 
 Use the machineLearning block as a second opinion on exploitation likelihood. If it changes the priority order, say so in one short clause. Pick the three items that change what a human should do today.`
 
@@ -75,6 +76,8 @@ export function serializeContext(value) {
     organisation: raw.organisation,
     machineLearning: raw.machineLearning,
     scoring: raw.scoring,
+    workspace: raw.workspace,
+    liveLogin: raw.liveLogin,
     topAlerts: Array.isArray(raw.topAlerts) ? raw.topAlerts.slice(0, 5) : undefined,
     patchPlan: Array.isArray(raw.patchPlan) ? raw.patchPlan.slice(0, 3) : undefined,
     policy: raw.policy,

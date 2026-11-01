@@ -109,6 +109,25 @@ npm start
 
 Open the URL, sign in with `admin@aegis.demo` or `analyst@aegis.demo` (demo password `aegis-demo-2026`), then open **AI Analyst** in the sidebar (or press `Ctrl/⌘ + I`) and ask a question. If the reply is a local greeting, the client is working but the server key is missing; check `/api/health`.
 
+## Live decoy portal (Render)
+
+The optional Northwind sign-in portal is a separate Node service. Its deployment repo is
+<https://github.com/Bloom-247/hakkk> and it includes a Render blueprint (`render.yaml`) for a service named
+`northwind-decoy-portal`:
+
+1. In Render, **New → Blueprint** and connect `Bloom-247/hakkk`. Apply the proposed free web service.
+2. The service runs `npm start`, listens on Render's `PORT`, and checks `/api/health`.
+3. Set `AEGIS_CONSOLE_URL` to the deployed Aegis origin (the blueprint defaults to
+   <https://aegis-sentinel-blush.vercel.app>) so the portal links back to `/app`, `/app/anomalies` and `/app/uploads`.
+
+The expected portal URL is <https://northwind-decoy-portal.onrender.com>. The Aegis browser client polls its
+`/api/events` endpoint in production; locally it uses the Vite `/api/portal` proxy. If you rename the Render service,
+set `VITE_PORTAL_API_BASE` on the Aegis host (Vercel or Render) to the portal origin and redeploy Aegis.
+
+The portal keeps its capture on ephemeral storage, so events reset when the free service restarts. The Aegis UI
+degrades to “portal offline · last capture” until the service wakes; it retries automatically. Passwords are never
+recorded.
+
 ## Checks before going live
 
 - `RIVER_API_KEY` is set on the host and **not** committed anywhere.

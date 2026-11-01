@@ -24,11 +24,21 @@ const kevFeedProxy = {
   },
 }
 
+const portalProxy = {
+  '/api/portal': {
+    target: 'http://127.0.0.1:4300',
+    changeOrigin: true,
+    rewrite: (path: string) => path.replace(/^\/api\/portal/, '/api'),
+  },
+}
+
+const demoProxies = { ...kevFeedProxy, ...portalProxy }
+
 export default defineConfig(({ mode }) => {
   const env = normalizeEnv(loadEnv(mode, process.cwd(), ''))
   return {
     plugins: [react(), aiProxy(env)],
-    server: { port: 5173, host: true, proxy: kevFeedProxy },
-    preview: { proxy: kevFeedProxy },
+    server: { port: 5173, host: true, proxy: demoProxies },
+    preview: { proxy: demoProxies },
   }
 })
