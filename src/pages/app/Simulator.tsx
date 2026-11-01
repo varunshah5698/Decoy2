@@ -650,10 +650,10 @@ export default function Simulator() {
               </div>
             </div>
             <div className="wb-metric">
-              <span>levels that move</span>
+              <span>level changes</span>
               <b className={cx(levelChanges > 0 && 'tone-high')}>{levelChanges}</b>
               <div className="ms-metric-foot">
-                <span className="mono">{movers.length} scores changed</span>
+                <span className="mono">of {movers.length} scores moved</span>
               </div>
             </div>
             <div className="wb-metric">

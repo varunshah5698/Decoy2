@@ -14754,7 +14754,9 @@ button.wb-sla-row:hover {
   background: conic-gradient(
     from -135deg,
     var(--ms-hue, var(--teal)) calc(var(--ms-pct) / 100 * 270deg),
-    rgba(27, 36, 55, 0.09) calc(var(--ms-pct) / 100 * 270deg) 270deg,
+    /* The unfilled sweep has to read as a track, not as an absent ring: the hairline colour
+       (--ms-line) is too close to the card surface at this size. */
+    rgba(27, 36, 55, 0.16) calc(var(--ms-pct) / 100 * 270deg) 270deg,
     transparent 270deg
   );
   transition: --ms-pct 0.85s cubic-bezier(0.22, 1, 0.36, 1);
