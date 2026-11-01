@@ -18,4 +18,4 @@ services:
       - key: RIVER_MODEL
         value: deepseek-ai/DeepSeek-V4.1-Flash
       - key: VITE_PORTAL_API_BASE
-        value: https://northwind-decoy-portal.onrender.com
+        value: https://hakkk.onrender.com

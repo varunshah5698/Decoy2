@@ -1,6 +1,8 @@
 # Deploying Aegis Sentinel
 
-Live deployment: <https://aegis-sentinel-blush.vercel.app> (Vercel project `aegis-sentinel`). The project is connected to the Decoy2 repository, so pushes to `main` deploy production automatically.
+Live deployments: <https://aegis-sentinel-blush.vercel.app> (Vercel project `aegis-sentinel`) and
+<https://decoy2.onrender.com/app> (Render service `decoy2`). Both are connected to the Decoy2 repository, so pushes
+to `main` deploy production automatically.
 
 The app is a static Vite build plus one server-side endpoint, `POST /api/ai/chat`, which streams answers from River AI. The endpoint must run on a server: a static-only host would leave the copilot unavailable. The copilot lives on its own page at `/app/ai`.
 
@@ -33,7 +35,8 @@ Set the key first with `vercel env add RIVER_API_KEY` (choose Production, Previe
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/varunshah5698/Decoy2)
 
 1. In Render, **New → Blueprint** and connect the Decoy2 repository (or use the button above).
-2. Render reads `render.yaml` and proposes the `aegis-sentinel` web service:
+2. Render reads `render.yaml` and proposes the `aegis-sentinel` web service (this deployment is named
+   `decoy2`):
    - Build: `npm ci --include=dev && npm run build`
    - Start: `npm start` (serves `dist` and `/api/ai/chat` from one Node process)
    - Health check: `/api/health`
@@ -111,18 +114,19 @@ Open the URL, sign in with `admin@aegis.demo` or `analyst@aegis.demo` (demo pass
 
 ## Live decoy portal (Render)
 
-The optional Northwind sign-in portal is a separate Node service. Its deployment repo is
-<https://github.com/Bloom-247/hakkk> and it includes a Render blueprint (`render.yaml`) for a service named
-`northwind-decoy-portal`:
+The Northwind sign-in portal is a separate Node service from
+<https://github.com/Bloom-247/hakkk>. The deployed pair is:
 
-1. In Render, **New → Blueprint** and connect `Bloom-247/hakkk`. Apply the proposed free web service.
-2. The service runs `npm start`, listens on Render's `PORT`, and checks `/api/health`.
-3. Set `AEGIS_CONSOLE_URL` to the deployed Aegis origin (the blueprint defaults to
-   <https://aegis-sentinel-blush.vercel.app>) so the portal links back to `/app`, `/app/anomalies` and `/app/uploads`.
+- Portal: <https://hakkk.onrender.com>
+- Console: <https://decoy2.onrender.com/app>
 
-The expected portal URL is <https://northwind-decoy-portal.onrender.com>. The Aegis browser client polls its
-`/api/events` endpoint in production; locally it uses the Vite `/api/portal` proxy. If you rename the Render service,
-set `VITE_PORTAL_API_BASE` on the Aegis host (Vercel or Render) to the portal origin and redeploy Aegis.
+The portal records every attempt and exposes `/api/events`; the Aegis browser client polls that endpoint in
+production and uses the Vite `/api/portal` proxy locally. The portal links back to `/app`, `/app/anomalies` and
+`/app/uploads` using `AEGIS_CONSOLE_URL`, which its `render.yaml` defaults to <https://decoy2.onrender.com>.
+
+`VITE_PORTAL_API_BASE` defaults to <https://hakkk.onrender.com> for non-local builds and is declared in
+`render.yaml`. If either Render service is renamed, update these two values (portal `AEGIS_CONSOLE_URL`, console
+`VITE_PORTAL_API_BASE`), redeploy both, and rebuild Aegis so the browser bundle picks up the new portal origin.
 
 The portal keeps its capture on ephemeral storage, so events reset when the free service restarts. The Aegis UI
 degrades to “portal offline · last capture” until the service wakes; it retries automatically. Passwords are never

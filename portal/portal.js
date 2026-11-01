@@ -17,7 +17,10 @@
 
   let busy = false
   let toastTimer = 0
-  let consoleBase = `${location.protocol}//${location.hostname}:5173`
+  const localHost = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
+  let consoleBase = localHost
+    ? `${location.protocol}//${location.hostname}:5173`
+    : 'https://decoy2.onrender.com'
 
   const countAttempts = $('count-attempts')
   const countFailed = $('count-failed')

@@ -164,7 +164,7 @@ export const LOGIN_POLL_MS = 2000
 /* The portal is a separate Node service. Locally it is proxied by Vite on
    /api/portal; in production the browser talks to the Render deployment.
    VITE_PORTAL_API_BASE lets a host point at a different portal origin. */
-const DEFAULT_PORTAL_ORIGIN = 'https://northwind-decoy-portal.onrender.com'
+const DEFAULT_PORTAL_ORIGIN = 'https://hakkk.onrender.com'
 const configuredPortalOrigin = (import.meta.env.VITE_PORTAL_API_BASE as string | undefined)?.trim().replace(/\/+$/, '')
 const localHost = typeof window !== 'undefined' && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname)
 export const PORTAL_ORIGIN = configuredPortalOrigin || (localHost ? '' : DEFAULT_PORTAL_ORIGIN)

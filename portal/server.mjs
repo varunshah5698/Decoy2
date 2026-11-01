@@ -19,7 +19,8 @@ const jsonFile = join(dataDir, 'login-events.json')
 const csvFile = join(dataDir, 'login-events.csv')
 const port = Number(process.env.PORT || process.env.PORTAL_PORT || 4300)
 const host = process.env.PORTAL_HOST || '0.0.0.0'
-const aegisConsole = (process.env.AEGIS_CONSOLE_URL || 'http://localhost:5173').replace(/\/+$/, '')
+const consoleDefault = process.env.RENDER || process.env.PORT ? 'https://decoy2.onrender.com' : 'http://localhost:5173'
+const aegisConsole = (process.env.AEGIS_CONSOLE_URL || consoleDefault).replace(/\/+$/, '')
 
 mkdirSync(dataDir, { recursive: true })
 

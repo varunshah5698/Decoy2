@@ -25,26 +25,26 @@ Open <http://localhost:4300>. The Aegis console uses the Vite proxy at `/api/por
 
 ## Deploy on Render
 
-When this folder is published as its own repository (for example
-[Bloom-247/hakkk](https://github.com/Bloom-247/hakkk)), it is Render-ready:
+When this folder is published as its own repository
+[Bloom-247/hakkk](https://github.com/Bloom-247/hakkk), it is Render-ready:
 
-- `render.yaml` defines a free Node web service named `northwind-decoy-portal`
+- `render.yaml` defines a free Node web service named `hakkk`
 - start command: `npm start` (`node server.mjs`)
 - health check: `/api/health`
 - the server binds to `0.0.0.0` and the port Render injects through `PORT`
 - CORS is open on the read-only demo endpoints so the Aegis console can poll them
 
-Expected service URL: <https://northwind-decoy-portal.onrender.com>
+Deployed portal: <https://hakkk.onrender.com>. Deployed console: <https://decoy2.onrender.com/app>.
 
 Set these environment variables in Render:
 
 | variable | purpose |
 | --- | --- |
-| `AEGIS_CONSOLE_URL` | deployed Aegis origin; the portal links to `/app`, `/app/anomalies` and `/app/uploads` under it |
+| `AEGIS_CONSOLE_URL` | deployed Aegis origin (defaults to <https://decoy2.onrender.com> on Render); the portal links to `/app`, `/app/anomalies` and `/app/uploads` under it |
 | `PORT` | supplied by Render automatically |
 | `PORTAL_PORT` | local fallback only (defaults to `4300` when `PORT` is absent) |
 
-The Aegis host reads the capture from `https://<service>.onrender.com/api/events?limit=1000` and downloads
+The Aegis host reads the capture from `https://hakkk.onrender.com/api/events?limit=1000` and downloads
 `/api/events.csv`. If the Render service name differs, set `VITE_PORTAL_API_BASE` on the Aegis host to the portal
 origin and redeploy Aegis.
 
