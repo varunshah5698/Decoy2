@@ -4,23 +4,24 @@ import { AnalystMark } from './AnalystMark'
 import { AiMarkdown } from './AiMarkdown'
 import { Activity, ArrowRight, Database, Info, RefreshCw, ShieldAlert, Zap } from './Icons'
 import { useAiPanel } from '../lib/aiStore'
-import { activeAlerts, assets, counts, sourceHealth } from '../data/seed'
-import { allUploadedAssets, useUploads } from '../lib/uploads'
+import { useEstate } from '../lib/estate'
+import { getEstate } from '../lib/estate'
 import { mlPortfolio, MODEL_CARD } from '../lib/ml'
 import { fmtScore, cx } from '../lib/format'
-
-const ranked = [...activeAlerts].sort((a, b) => b.score - a.score)
-const topAlert = ranked[0]
-const internetFacing = activeAlerts.filter((a) => a.asset.internetFacing).length
-const versionUnknown = activeAlerts.filter((a) => a.relevance === 'VERSION_UNKNOWN').length
-const degraded = sourceHealth.filter((s) => s.status === 'DEGRADED')
 
 export default function AiBriefing() {
   const navigate = useNavigate()
   const generate = useAiPanel((s) => s.generateBriefing)
   const briefing = useAiPanel((s) => s.briefing)
-  const uploadDatasets = useUploads((s) => s.datasets)
-  const inventoryCount = assets.length + allUploadedAssets(uploadDatasets).length
+  const estate = useEstate()
+  const { activeAlerts, counts, sourceHealth } = estate
+  const ranked = [...activeAlerts].sort((a, b) => b.score - a.score)
+  const topAlert = ranked[0]
+  const internetFacing = activeAlerts.filter((a) => a.asset.internetFacing).length
+  const versionUnknown = activeAlerts.filter((a) => a.relevance === 'VERSION_UNKNOWN').length
+  const degraded = sourceHealth.filter((s) => s.status === 'DEGRADED')
+  const portfolio = mlPortfolio(activeAlerts)
+  const inventoryCount = estate.assets.length
 
   useEffect(() => {
     generate('/app')
@@ -118,10 +119,10 @@ export default function AiBriefing() {
             <span className="ai-signal-label">
               <Activity size={11} /> XGBoost prior
             </span>
-            <strong>{(mlPortfolio.max * 100).toFixed(0)}%</strong>
+            <strong>{(portfolio.max * 100).toFixed(0)}%</strong>
             <p>
               top KEV-membership prior
-              <span> · {mlPortfolio.elevated}/{mlPortfolio.coverage} elevated · AUC {MODEL_CARD.test.auc.toFixed(3)}</span>
+              <span> · {portfolio.elevated}/{portfolio.coverage} elevated · AUC {MODEL_CARD.test.auc.toFixed(3)}</span>
             </p>
           </div>
           <div className="ai-signal muted">

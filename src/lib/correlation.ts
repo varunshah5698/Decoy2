@@ -1,6 +1,3 @@
-import { useMemo } from 'react'
-import { alerts as seedAlerts, assets as seedAssets } from '../data/seed'
-import { useLiveCves } from './liveFeeds'
 import { relevanceReason, round1, scoreAlert } from './scoring'
 import type { Alert, Asset, Cve, RiskLevel } from './types'
 
@@ -42,7 +39,7 @@ const kevNote = (cve: Cve) =>
       })}.`
     : ''
 
-const refreshAlert = (alert: Alert, cve: Cve): Alert => {
+export const refreshAlert = (alert: Alert, cve: Cve, versionHint?: string): Alert => {
   const result = scoreAlert({
     cve,
     criticality: alert.asset.criticality,
@@ -51,7 +48,7 @@ const refreshAlert = (alert: Alert, cve: Cve): Alert => {
   })
 
   const installed = alert.asset.software.find((entry) => entry.product.toLowerCase() === cve.product.toLowerCase())
-  const version = installed?.version ?? alert.version
+  const version = versionHint ?? installed?.version ?? alert.version
   const asset = alert.asset
 
   const summary =
@@ -116,12 +113,7 @@ export interface CorrelationModel {
   }
 }
 
-export function buildCorrelationModel(liveCves: Cve[]): CorrelationModel {
-  const cveMap = new Map(liveCves.map((cve) => [cve.id, cve]))
-  const alerts = sortAlerts(
-    seedAlerts.map((alert) => refreshAlert(alert, cveMap.get(alert.cve.id) ?? alert.cve)),
-  )
-
+export function correlate(alerts: Alert[], assets: Asset[], cves: Cve[]): CorrelationModel {
   const alertsByAsset = new Map<string, Alert[]>()
   const alertsByCve = new Map<string, Alert[]>()
   for (const alert of alerts) {
@@ -143,13 +135,13 @@ export function buildCorrelationModel(liveCves: Cve[]): CorrelationModel {
   })
 
   const linkedCveIds = new Set(alerts.map((alert) => alert.cve.id))
-  const unlinkedCves = liveCves.filter((cve) => !linkedCveIds.has(cve.id))
+  const unlinkedCves = cves.filter((cve) => !linkedCveIds.has(cve.id))
   const active = alerts.filter((alert) => !alert.suppressed)
 
   return {
     alerts,
-    assets: seedAssets,
-    cves: liveCves,
+    assets,
+    cves,
     alertsByAsset,
     alertsByCve,
     bestByAsset,
@@ -168,9 +160,4 @@ export function buildCorrelationModel(liveCves: Cve[]): CorrelationModel {
       linkedCves: linkedCveIds.size,
     },
   }
-}
-
-export function useCorrelationModel(): CorrelationModel {
-  const cves = useLiveCves()
-  return useMemo(() => buildCorrelationModel(cves), [cves])
 }

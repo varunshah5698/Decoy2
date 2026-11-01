@@ -11,20 +11,8 @@ import { StatsPanel } from '../../components/StatsPanel'
 import { Counter } from '../../components/Counter'
 import { AttackChain } from '../../components/AttackChain'
 import { AlertTriangle, ArrowRight, Bug, ExternalLink, Globe2, ShieldAlert, ShieldCheck, Zap } from '../../components/Icons'
-import {
-  activityHeatmap,
-  activeAlerts,
-  alertDaily,
-  alerts,
-  assets as seedAssets,
-  counts,
-  DEMO_NOW,
-  posture,
-  suppressedAlerts,
-  threatDaily,
-} from '../../data/seed'
+import { useEstate } from '../../lib/estate'
 import { useFilters, useTheme } from '../../lib/store'
-import { allUploadedAssets, useUploads } from '../../lib/uploads'
 import { cx, fmtInt, fmtScore, timeAgo } from '../../lib/format'
 import { median, spearman, stdev, mean } from '../../lib/stats'
 import { mlFor, mlPortfolio, ML_BANDS, MODEL_CARD } from '../../lib/ml'
@@ -40,9 +28,23 @@ export default function Dashboard() {
   const query = useFilters((s) => s.query)
   const severity = useFilters((s) => s.severity)
 
-  const uploadDatasets = useUploads((s) => s.datasets)
-  const uploadedAssets = useMemo(() => allUploadedAssets(uploadDatasets), [uploadDatasets])
-  const inventory = useMemo(() => [...uploadedAssets, ...seedAssets], [uploadedAssets])
+  const estate = useEstate()
+  const {
+    activityHeatmap,
+    activeAlerts,
+    alertDaily,
+    alerts,
+    counts,
+    posture,
+    postureTrend,
+    suppressedAlerts,
+    threatDaily,
+  } = estate
+  const portfolio = mlPortfolio(activeAlerts)
+  const eventsReal = estate.coverage.hasEvents
+  const threatReal = estate.coverage.threatDailyReal
+  const inventory = estate.assets
+  const uploadedAssets = estate.uploadedAssets
   const versioned = inventory.filter((a) => a.software.every((s) => s.version && s.version !== 'unknown')).length
   const coverage = Math.round((versioned / Math.max(1, inventory.length)) * 100)
 
@@ -76,18 +78,18 @@ export default function Dashboard() {
         .slice()
         .sort((a, b) => b.score - a.score)
         .slice(0, 5),
-    [],
+    [activeAlerts],
   )
 
   const funnelStages = useMemo(
     () => [
-      { name: 'Ingested', value: counts.cves, color: TEAL, note: 'CVE records normalised from NVD · KEV · EPSS' },
+      { name: 'Ingested', value: estate.cves.length, color: TEAL, note: 'CVE records normalised from NVD · KEV · EPSS' },
       { name: 'Correlated', value: counts.total, color: '#4fb9c9', note: 'Version-aware candidates that touch the inventory' },
       { name: 'Active', value: counts.active, color: AMBER, note: 'Survives the relevance gate · suppressed noise removed' },
       { name: 'High/Crit', value: counts.high + counts.critical, color: LEVEL_COLORS.HIGH, note: 'High and critical after six-factor scoring' },
       { name: 'Critical', value: counts.critical, color: LEVEL_COLORS.CRITICAL, note: 'Patch this window · KEV floor applied' },
     ],
-    [],
+    [estate.cves, counts],
   )
 
   const peakActivity = useMemo(() => {
@@ -104,7 +106,7 @@ export default function Dashboard() {
       }),
     )
     return { day, hour, value }
-  }, [])
+  }, [activityHeatmap])
 
   const stats = useMemo(() => {
     const scores = activeAlerts.map((a) => a.score)
@@ -144,13 +146,13 @@ export default function Dashboard() {
       },
       {
         name: 'Model ↔ score agreement',
-        value: spearman(activeAlerts.map((a) => mlFor(a.id).probability), scores).toFixed(2),
+        value: spearman(activeAlerts.map((a) => mlFor(a).probability), scores).toFixed(2),
         formula: 'Spearman ρ · XGBoost prior vs six-factor score',
         n: scores.length,
         note: `XGBoost v${MODEL_CARD.version} · test AUC ${MODEL_CARD.test.auc.toFixed(3)} on live NVD/EPSS feeds.`,
       },
     ]
-  }, [])
+  }, [activeAlerts, alerts, suppressedAlerts])
 
   const threatOption = useMemo(() => {
     const ax = axisStyle(theme, { split: true })
@@ -264,7 +266,7 @@ export default function Dashboard() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, threatDaily, threatReal])
 
   const funnelOption = useMemo(() => {
     const t = chartTokens(theme)
@@ -521,7 +523,7 @@ export default function Dashboard() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, activeAlerts])
 
   const heatmapOption = useMemo(() => {
     const data: [number, number, number][] = []
@@ -533,7 +535,7 @@ export default function Dashboard() {
       grid: { left: 42, right: 18, top: 16, bottom: 44 },
       tooltip: {
         formatter: (p: any) =>
-          `<b>${DAY_LABELS[p.value[1]]} ${String(p.value[0]).padStart(2, '0')}:00</b><br/>${p.value[2]} events · simulated`,
+          `<b>${DAY_LABELS[p.value[1]]} ${String(p.value[0]).padStart(2, '0')}:00</b><br/>${p.value[2]} events · ${eventsReal ? 'from uploaded logs' : 'simulated'}`,
       },
       xAxis: {
         type: 'category',
@@ -584,30 +586,34 @@ export default function Dashboard() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, activityHeatmap, eventsReal])
 
   const kpiSparks = useMemo(
     () => ({
-      posture: alertDaily.map((d) => d.critical * 15 + d.high * 6 + 8),
+      posture: postureTrend,
       active: alertDaily.map((d) => d.critical + d.high + d.medium + d.low + 1),
       critical: alertDaily.map((d) => d.critical),
       kev: threatDaily.map((d) => d.kev),
       exposure: [3, 4, 4, 5, 5, 6, 7, exposureActive.length],
       coverage: [88, 92, 92, 96, 96, 100, 100, 100],
     }),
-    [exposureActive.length],
+    [exposureActive.length, postureTrend, alertDaily, threatDaily],
   )
 
   return (
     <div className="page dashboard-page">
       <PageHeader
-        eyebrow={`SECURITY POSTURE · ${DEMO_NOW.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase()} · DEMO SEED`}
+        eyebrow={`SECURITY POSTURE · ${new Date(estate.now).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).toUpperCase()} · ${estate.coverage.hasUploads ? 'LIVE ESTATE' : 'DEMO SEED'}`}
         title="Command centre"
         description="Threats correlated to your inventory, ranked by what could actually reach a system you run."
         actions={
           <>
-            {uploadDatasets.length > 0 && (
-              <span className="badge upload">{uploadDatasets.length} upload{uploadDatasets.length === 1 ? '' : 's'} applied</span>
+            {estate.scope.datasets.length > 0 && (
+              <span className="badge upload">
+                {estate.scope.all
+                  ? `${estate.scope.datasets.length} upload${estate.scope.datasets.length === 1 ? '' : 's'} applied`
+                  : `analysing ${estate.scope.label.slice(0, 24)}`}
+              </span>
             )}
             <button className="btn btn-ghost btn-sm" onClick={() => navigate('/app/scoring')}>
               <Zap size={13} /> Scoring model
@@ -744,7 +750,7 @@ export default function Dashboard() {
                   </div>
                   <div className="crit-name">{a.cve.title}</div>
                   <div className="crit-meta">
-                    {a.asset.name} · {a.asset.department} · {timeAgo(a.createdAt, DEMO_NOW)}
+                    {a.asset.name} · {a.asset.department} · {timeAgo(a.createdAt, estate.now)}
                   </div>
                 </div>
                 <div className="crit-score">
@@ -757,7 +763,7 @@ export default function Dashboard() {
           <div className="crit-foot">
             <span className="mono">XGBoost v{MODEL_CARD.version} second opinion</span>
             <span className="mono">
-              {mlPortfolio.elevated} elevated ≥{(ML_BANDS.elevated * 100).toFixed(1)}%
+              {portfolio.elevated} elevated ≥{(ML_BANDS.elevated * 100).toFixed(1)}%
             </span>
           </div>
         </Panel>
@@ -765,8 +771,8 @@ export default function Dashboard() {
         <Panel
           className="col-6 posture-panel"
           title="Posture"
-          sub="Exposure index · 4 critical alerts × 15 + 4 high × 6"
-          action={<span className="mono">SIMULATED</span>}
+          sub={`Exposure index · 100 − mean worst-alert score across ${estate.assets.length} assets`}
+          action={<span className="mono">{estate.coverage.hasUploads ? "LIVE ESTATE" : "DEMO SEED"}</span>}
           noPad
           spotlight
         >
@@ -784,7 +790,7 @@ export default function Dashboard() {
         <Panel
           className="col-12"
           title="Threat landscape · 30 days"
-          sub="Ingested CVEs and known-exploited additions · demo series"
+          sub={threatReal ? "Ingested CVEs and known-exploited additions · from synced NVD/KEV dates" : "Ingested CVEs and known-exploited additions · demo series"}
           action={<span className="badge real">NVD · KEV</span>}
           noPad
           spotlight
@@ -797,14 +803,14 @@ export default function Dashboard() {
             <span className="legend-item">
               <i style={{ background: AMBER }} /> KEV additions
             </span>
-            <span className="legend-item dim">Series derived deterministically from seed 20261031</span>
+            <span className="legend-item dim">{threatReal ? "KEV additions dated from the synced CISA catalogue" : "Series derived deterministically from seed 20261031"}</span>
           </div>
         </Panel>
 
         <Panel
           className="col-6"
           title="Detection funnel"
-          sub={`${counts.cves} ingested → ${counts.active} active after the gate → ${counts.critical} critical`}
+          sub={`${estate.cves.length} ingested → ${counts.active} active after the gate → ${counts.critical} critical`}
           action={
             <button className="panel-link" onClick={() => navigate('/app/alerts')}>
               Open alert center <ArrowRight size={11} />
@@ -857,7 +863,11 @@ export default function Dashboard() {
           className="col-5 heatmap-panel"
           title="Authentication activity"
           sub={`Events per hour · 7-day window · peak ${DAY_LABELS[peakActivity.day]} ${String(peakActivity.hour).padStart(2, '0')}:00 (${peakActivity.value})`}
-          action={<span className="badge simulated">Simulated</span>}
+          action={
+            <span className={eventsReal ? "badge upload" : "badge simulated"}>
+              {eventsReal ? "From uploads" : "Simulated"}
+            </span>
+          }
           noPad
           spotlight
         >
@@ -867,8 +877,8 @@ export default function Dashboard() {
         <Panel
           className="col-12"
           title="Attack chain"
-          sub="How an intrusion would move · technique counts from the trimmed ATT&CK subset"
-          action={<span className="mono">MITRE · illustrative</span>}
+          sub={`How an intrusion would move · technique counts ${estate.coverage.hasEvents ? "re-counted from your uploaded events" : "from the trimmed ATT&CK subset"}`}
+          action={<span className="mono">{estate.coverage.hasEvents ? "ATT&CK · USER UPLOAD" : "MITRE · illustrative"}</span>}
           noPad
           spotlight
         >
@@ -878,7 +888,7 @@ export default function Dashboard() {
         <Panel
           className="col-12"
           title="Priority queue"
-          sub={`${topAlerts.length} of ${activeAlerts.length} active alerts · XGBoost flags ${mlPortfolio.elevated} at ≥${(ML_BANDS.elevated * 100).toFixed(1)}% · sorted by six-factor score`}
+          sub={`${topAlerts.length} of ${activeAlerts.length} active alerts · XGBoost flags ${portfolio.elevated} at ≥${(ML_BANDS.elevated * 100).toFixed(1)}% · sorted by six-factor score`}
           action={
             <button className="panel-link" onClick={() => navigate('/app/alerts')}>
               Full queue <ArrowRight size={11} />
@@ -932,7 +942,7 @@ export default function Dashboard() {
                     <td>
                       <SourceBadge source="NVD" />
                     </td>
-                    <td className="right mono">{timeAgo(a.createdAt, DEMO_NOW)}</td>
+                    <td className="right mono">{timeAgo(a.createdAt, estate.now)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -951,7 +961,7 @@ export default function Dashboard() {
 
       <div className="page-foot">
         <span className="mono">
-          Demo window {DEMO_NOW.toISOString().slice(0, 16).replace('T', ' ')}Z · {fmtInt(18)} CVEs · {inventory.length} assets · 15 correlation candidates
+          {estate.coverage.hasUploads ? 'Estate as of' : 'Demo window'} {estate.nowIso.slice(0, 16).replace('T', ' ')}Z · {fmtInt(estate.cves.length)} CVEs · {inventory.length} assets · {fmtInt(alerts.length)} correlation candidates
         </span>
         <span className="mono">Labels: NVD / CISA KEV / FIRST EPSS = real · SIMULATED = seeded · USER UPLOAD = customer data</span>
       </div>
@@ -1074,7 +1084,7 @@ function FactorLine({ label, value, total, tone }: { label: string; value: numbe
 }
 
 function MlCell({ alert }: { alert: Alert }) {
-  const { probability, band } = mlFor(alert.id)
+  const { probability, band } = mlFor(alert)
   return (
     <div className={`ml-cell ${band.toLowerCase()}${alert.suppressed ? ' gated' : ''}`}>
       <span className="mono ml-cell-value">{(probability * 100).toFixed(0)}%</span>

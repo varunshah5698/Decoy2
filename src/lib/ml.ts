@@ -1,7 +1,9 @@
 import modelJson from '../data/xgb-model.json'
 import cardJson from '../data/xgb-model-card.json'
-import { activeAlerts, alerts } from '../data/seed'
 import type { Alert } from './types'
+
+/* Estate snapshots are identity-stable, so predictions can be memoised per alert object. */
+const predictionCache = new WeakMap<Alert, MlPrediction>()
 
 interface RuntimeModel {
   format: string
@@ -115,31 +117,56 @@ export function bandFor(p: number): MlBand {
   return 'LOW'
 }
 
-export const mlByAlert: Record<string, MlPrediction> = Object.fromEntries(
-  alerts.map((a) => [a.id, predict(a)]),
-)
+export const mlFor = (alert: Alert): MlPrediction => {
+  const cached = predictionCache.get(alert)
+  if (cached) return cached
+  const prediction = predict(alert)
+  predictionCache.set(alert, prediction)
+  return prediction
+}
 
-export const mlFor = (id: string): MlPrediction => mlByAlert[id] ?? predict(alerts[0])
+export interface MlRow {
+  alert: Alert
+  prediction: MlPrediction
+}
 
-export const mlActive = activeAlerts
-  .map((a) => ({ alert: a, prediction: mlFor(a.id) }))
-  .sort((x, y) => y.prediction.probability - x.prediction.probability)
+export function mlActive(alerts: Alert[]): MlRow[] {
+  return alerts
+    .map((alert) => ({ alert, prediction: mlFor(alert) }))
+    .sort((x, y) => y.prediction.probability - x.prediction.probability)
+}
 
-const probabilities = mlActive.map((r) => r.prediction.probability)
-const meanProbability = probabilities.reduce((s, p) => s + p, 0) / Math.max(1, probabilities.length)
+export interface MlPortfolio {
+  mean: number
+  max: number
+  elevated: number
+  watch: number
+  low: number
+  top: MlRow[]
+  coverage: number
+  auc: number
+  cvAuc: number
+  rounds: number
+  rows: number
+}
 
-export const mlPortfolio = {
-  mean: meanProbability,
-  max: probabilities[0] ?? 0,
-  elevated: probabilities.filter((p) => p >= ML_BANDS.elevated).length,
-  watch: probabilities.filter((p) => p >= ML_BANDS.watch && p < ML_BANDS.elevated).length,
-  low: probabilities.filter((p) => p < ML_BANDS.watch).length,
-  top: mlActive.slice(0, 5),
-  coverage: mlActive.length,
-  auc: MODEL_CARD.test.auc,
-  cvAuc: MODEL_CARD.cv.auc,
-  rounds: MODEL_CARD.rounds,
-  rows: MODEL_CARD.dataset.rows,
+export function mlPortfolio(activeAlerts: Alert[]): MlPortfolio {
+  const ranked = mlActive(activeAlerts)
+  const probabilities = ranked.map((r) => r.prediction.probability)
+  const meanProbability = probabilities.reduce((s, p) => s + p, 0) / Math.max(1, probabilities.length)
+  return {
+    mean: meanProbability,
+    max: probabilities[0] ?? 0,
+    elevated: probabilities.filter((p) => p >= ML_BANDS.elevated).length,
+    watch: probabilities.filter((p) => p >= ML_BANDS.watch && p < ML_BANDS.elevated).length,
+    low: probabilities.filter((p) => p < ML_BANDS.watch).length,
+    top: ranked.slice(0, 5),
+    coverage: ranked.length,
+    auc: MODEL_CARD.test.auc,
+    cvAuc: MODEL_CARD.cv.auc,
+    rounds: MODEL_CARD.rounds,
+    rows: MODEL_CARD.dataset.rows,
+  }
 }
 
 export const topFeatureImportance = MODEL_CARD.featureImportance.slice(0, 6)

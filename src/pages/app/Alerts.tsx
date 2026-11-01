@@ -7,7 +7,7 @@ import { StatsPanel } from '../../components/StatsPanel'
 import { SeverityBadge, ConfidenceBadge, RelevanceBadge, SourceBadge, UploadBadge } from '../../components/Badges'
 import { EmptyState } from '../../components/EmptyState'
 import { AlertTriangle, Check, Download, Lock, Search, ShieldAlert, Sparkles, X } from '../../components/Icons'
-import { alerts, activeAlerts, DEMO_NOW, suppressedAlerts } from '../../data/seed'
+import { useEstate } from '../../lib/estate'
 import { useAcks, useAuth, useFilters, useToast } from '../../lib/store'
 import { fmtDate, fmtPct, fmtScore, timeAgo } from '../../lib/format'
 import { mean } from '../../lib/stats'
@@ -17,6 +17,10 @@ import type { Alert, RelevanceStatus, RiskLevel } from '../../lib/types'
 
 type RelevanceFilter = 'ALL' | RelevanceStatus
 
+/* A 1,000-asset estate can raise well over a thousand rows; the table paints a page at a
+   time so the first render stays interactive. */
+const ROW_PAGE = 150
+
 export default function Alerts() {
   const [params, setParams] = useSearchParams()
   const query = useFilters((s) => s.query)
@@ -24,16 +28,18 @@ export default function Alerts() {
   const toast = useToast((s) => s.show)
   const session = useAuth((s) => s.session)
   const admin = session?.role === 'ADMIN'
+  const estate = useEstate()
   const acks = useAcks((s) => s.acks)
   const ack = useAcks((s) => s.ack)
 
   const [level, setLevel] = useState<'ALL' | RiskLevel>('ALL')
   const [relevance, setRelevance] = useState<RelevanceFilter>('ALL')
   const [showSuppressed, setShowSuppressed] = useState(true)
+  const [visible, setVisible] = useState(ROW_PAGE)
   const [kevOnly, setKevOnly] = useState(false)
 
   const selectedId = params.get('alert')
-  const selected = selectedId ? alerts.find((a) => a.id === selectedId) ?? null : null
+  const selected = selectedId ? estate.alerts.find((a) => a.id === selectedId) ?? null : null
 
   const open = (a: Alert) => {
     const next = new URLSearchParams(params)
@@ -46,9 +52,11 @@ export default function Alerts() {
     setParams(next, { replace: true })
   }
 
+  useEffect(() => setVisible(ROW_PAGE), [level, relevance, showSuppressed, kevOnly, query, estate])
+
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return alerts
+    return estate.alerts
       .filter((a) => (showSuppressed ? true : !a.suppressed))
       .filter((a) => (level === 'ALL' ? true : a.level === level))
       .filter((a) => (relevance === 'ALL' ? true : a.relevance === relevance))
@@ -57,7 +65,7 @@ export default function Alerts() {
         q ? `${a.id} ${a.cve.id} ${a.cve.title} ${a.asset.name} ${a.asset.department}`.toLowerCase().includes(q) : true,
       )
       .sort((a, b) => Number(a.suppressed) - Number(b.suppressed) || b.score - a.score)
-  }, [level, relevance, showSuppressed, kevOnly, query])
+  }, [estate, level, relevance, showSuppressed, kevOnly, query])
 
   return (
     <div className="page">
@@ -87,29 +95,29 @@ export default function Alerts() {
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, minmax(0,1fr))' }}>
         <div className="kpi high-tone">
           <div className="kpi-label">Active alerts</div>
-          <div className="kpi-value">{activeAlerts.length}</div>
+          <div className="kpi-value">{estate.activeAlerts.length}</div>
           <div className="kpi-delta">version-relevant and scored</div>
         </div>
         <div className="kpi critical-tone">
           <div className="kpi-label">Critical</div>
-          <div className="kpi-value">{activeAlerts.filter((a) => a.level === 'CRITICAL').length}</div>
+          <div className="kpi-value">{estate.activeAlerts.filter((a) => a.level === 'CRITICAL').length}</div>
           <div className="kpi-delta up">patch window this week</div>
         </div>
         <div className="kpi">
-          <div className="kpi-label">Supressed candidates</div>
-          <div className="kpi-value">{suppressedAlerts.length}</div>
+          <div className="kpi-label">Suppressed candidates</div>
+          <div className="kpi-value">{estate.suppressedAlerts.length}</div>
           <div className="kpi-delta">kept visible, never deleted</div>
         </div>
         <div className="kpi teal-tone">
           <div className="kpi-label">Mean score</div>
-          <div className="kpi-value">{fmtScore(mean(activeAlerts.map((a) => a.score)))}</div>
+          <div className="kpi-value">{fmtScore(mean(estate.activeAlerts.map((a) => a.score)))}</div>
           <div className="kpi-delta">six-factor deterministic</div>
         </div>
       </div>
 
       <Panel
         title="Alert queue"
-        sub={`${rows.length} of ${alerts.length} candidates after filters · suppression never deletes the record`}
+        sub={`${rows.length} of ${estate.alerts.length} candidates after filters · suppression never deletes the record`}
         action={<span className="badge real">NVD · KEV · EPSS</span>}
         noPad
       >
@@ -181,7 +189,7 @@ export default function Alerts() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((a) => {
+                {rows.slice(0, visible).map((a) => {
                   const isAcked = Boolean(acks[a.id])
                   return (
                     <tr
@@ -222,7 +230,7 @@ export default function Alerts() {
                           {a.confidence}
                         </span>
                       </td>
-                      <td className="right mono">{timeAgo(a.createdAt, DEMO_NOW)}</td>
+                      <td className="right mono">{timeAgo(a.createdAt, estate.now)}</td>
                     </tr>
                   )
                 })}
@@ -235,7 +243,12 @@ export default function Alerts() {
             <AlertTriangle size={11} /> Suppressed rows display the score they would have received — the gate is
             explained, not hidden. XGB p is the model's KEV-membership prior; relevance still overrides it.
           </span>
-          <span className="mono">{rows.length} records · {DEMO_NOW.toISOString().slice(0, 10)}</span>
+          {rows.length > visible && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setVisible((v) => v + ROW_PAGE)}>
+              Show {Math.min(ROW_PAGE, rows.length - visible)} of {rows.length} records
+            </button>
+          )}
+          <span className="mono">{rows.length} records · {estate.nowIso.slice(0, 10)}</span>
         </div>
       </Panel>
 
@@ -245,33 +258,33 @@ export default function Alerts() {
           stats={[
             {
               name: 'Suppression precision',
-              value: `${((suppressedAlerts.length / alerts.length) * 100).toFixed(1)}%`,
+              value: `${((estate.suppressedAlerts.length / estate.alerts.length) * 100).toFixed(1)}%`,
               formula: 'suppressed ÷ correlation candidates',
-              n: alerts.length,
+              n: estate.alerts.length,
               note: 'Would-have-scored retained for audit.',
             },
             {
               name: 'Matched coverage',
-              value: `${activeAlerts.filter((a) => a.relevance === 'MATCHED').length}/${activeAlerts.length}`,
+              value: `${estate.activeAlerts.filter((a) => a.relevance === 'MATCHED').length}/${estate.activeAlerts.length}`,
               formula: 'version-confirmed ÷ active alerts',
-              n: activeAlerts.length,
+              n: estate.activeAlerts.length,
             },
             {
               name: 'Score range',
-              value: `${fmtScore(Math.min(...activeAlerts.map((a) => a.score)))}–${fmtScore(
-                Math.max(...activeAlerts.map((a) => a.score)),
+              value: `${fmtScore(Math.min(...estate.activeAlerts.map((a) => a.score)))}–${fmtScore(
+                Math.max(...estate.activeAlerts.map((a) => a.score)),
               )}`,
               formula: 'min–max over active alerts',
-              n: activeAlerts.length,
+              n: estate.activeAlerts.length,
             },
             {
               name: 'KEV share',
               value: `${(
-                (activeAlerts.filter((a) => a.cve.kev).length / activeAlerts.length) *
+                (estate.activeAlerts.filter((a) => a.cve.kev).length / estate.activeAlerts.length) *
                 100
               ).toFixed(0)}%`,
               formula: 'KEV-listed ÷ active alerts',
-              n: activeAlerts.length,
+              n: estate.activeAlerts.length,
             },
           ]}
         />
@@ -282,7 +295,7 @@ export default function Alerts() {
           bodyClass="panel-body"
         >
           <div style={{ display: 'grid', gap: 12 }}>
-            {suppressedAlerts.map((a) => (
+            {estate.suppressedAlerts.map((a) => (
               <button
                 key={a.id}
                 onClick={() => open(a)}
@@ -315,6 +328,7 @@ export default function Alerts() {
         {selected && (
           <AlertDetail
             alert={selected}
+            now={estate.now}
             acks={acks}
             onClose={close}
             onAck={() => {
@@ -329,7 +343,7 @@ export default function Alerts() {
 }
 
 function MlProb({ alert }: { alert: Alert }) {
-  const ml = mlFor(alert.id)
+  const ml = mlFor(alert)
   const pct = Math.round(ml.probability * 100)
   if (alert.suppressed) {
     return (
@@ -352,7 +366,7 @@ function MlProb({ alert }: { alert: Alert }) {
 }
 
 function MlDetail({ alert }: { alert: Alert }) {
-  const ml = mlFor(alert.id)
+  const ml = mlFor(alert)
   const pct = (ml.probability * 100).toFixed(1)
   return (
     <div className="ml-detail">
@@ -397,11 +411,13 @@ function MlDetail({ alert }: { alert: Alert }) {
 
 function AlertDetail({
   alert,
+  now,
   acks,
   onAck,
   onClose,
 }: {
   alert: Alert
+  now: number
   acks: Record<string, { by: string; at: string; note?: string }>
   onAck: () => void
   onClose: () => void
@@ -457,7 +473,9 @@ function AlertDetail({
           <span className="inline-flex" style={{ flexWrap: 'wrap', gap: 8 }}>
             <SourceBadge source="NVD" />
             {alert.cve.kev && <SourceBadge source="CISA KEV" />}
-            <span className="badge simulated">Asset inventory · simulated</span>
+            <span className={alert.asset.source === 'USER UPLOAD' ? 'badge upload' : 'badge simulated'}>
+              Asset inventory · {alert.asset.source === 'USER UPLOAD' ? 'uploaded' : 'simulated'}
+            </span>
             <ConfidenceBadge confidence={alert.confidence} />
           </span>
         }
@@ -468,7 +486,7 @@ function AlertDetail({
           <div className="drawer-meta">
             <span>{alert.asset.name}</span>
             <span>{installed === 'unknown' ? 'version unverified' : `installed ${installed}`}</span>
-            <span>{timeAgo(alert.createdAt, DEMO_NOW)}</span>
+            <span>{timeAgo(alert.createdAt, now)}</span>
           </div>
         </div>
 

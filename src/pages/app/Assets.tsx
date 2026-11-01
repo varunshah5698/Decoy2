@@ -24,9 +24,8 @@ import {
   SlidersHorizontal,
   Upload,
 } from '../../components/Icons'
-import { activeAlerts, alerts, assets as seedAssets, DEMO_NOW, suppressedAlerts } from '../../data/seed'
 import { useAuth, useFilters, useTheme } from '../../lib/store'
-import { allUploadedAssets, useUploads } from '../../lib/uploads'
+import { useEstate } from '../../lib/estate'
 import { fmtScore, timeAgo } from '../../lib/format'
 import { mean, median } from '../../lib/stats'
 import { LEVEL_COLORS, hexA } from '../../lib/colors'
@@ -75,7 +74,7 @@ const LENS_LABEL: Record<Lens, string> = {
 
 /* ---------- helpers ---------- */
 
-const alertsFor = (assetId: string) => activeAlerts.filter((a) => a.asset.id === assetId)
+const alertsFor = (byAsset: Map<string, Alert[]>, assetId: string) => byAsset.get(assetId) ?? []
 
 const topScore = (list: Alert[]) => Math.max(0, ...list.map((a) => a.score))
 
@@ -185,15 +184,16 @@ export default function Assets() {
   const [selected, setSelected] = useState<Asset | null>(null)
   const [lens, setLens] = useState<Lens>('ACTIVE')
 
-  const uploadDatasets = useUploads((s) => s.datasets)
-  const uploadedAssets = useMemo(() => allUploadedAssets(uploadDatasets), [uploadDatasets])
-  const inventory = useMemo(() => [...uploadedAssets, ...seedAssets], [uploadedAssets])
-  const departments = useMemo(() => [...new Set(inventory.map((a) => a.department))], [inventory])
+  const estate = useEstate()
+  const uploadDatasets = estate.datasets
+  const uploadedAssets = estate.uploadedAssets
+  const inventory = estate.assets
+  const departments = estate.departments
 
   const enriched = useMemo(
     () =>
       inventory.map((asset) => {
-        const list = alertsFor(asset.id)
+        const list = alertsFor(estate.alertsByAsset, asset.id)
         return {
           asset,
           alerts: list,
@@ -202,7 +202,7 @@ export default function Assets() {
           versioned: asset.software.every((s) => s.version !== 'unknown'),
         }
       }),
-    [inventory],
+    [inventory, estate.alertsByAsset],
   )
 
   const filtered = useMemo(() => {
@@ -256,15 +256,15 @@ export default function Assets() {
   }, [inventory.length, levelCounts])
 
   const lensAlerts = useMemo(() => {
-    if (lens === 'MATCHED') return activeAlerts.filter((a) => a.relevance === 'MATCHED')
-    if (lens === 'UNKNOWN') return activeAlerts.filter((a) => a.relevance === 'VERSION_UNKNOWN')
-    if (lens === 'SUPPRESSED') return suppressedAlerts
-    return activeAlerts
-  }, [lens])
+    if (lens === 'MATCHED') return estate.activeAlerts.filter((a) => a.relevance === 'MATCHED')
+    if (lens === 'UNKNOWN') return estate.activeAlerts.filter((a) => a.relevance === 'VERSION_UNKNOWN')
+    if (lens === 'SUPPRESSED') return estate.suppressedAlerts
+    return estate.activeAlerts
+  }, [lens, estate])
 
   const daily = useMemo(() => {
     return Array.from({ length: 8 }, (_, i) => {
-      const start = new Date(DEMO_NOW.getTime())
+      const start = new Date(estate.now)
       start.setUTCHours(0, 0, 0, 0)
       start.setUTCDate(start.getUTCDate() - (7 - i))
       const end = start.getTime() + 86400000
@@ -276,7 +276,7 @@ export default function Assets() {
         }).length,
       }
     })
-  }, [lensAlerts])
+  }, [lensAlerts, estate.now])
 
   const peakIndex = useMemo(() => daily.reduce((best, d, i) => (d.count > daily[best].count ? i : best), 0), [daily])
   const peak = daily[peakIndex]
@@ -686,7 +686,7 @@ export default function Assets() {
                     <ShieldCheck size={16} />
                   </span>
                   <strong>No active alerts</strong>
-                  <span>Every inventoried system is clean against the current demo feed.</span>
+                  <span>Every inventoried system is clean against the current feed.</span>
                 </div>
               ) : (
                 topSystems.map((e) => (
@@ -968,7 +968,7 @@ export default function Assets() {
                   browser.
                 </span>
                 <span className="mono">
-                  {activeAlerts.length} active · {suppressedAlerts.length} suppressed
+                  {estate.activeAlerts.length} active · {estate.suppressedAlerts.length} suppressed
                 </span>
               </div>
             </div>
@@ -978,7 +978,7 @@ export default function Assets() {
             <div className="xp-methods">
               <div className="xp-methods-head">
                 <strong>How each number is built</strong>
-                <span>Layer B statistics · seeded demo window · every figure is recomputed from the inventory.</span>
+                <span>Layer B statistics · {estate.coverage.hasUploads ? 'live estate window' : 'seeded demo window'} · every figure is recomputed from the inventory.</span>
               </div>
               <div className="xp-method-grid">
                 <div className="xp-method" title="Active alerts divided by the number of inventoried systems.">
@@ -1022,7 +1022,8 @@ export default function Assets() {
 /* ---------- drawer ---------- */
 
 function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) {
-  const list = alerts.filter((a) => a.asset.id === asset.id)
+  const estate = useEstate()
+  const list = estate.alerts.filter((a) => a.asset.id === asset.id)
   const active = list.filter((a) => !a.suppressed)
   return (
     <>
@@ -1088,7 +1089,7 @@ function AssetDetail({ asset, onClose }: { asset: Asset; onClose: () => void }) 
                   </div>
                   <p style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 5 }}>{a.cve.title}</p>
                   <div className="mono" style={{ marginTop: 5, fontSize: 8.5 }}>
-                    {a.relevance} · raised {timeAgo(a.createdAt)}
+                    {a.relevance} · raised {timeAgo(a.createdAt, estate.now)}
                   </div>
                 </div>
               ))}

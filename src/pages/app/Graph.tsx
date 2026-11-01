@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Panel } from '../../components/Panel'
 import { SeverityBadge, RelevanceBadge, SimulatedBadge } from '../../components/Badges'
@@ -13,7 +13,6 @@ import {
   Info,
   LayoutGrid,
   Network,
-  Radar,
   RefreshCw,
   Search,
   Server,
@@ -22,14 +21,16 @@ import {
   Sparkles,
   Zap,
 } from '../../components/Icons'
-import { IsoGraph } from '../../components/IsoGraph'
+import { ForceGraph } from '../../components/ForceGraph'
 import { NodeWorkbench } from '../../components/NodeWorkbench'
-import { DEMO_NOW } from '../../data/seed'
-import { RISK_ORDER, useCorrelationModel } from '../../lib/correlation'
+import { RISK_ORDER } from '../../lib/correlation'
+import type { Alert } from '../../lib/types'
+import { useEstate } from '../../lib/estate'
 import { LIVE_SOURCES, latestLiveFetch, useLiveFeeds } from '../../lib/liveFeeds'
-import { useFilters } from '../../lib/store'
+import { useFilters, useTheme } from '../../lib/store'
 import { cx, fmtPct, fmtScore, timeAgo } from '../../lib/format'
 import { LEVEL_COLORS, levelColor } from '../../lib/colors'
+import './graph.css'
 
 const ASSET_ICONS = {
   app: Boxes,
@@ -40,7 +41,66 @@ const ASSET_ICONS = {
   endpoint: LayoutGrid,
 } as const
 
+const LEDGER_PAGE = 150
+
 type Scope = 'all' | 'active' | 'critical' | 'kev' | 'suppressed'
+
+/* Hover moves the rail on every pointer change; the 150-row ledger below does not depend on it,
+   so it is memoised as its own component and stays out of that repaint. */
+const LedgerRows = memo(function LedgerRows({
+  alerts,
+  now,
+  onOpenAsset,
+  onOpenAlert,
+}: {
+  alerts: Alert[]
+  now: number
+  onOpenAsset: (id: string) => void
+  onOpenAlert: (id: string) => void
+}) {
+  return (
+    <tbody>
+      {alerts.map((alert) => (
+        <tr
+          key={alert.id}
+          className="clickable ledger-row"
+          onClick={() => onOpenAsset(alert.asset.id)}
+          style={{ '--row-tone': levelColor(alert.level, alert.suppressed) } as CSSProperties}
+        >
+          <td className="mono">
+            <span className="edge-dot" style={{ background: levelColor(alert.level, alert.suppressed) }} />
+            {alert.cve.id}
+          </td>
+          <td>
+            <div className="cell-title">{alert.asset.name}</div>
+            <div className="cell-sub">{alert.asset.department}</div>
+          </td>
+          <td className="col-sm-hide">
+            <RelevanceBadge relevance={alert.relevance} />
+          </td>
+          <td className="col-sm-hide">
+            <SeverityBadge level={alert.level} suppressed={alert.suppressed} />
+          </td>
+          <td className="right mono col-sm-hide">{alert.cve.cvss?.toFixed(1) ?? '—'}</td>
+          <td className="right mono col-sm-hide">
+            {alert.cve.epss == null ? '—' : fmtPct(alert.cve.epss)}
+          </td>
+          <td className="right">
+            <span className={`score-cell ${alert.suppressed ? 'suppressed' : alert.level.toLowerCase()}`}>
+              {fmtScore(alert.score)}
+            </span>
+          </td>
+          <td className="right mono col-sm-hide">{timeAgo(alert.createdAt, now)}</td>
+          <td className="right col-sm-hide">
+            <button className="panel-link" onClick={(ev) => { ev.stopPropagation(); onOpenAlert(alert.id) }}>
+              {alert.id} <ArrowRight size={11} />
+            </button>
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  )
+})
 
 const SCOPES: { key: Scope; label: string }[] = [
   { key: 'all', label: 'All paths' },
@@ -59,6 +119,7 @@ const relativeTime = (iso: string) => {
 
 export default function Graph() {
   const navigate = useNavigate()
+  const setTheme = useTheme((s) => s.setTheme)
   const query = useFilters((s) => s.query)
   const setQuery = useFilters((s) => s.setQuery)
   const [hover, setHover] = useState<string | null>(null)
@@ -66,7 +127,8 @@ export default function Graph() {
   const [workbenchOpen, setWorkbenchOpen] = useState(false)
   const [scope, setScope] = useState<Scope>('all')
 
-  const model = useCorrelationModel()
+  const estate = useEstate()
+  const model = estate.model
   const syncing = useLiveFeeds((s) => s.syncing)
   const phase = useLiveFeeds((s) => s.phase)
   const progress = useLiveFeeds((s) => s.progress)
@@ -75,10 +137,26 @@ export default function Graph() {
   const lastFetch = latestLiveFetch(liveMeta)
   const pullLabel = lastFetch ? relativeTime(lastFetch) : null
 
-  const openNode = (id: string) => {
+  const openNode = useCallback((id: string) => {
     setSelected(id)
     setWorkbenchOpen(true)
-  }
+  }, [])
+
+  const openAlert = useCallback((id: string) => navigate(`/app/alerts?alert=${id}`), [navigate])
+
+  // The graph is a light-skin surface: the cool-white canvas is what makes the
+  // severity edges legible, and the workbench drawer portals to <body>, so the
+  // skin has to live on the root element rather than inside this page.
+  useEffect(() => {
+    const root = document.documentElement
+    const previous = useTheme.getState().theme
+    root.setAttribute('data-skin', 'moonrow')
+    if (previous !== 'light') setTheme('light')
+    return () => {
+      root.removeAttribute('data-skin')
+      if (previous !== 'light') setTheme(previous)
+    }
+  }, [setTheme])
 
   const activeAlerts = useMemo(() => model.alerts.filter((alert) => !alert.suppressed), [model.alerts])
 
@@ -92,6 +170,9 @@ export default function Graph() {
     }),
     [model],
   )
+
+  const [ledgerLimit, setLedgerLimit] = useState(LEDGER_PAGE)
+  useEffect(() => setLedgerLimit(LEDGER_PAGE), [scope, estate])
 
   const scopedAlerts = useMemo(() => {
     switch (scope) {
@@ -107,6 +188,13 @@ export default function Graph() {
         return model.alerts
     }
   }, [activeAlerts, model.alerts, scope])
+
+  /* The mesh is the estate: every host and every record in scope is laid out, and the renderer
+     keeps that survivable by merging correlation edges into one path per severity and solving
+     the big cases in frame-budgeted chunks. */
+  const mesh = useMemo(() => ({ assets: model.assets, cves: model.cves, alerts: scopedAlerts }), [model, scopedAlerts])
+
+  const ledgerRows = useMemo(() => scopedAlerts.slice(0, ledgerLimit), [scopedAlerts, ledgerLimit])
 
   const focusId = hover ?? selected
   const focusedAsset = model.assets.find((asset) => asset.id === focusId)
@@ -137,15 +225,13 @@ export default function Graph() {
     : 0
   const railScore = worst ? worst.score : meanActive
   const railLevel = worst?.level ?? activeAlerts[0]?.level ?? 'LOW'
-  const railScoreLabel = worst ? (focusedAsset ? 'worst path' : 'highest linked') : 'mesh mean'
+  const railScoreLabel = worst ? (focusedAsset ? 'worst path' : 'highest linked') : 'graph mean'
 
   const AssetIcon = focusedAsset ? ASSET_ICONS[focusedAsset.type] : Server
   const FocusIcon = focusedAsset ? AssetIcon : focusedCve ? Bug : Network
 
-  const nodeCount = model.assets.length + model.cves.length + 1
-  const density = (
-    (2 * model.alerts.length) / nodeCount / (model.assets.length + model.cves.length)
-  ).toFixed(4)
+  const nodeCount = mesh.assets.length + mesh.cves.length + 1
+  const density = ((2 * mesh.alerts.length) / nodeCount / Math.max(1, mesh.assets.length + mesh.cves.length)).toFixed(4)
 
   const mix = [...RISK_ORDER].reverse().map((level) => ({
     level,
@@ -180,11 +266,12 @@ export default function Graph() {
             <i className="graph-eyebrow-dot" /> Component 04 · Network graph
           </span>
           <h1>
-            The mesh behind <span>every alert.</span>
+            The graph behind <span>every alert.</span>
           </h1>
           <p>
-            A simulated estate rendered as an isometric exposure mesh. Every asset is wired to live CVE
-            records through version-gated correlation edges, then scored with NVD, CISA KEV and FIRST EPSS.
+            {estate.coverage.hasUploads
+              ? 'Your uploaded estate laid out as a live force-directed graph: every host and every record settle themselves through version-gated correlation edges, then score against NVD, CISA KEV and FIRST EPSS.'
+              : 'A simulated estate laid out as a live force-directed graph: assets and CVE records settle themselves through version-gated correlation edges, then score against NVD, CISA KEV and FIRST EPSS.'}
             <strong> Tap any node for its full workbench.</strong>
           </p>
         </div>
@@ -238,13 +325,13 @@ export default function Graph() {
           className="col-8 deck-mesh"
           title={
             <span className="deck-title">
-              <Radar size={14} /> Exposure mesh
+              <Network size={14} /> Exposure graph
             </span>
           }
-          sub="Inner ring · critical systems      Outer ring · supporting estate"
+          sub="Assets · severity-stroked      CVEs · dashed when unmapped"
           action={
-            <span className="deck-beta">
-              <i /> {scopedAlerts.length} of {model.alerts.length} paths
+            <span className="deck-beta" title="Every host and record in scope is laid out; edges are merged by severity so a 1,000-host estate stays readable.">
+              <i /> {mesh.assets.length} of {model.assets.length} assets · {mesh.alerts.length} of {model.alerts.length} paths
             </span>
           }
           noPad
@@ -275,11 +362,11 @@ export default function Graph() {
             </div>
           </div>
           <div className="deck-canvas">
-            <IsoGraph
-              alerts={scopedAlerts}
+            <ForceGraph
+              alerts={mesh.alerts}
               allAlerts={model.alerts}
-              assets={model.assets}
-              cves={model.cves}
+              assets={mesh.assets}
+              cves={mesh.cves}
               query={query}
               hover={hover}
               selected={selected}
@@ -297,7 +384,7 @@ export default function Graph() {
               <div className="deck-empty">
                 <Crosshair size={18} />
                 <strong>No paths in this scope</strong>
-                <span>Switch the scope filter to repopulate the mesh.</span>
+                <span>Switch the scope filter to repopulate the graph.</span>
                 <button className="btn btn-ghost btn-sm" onClick={() => setScope('all')}>
                   Reset to all paths
                 </button>
@@ -607,52 +694,12 @@ export default function Graph() {
                 <th className="col-sm-hide" />
               </tr>
             </thead>
-            <tbody>
-              {scopedAlerts.map((alert) => (
-                <tr
-                  key={alert.id}
-                  className="clickable ledger-row"
-                  onClick={() => openNode(alert.asset.id)}
-                  style={{ '--row-tone': levelColor(alert.level, alert.suppressed) } as CSSProperties}
-                >
-                  <td className="mono">
-                    <span className="edge-dot" style={{ background: levelColor(alert.level, alert.suppressed) }} />
-                    {alert.cve.id}
-                  </td>
-                  <td>
-                    <div className="cell-title">{alert.asset.name}</div>
-                    <div className="cell-sub">{alert.asset.department}</div>
-                  </td>
-                  <td className="col-sm-hide">
-                    <RelevanceBadge relevance={alert.relevance} />
-                  </td>
-                  <td className="col-sm-hide">
-                    <SeverityBadge level={alert.level} suppressed={alert.suppressed} />
-                  </td>
-                  <td className="right mono col-sm-hide">{alert.cve.cvss?.toFixed(1) ?? '—'}</td>
-                  <td className="right mono col-sm-hide">
-                    {alert.cve.epss == null ? '—' : fmtPct(alert.cve.epss)}
-                  </td>
-                  <td className="right">
-                    <span className={`score-cell ${alert.suppressed ? 'suppressed' : alert.level.toLowerCase()}`}>
-                      {fmtScore(alert.score)}
-                    </span>
-                  </td>
-                  <td className="right mono col-sm-hide">{timeAgo(alert.createdAt, DEMO_NOW)}</td>
-                  <td className="right col-sm-hide">
-                    <button
-                      className="panel-link"
-                      onClick={(ev) => {
-                        ev.stopPropagation()
-                        navigate(`/app/alerts?alert=${alert.id}`)
-                      }}
-                    >
-                      {alert.id} <ArrowRight size={11} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+            <LedgerRows
+              alerts={ledgerRows}
+              now={estate.now}
+              onOpenAsset={openNode}
+              onOpenAlert={openAlert}
+            />
           </table>
           {scopedAlerts.length === 0 && (
             <div className="ledger-empty">
@@ -663,8 +710,13 @@ export default function Graph() {
         </div>
         <div className="table-note">
           <span className="inline-flex">
-            <Info size={11} /> Suppressed hazards remain drawn on the mesh so the relevance gate stays auditable.
+            <Info size={11} /> Suppressed hazards stay drawn as dashed edges so the relevance gate stays auditable.
           </span>
+          {scopedAlerts.length > ledgerLimit && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setLedgerLimit((v) => v + LEDGER_PAGE)}>
+              Show {Math.min(LEDGER_PAGE, scopedAlerts.length - ledgerLimit)} of {scopedAlerts.length} edges
+            </button>
+          )}
           <span className="mono">
             <ShieldAlert size={10} style={{ display: 'inline', marginRight: 4 }} />
             {model.counts.suppressed} suppressed edges
@@ -678,7 +730,7 @@ export default function Graph() {
             <Gauge size={11} /> Graph density
           </span>
           <b>{density}</b>
-          <i>2E ÷ V(V−1) · n={nodeCount}</i>
+          <i>2E ÷ V(V−1) · mesh n={nodeCount}</i>
         </div>
         <div className="telemetry-tile">
           <span className="telemetry-kicker">

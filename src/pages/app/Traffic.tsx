@@ -4,7 +4,7 @@ import { PageHeader, Panel } from '../../components/Panel'
 import { StatsPanel } from '../../components/StatsPanel'
 import { SourceBadge } from '../../components/Badges'
 import { Activity, BarChart3, Info, TrendingUp, Zap } from '../../components/Icons'
-import { trafficSeries } from '../../data/seed'
+import { useEstate } from '../../lib/estate'
 import { useTheme } from '../../lib/store'
 import { fmtInt } from '../../lib/format'
 import { mean, p95, stdev } from '../../lib/stats'
@@ -12,6 +12,8 @@ import { TEAL, hexA } from '../../lib/colors'
 
 export default function Traffic() {
   const theme = useTheme((s) => s.theme)
+  const estate = useEstate()
+  const trafficSeries = estate.trafficSeries
   const rps = trafficSeries.map((t) => t.rps)
   const avg = mean(rps)
   const sigma = stdev(rps)
@@ -25,6 +27,24 @@ export default function Traffic() {
     .filter((t) => t.z >= 2)
     .sort((a, b) => b.z - a.z)
 
+  const burstBands = useMemo(() => {
+    const bands: { xAxis: string }[][] = []
+    let start: string | null = null
+    let end: string | null = null
+    for (const t of trafficSeries) {
+      if (t.anomaly) {
+        start = start ?? t.time
+        end = t.time
+      } else if (start && end) {
+        bands.push([{ xAxis: start }, { xAxis: end }])
+        start = null
+        end = null
+      }
+    }
+    if (start && end) bands.push([{ xAxis: start }, { xAxis: end }])
+    return bands
+  }, [trafficSeries])
+
   const zBins = useMemo(() => {
     const bins = [-3, -2, -1, 0, 1, 2, 3, 4]
     return bins.slice(0, -1).map((lo, i) => ({
@@ -34,7 +54,7 @@ export default function Traffic() {
         return z >= lo && z < bins[i + 1]
       }).length,
     }))
-  }, [avg, sigma])
+  }, [avg, sigma, trafficSeries])
 
   const zHistOption = useMemo(() => {
     const ax = axisStyle(theme)
@@ -110,15 +130,12 @@ export default function Traffic() {
           markArea: {
             silent: true,
             itemStyle: { color: hexA('#e5545a', 0.07) },
-            data: [
-              [{ xAxis: trafficSeries[30].time }, { xAxis: trafficSeries[33].time }],
-              [{ xAxis: trafficSeries[38].time }, { xAxis: trafficSeries[39].time }],
-            ],
+            data: burstBands,
           },
         },
       ],
     }
-  }, [theme, threshold])
+  }, [theme, threshold, trafficSeries, rps, burstBands])
 
   const bytesOption = useMemo(() => {
     const ax = axisStyle(theme)
@@ -138,18 +155,20 @@ export default function Traffic() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, trafficSeries])
 
   return (
     <div className="page">
       <PageHeader
         eyebrow="COMPONENT 15 · TRAFFIC ANALYTICS"
         title="Volume, bursts, and the tail"
-        description="Forty-eight half-hour buckets of edge traffic. Bursts are detected with a simple μ+2σ rule — a transparent baseline, not a black box."
+        description={`${trafficSeries.length} buckets of edge traffic across the current window. Bursts are detected with a simple μ+2σ rule — a transparent baseline, not a black box.`}
         actions={
           <div className="inline-flex">
-            <SourceBadge source="SIMULATED" />
-            <span className="mono" style={{ fontSize: 9 }}>edge log · demo</span>
+            <SourceBadge source={estate.coverage.hasEvents ? 'USER UPLOAD' : 'SIMULATED'} />
+            <span className="mono" style={{ fontSize: 9 }}>
+              {estate.coverage.hasEvents ? `${fmtInt(estate.coverage.events)} accepted rows` : 'seeded edge log · demo'}
+            </span>
           </div>
         }
       />
@@ -161,7 +180,7 @@ export default function Traffic() {
             {avg.toFixed(0)}
             <small>req/s</small>
           </div>
-          <div className="kpi-delta">48 buckets · 24h</div>
+          <div className="kpi-delta">{trafficSeries.length} buckets</div>
         </div>
         <div className="kpi critical-tone">
           <div className="kpi-label">Peak</div>
@@ -268,7 +287,10 @@ export default function Traffic() {
             <div className="insight-cell">
               <Activity size={15} style={{ color: 'var(--teal)' }} />
               <strong>Bucket</strong>
-              <p>Events are grouped into 30-minute windows. Throughput is requests divided by 1,800 seconds.</p>
+              <p>
+                Events are grouped across the accepted window. Throughput uses the logged requests-per-second column when the
+                export carries it, otherwise requests ÷ bucket seconds.
+              </p>
             </div>
             <div className="insight-cell">
               <BarChart3 size={15} style={{ color: 'var(--amber)' }} />
@@ -284,7 +306,9 @@ export default function Traffic() {
           <div className="form-alert" style={{ margin: '14px 0 0' }}>
             <Info size={13} />
             <span>
-              In deployment these buckets come from uploaded logs. The demo shows seeded edge traffic and says so.
+              {estate.coverage.hasEvents
+                ? `These buckets are computed from ${fmtInt(estate.coverage.events)} accepted log rows.`
+                : 'No log dataset accepted yet, so this is the seeded demo traffic and it says so. Accept a log file in the Data Input Hub to rebuild it.'}
             </span>
           </div>
         </Panel>

@@ -16,6 +16,43 @@ export interface Software {
   vendor: string
   product: string
   version: string
+  cpe?: string
+}
+
+/** The operational detail an inventory export can carry about one asset. Seed assets
+    leave these absent, so every reader treats them as optional evidence. */
+export interface InventoryFacts {
+  externalId: string
+  hostname: string
+  ipAddress: string
+  publicIp: string
+  environment: string
+  site: string
+  region: string
+  country: string
+  os: string
+  osVersion: string
+  cpuCores: number | null
+  ramGb: number | null
+  storageGb: number | null
+  networkSegment: string
+  vlan: string
+  firewallZone: string
+  patchGroup: string
+  lastPatchDate: string
+  daysSincePatch: number | null
+  backupEnabled: boolean | null
+  backupFrequency: string
+  mfaEnabled: boolean | null
+  edrInstalled: boolean | null
+  antivirusStatus: string
+  businessUnit: string
+  dataClassification: string
+  lifecycleStatus: string
+  supportEndDate: string
+  complianceScope: string[]
+  ownerTier: string
+  tags: string[]
 }
 
 export interface Asset {
@@ -29,6 +66,8 @@ export interface Asset {
   sensitivity: Criticality
   source: 'SIMULATED' | 'USER UPLOAD'
   software: Software[]
+  inventory?: InventoryFacts
+  datasetId?: string
 }
 
 export interface VersionRange {
@@ -52,11 +91,14 @@ export interface Cve {
   epssPercentile: number | null
   kev: boolean
   kevDue?: string
+  kevRansomware?: boolean
   vendor: string
   product: string
   range: VersionRange
+  ranges?: VersionRange[]
   fixVersion: string
   refs: { url: string; source: string }[]
+  provenance?: 'curated' | 'nvd-corpus'
 }
 
 export interface Breakdown {
@@ -165,4 +207,63 @@ export interface AttackProfile {
   stages: { tactic: string; note: string }[]
   mitigations: { control: string; team: string }[]
   indicators: string[]
+}
+
+/** One row of an uploaded security log, normalised to the fields every telemetry view
+    reads. Numbers are pre-parsed so charts never re-coerce strings. */
+export interface SecurityEvent {
+  id: string
+  ts: number
+  type: string
+  category: string
+  severity: RiskLevel
+  outcome: string
+  sourceIp: string
+  sourceCountry: string
+  sourceHostname: string
+  destIp: string
+  destPort: number | null
+  destAssetId: string
+  destAssetName: string
+  protocol: string
+  bytesIn: number
+  bytesOut: number
+  packets: number
+  durationMs: number
+  httpMethod: string
+  httpPath: string
+  httpStatus: number | null
+  userAgent: string
+  username: string
+  userRole: string
+  authMethod: string
+  mfaUsed: boolean | null
+  sessionId: string
+  deviceId: string
+  ruleName: string
+  action: string
+  threatIndicator: string
+  processName: string
+  riskScore: number | null
+  rps: number | null
+  sensorId: string
+  siteName: string
+}
+
+export interface TelemetryTotals {
+  events: number
+  assetsTargeted: number
+  distinctSourceIps: number
+  distinctUsers: number
+  failures: number
+  threatHits: number
+  bytes: number
+  firstTs: number | null
+  lastTs: number | null
+  byType: { label: string; value: number }[]
+  byThreat: { label: string; value: number }[]
+  byCountry: { label: string; value: number }[]
+  topUsers: { label: string; value: number }[]
+  sensors: number
+  sites: string[]
 }

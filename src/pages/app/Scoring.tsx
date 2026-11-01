@@ -6,7 +6,7 @@ import { Waterfall } from '../../components/Waterfall'
 import { StatsPanel } from '../../components/StatsPanel'
 import { SeverityBadge } from '../../components/Badges'
 import { ChevronDown, Info, SlidersHorizontal, Sparkles } from '../../components/Icons'
-import { activeAlerts, alerts, counts } from '../../data/seed'
+import { useEstate } from '../../lib/estate'
 import { useTheme } from '../../lib/store'
 import { fmtPct, fmtScore } from '../../lib/format'
 import { mean, quantile, stdev } from '../../lib/stats'
@@ -26,6 +26,10 @@ const WEIGHT_ROWS = [
 
 export default function Scoring() {
   const theme = useTheme((s) => s.theme)
+  const estate = useEstate()
+  const { activeAlerts, alerts, counts } = estate
+  const portfolio = mlPortfolio(activeAlerts)
+  const mlRanked = mlActive(activeAlerts)
   const base = alerts[0]
   const [selectedId, setSelectedId] = useState(base.id)
   const assetAlert = alerts.find((a) => a.id === selectedId) ?? base
@@ -99,7 +103,7 @@ export default function Scoring() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, estate])
 
   const scatterOption = useMemo(() => {
     const ax = axisStyle(theme)
@@ -140,7 +144,7 @@ export default function Scoring() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, estate])
 
   const scores = activeAlerts.map((a) => a.score)
   const cvssRanked = [...activeAlerts].sort((a, b) => (b.cve.cvss ?? 0) - (a.cve.cvss ?? 0))
@@ -468,11 +472,11 @@ export default function Scoring() {
               <div className="ml-live-head">
                 <span className="mono">Live predictions · active alerts</span>
                 <span className="mono">
-                  mean {(mlPortfolio.mean * 100).toFixed(0)}% · elevated {mlPortfolio.elevated}
+                  mean {(portfolio.mean * 100).toFixed(0)}% · elevated {portfolio.elevated}
                 </span>
               </div>
               <div className="ml-live-list">
-                {mlActive.slice(0, 6).map(({ alert, prediction }) => (
+                {mlRanked.slice(0, 6).map(({ alert, prediction }) => (
                   <div className="ml-live-row" key={alert.id}>
                     <div className="ml-live-id">
                       <span className="mono">{alert.cve.id}</span>

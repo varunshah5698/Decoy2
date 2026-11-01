@@ -8,7 +8,7 @@ import {
 } from 'react'
 import { clamp, fmtPct } from '../../../lib/format'
 import { median } from '../../../lib/stats'
-import { DEMO_NOW } from '../../../data/seed'
+import { useEstate } from '../../../lib/estate'
 import type { Cve, RiskLevel } from '../../../lib/types'
 
 /* ------------------------------------------------------------------ */
@@ -25,7 +25,7 @@ const SEV_TONE: Record<RiskLevel, { core: string; mid: string; deep: string; glo
 export const cvssBin = (cve: Cve) =>
   cve.cvss == null ? null : clamp(Math.floor(cve.cvss), 0, 9)
 
-const yearsSince = (iso: string) => Math.max(0, (DEMO_NOW.getTime() - new Date(iso).getTime()) / 31_557_600_000)
+const yearsSince = (iso: string, now: number) => Math.max(0, (now - new Date(iso).getTime()) / 31_557_600_000)
 
 // deterministic per-CVE offset so near-identical scores don't stack into one column
 const scatterJitter = (id: string, salt: number) => {
@@ -70,6 +70,7 @@ export function CveOrbit({
   bin: number | null
   onPick: (cve: Cve) => void
 }) {
+  const estate = useEstate()
   const stageRef = useRef<HTMLDivElement>(null)
   const [stage, setStage] = useState({ w: 720, h: 380 })
   const [hoverId, setHoverId] = useState<string | null>(null)
@@ -92,7 +93,7 @@ export function CveOrbit({
   const dataset = useMemo(() => {
     const points = entries
       .filter((cve) => cve.cvss != null && cve.epss != null)
-      .map((cve) => ({ cve, years: yearsSince(cve.published) }))
+      .map((cve) => ({ cve, years: yearsSince(cve.published, estate.now) }))
     if (!points.length) {
       return { yearLo: 0, yearHi: 10, cvssLo: 0, cvssHi: 10, points: [] as OrbitPoint[] }
     }
@@ -118,7 +119,7 @@ export function CveOrbit({
         z: clamp(0.09 + (1 - (cve.epss ?? 0)) * 0.82 + scatterJitter(cve.id, 29) * 0.04, 0, 1),
       })),
     }
-  }, [entries])
+  }, [entries, estate.now])
 
   const geometry = useMemo(() => {
     const { w, h } = stage

@@ -3,7 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-route
 import AppShell from './app/AppShell'
 import { ToastHost } from './components/Toast'
 import { useAuth, useTheme } from './lib/store'
-import Landing from './pages/Landing'
+import AegisLanding from './pages/AegisLanding'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import AiAnalyst from './pages/app/AiAnalyst'
@@ -65,7 +65,7 @@ export default function App() {
       <ThemeSync />
       <ScrollTop />
       <Routes>
-        <Route path="/" element={<Landing />} />
+        <Route path="/" element={<AegisLanding />} />
         <Route path="/login" element={<Login />} />
         <Route
           path="/app"

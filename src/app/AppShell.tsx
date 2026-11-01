@@ -12,11 +12,12 @@ import {
   Search,
   ShieldCheck,
 } from '../components/Icons'
-import { componentCatalog, counts, DEMO_NOW } from '../data/seed'
+import { componentCatalog } from '../data/seed'
+import { getEstate, useEstate } from '../lib/estate'
 import { useAuth, useFilters, useTheme, useToast } from '../lib/store'
 import { useAiPanel } from '../lib/aiStore'
-import { allUploadedAssets, useUploads } from '../lib/uploads'
 import { AnalystMark } from '../components/AnalystMark'
+import { DatasetSwitcher } from '../components/DatasetSwitcher'
 import { navGroups, pageTitle, routeById } from './catalog'
 import { canAccess } from '../lib/access'
 import { latestLiveFetch, useLiveFeeds } from '../lib/liveFeeds'
@@ -33,8 +34,8 @@ export default function AppShell() {
   const setQuery = useFilters((s) => s.setQuery)
   const showToast = useToast((s) => s.show)
   const aiStreaming = useAiPanel((s) => s.streaming)
-  const uploadDatasets = useUploads((s) => s.datasets)
-  const inventoryCount = 16 + allUploadedAssets(uploadDatasets).length
+  const estate = useEstate()
+  const inventoryCount = estate.assets.length
   const liveMeta = useLiveFeeds((s) => s.meta)
   const liveSyncing = useLiveFeeds((s) => s.syncing)
   const livePhase = useLiveFeeds((s) => s.phase)
@@ -47,7 +48,8 @@ export default function AppShell() {
   useEffect(() => setMobileOpen(false), [location.pathname])
 
   useEffect(() => {
-    void useLiveFeeds.getState().syncAll()
+    const e = getEstate()
+    void useLiveFeeds.getState().syncAll({ ids: e.syncIds, nvdIds: e.nvdIds })
   }, [])
 
   useEffect(() => {
@@ -86,8 +88,8 @@ export default function AppShell() {
         <div className="org-card">
           <span className="org-avatar">AS</span>
           <div style={{ minWidth: 0 }}>
-            <strong>Aegis Demo Org</strong>
-            <span>{counts.active} active · {inventoryCount} assets</span>
+            <strong>{estate.coverage.hasUploads ? 'Aegis Live Estate' : 'Aegis Demo Org'}</strong>
+            <span>{estate.activeAlerts.length} active · {inventoryCount} assets</span>
           </div>
         </div>
 
@@ -170,6 +172,7 @@ export default function AppShell() {
           </div>
 
           <div className="topbar-actions">
+            <DatasetSwitcher />
             <NavLink
               to="/app/ai"
               className={({ isActive }) => cx('ai-trigger', isActive && 'active')}
@@ -181,12 +184,26 @@ export default function AppShell() {
               <kbd className="ai-trigger-kbd">⌘I</kbd>
             </NavLink>
             <span className="topbar-chip live">
-              <i className="dot" style={{ background: 'var(--amber)', boxShadow: '0 0 8px var(--amber)' }} />
-              DEMO
+              <i
+                className="dot"
+                style={{
+                  background: estate.coverage.hasUploads ? 'var(--teal)' : 'var(--amber)',
+                  boxShadow: `0 0 8px ${estate.coverage.hasUploads ? 'var(--teal)' : 'var(--amber)'}`,
+                }}
+              />
+              {estate.coverage.hasUploads ? 'LIVE ESTATE' : 'DEMO SEED'}
             </span>
             <span className="topbar-chip hide-sm">
               <RefreshCw size={11} className={liveSyncing ? 'spin' : undefined} />
-              {lastLive ? `${liveSyncing ? 'Syncing' : 'Live'} · ${timeAgo(lastLive)}` : `Updated ${DEMO_NOW.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}`}
+              {lastLive
+                ? /* The estate clock is the scenario clock, which trails the wall clock; a feed pull
+                     happened on the wall clock, so age it against that or it reads fresher than it is. */
+                  `${liveSyncing ? 'Syncing' : 'Live'} · ${timeAgo(lastLive)}`
+                : `Updated ${new Date(estate.now).toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                  })}`}
             </span>
             <button
               className="icon-btn hide-sm"
@@ -206,7 +223,7 @@ export default function AppShell() {
             <button
               className="icon-btn"
               aria-label="Notifications"
-              onClick={() => showToast(`${counts.active} active alerts · ${counts.critical} critical`)}
+              onClick={() => showToast(`${estate.activeAlerts.length} active alerts · ${estate.counts.critical} critical`)}
             >
               <Bell size={15} />
             </button>

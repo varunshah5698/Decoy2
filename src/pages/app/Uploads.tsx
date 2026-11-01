@@ -4,42 +4,45 @@ import { Chart } from '../../components/Chart'
 import { PageHeader, Panel } from '../../components/Panel'
 import { StatsPanel } from '../../components/StatsPanel'
 import { UploadBadge } from '../../components/Badges'
-import { AlertTriangle, ArrowRight, Check, Download, FileSearch, Lock, ShieldCheck, Upload, X } from '../../components/Icons'
+import {
+  AlertTriangle,
+  ArrowRight,
+  Check,
+  Database,
+  Download,
+  FileSearch,
+  Layers,
+  Lock,
+  Plus,
+  ShieldCheck,
+  Upload,
+  X,
+  Zap,
+} from '../../components/Icons'
 import { sampleAssetsCsv, sampleLogsCsv, uploadedDatasets } from '../../data/seed'
 import { useAuth, useTheme, useToast } from '../../lib/store'
-import { parseObjects, rowsToAssets, rowsToLogSummary, useUploads, type UploadedDataset } from '../../lib/uploads'
-import { fmtInt, timeAgo } from '../../lib/format'
+import {
+  ALL_DATASETS,
+  EVENT_TYPES,
+  MAX_ASSETS,
+  MAX_EVENTS,
+  autoMap,
+  detectPreset,
+  fieldFor,
+  parseObjects,
+  rowsToAssets,
+  rowsToEvents,
+  summarizeEvents,
+  useUploads,
+  type UploadedDataset,
+} from '../../lib/uploads'
+import { useEstate } from '../../lib/estate'
+import { fmtInt, timeAgo, cx } from '../../lib/format'
 import { TEAL, UPLOAD, hexA } from '../../lib/colors'
 
 type Kind = 'assets' | 'logs'
+type HistoryRow = Omit<UploadedDataset, 'status'> & { status: string }
 
-const FIELDS: Record<Kind, { key: string; label: string; required?: boolean; aliases: string[] }[]> = {
-  assets: [
-    { key: 'asset_name', label: 'asset_name', required: true, aliases: ['asset', 'name', 'hostname', 'system'] },
-    { key: 'asset_type', label: 'asset_type', aliases: ['type', 'category'] },
-    { key: 'owner_department', label: 'owner_department', aliases: ['department', 'dept', 'owner', 'team'] },
-    { key: 'criticality', label: 'criticality', aliases: ['business_criticality', 'importance', 'tier'] },
-    { key: 'business_function', label: 'business_function', aliases: ['function', 'purpose'] },
-    { key: 'internet_facing', label: 'internet_facing', aliases: ['exposed', 'external', 'public'] },
-    { key: 'data_sensitivity', label: 'data_sensitivity', aliases: ['sensitivity', 'classification'] },
-    { key: 'software_vendor', label: 'software_vendor', aliases: ['vendor', 'publisher'] },
-    { key: 'software_product', label: 'software_product', aliases: ['product', 'software'] },
-    { key: 'software_version', label: 'software_version', aliases: ['version', 'installed_version'] },
-  ],
-  logs: [
-    { key: 'timestamp', label: 'timestamp', required: true, aliases: ['time', 'ts', 'datetime', 'event_time'] },
-    { key: 'event_type', label: 'event_type', required: true, aliases: ['event', 'type', 'action'] },
-    { key: 'source_ip', label: 'source_ip', aliases: ['ip', 'src_ip', 'client_ip'] },
-    { key: 'dest_asset', label: 'dest_asset', aliases: ['destination', 'asset', 'target'] },
-    { key: 'username', label: 'username', aliases: ['user', 'account', 'principal'] },
-    { key: 'user_agent', label: 'user_agent', aliases: ['agent', 'ua'] },
-    { key: 'country_code', label: 'country_code', aliases: ['country', 'geo'] },
-    { key: 'protocol', label: 'protocol', aliases: ['proto'] },
-    { key: 'bytes', label: 'bytes', aliases: ['size', 'response_bytes'] },
-  ],
-}
-
-const EVENT_TYPES = ['LOGIN_SUCCESS', 'LOGIN_FAIL', 'HTTP_REQUEST', 'FIREWALL_ALLOW', 'FIREWALL_DENY', 'EXPLOIT_SIGNATURE', 'OTHER']
 const MAX_BYTES = 10 * 1024 * 1024
 
 const normalize = (h: string) => h.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
@@ -101,6 +104,34 @@ const LOG_SIGNALS = [
 const detectKind = (head: string[]): Kind =>
   head.some((h) => LOG_SIGNALS.includes(normalize(h))) ? 'logs' : 'assets'
 
+/** The seeded demo history is display-only; it still needs the row shape the table renders. */
+const LEGACY_ROWS: HistoryRow[] = uploadedDatasets.map((row) => ({
+  ...row,
+  type: row.type as 'Assets' | 'Logs',
+  source: 'USER UPLOAD',
+  assets: [],
+  status: String(row.status),
+}))
+
+const AFFECTED_PAGES = [
+  'Dashboard',
+  'Alert Center',
+  'Risk Scoring',
+  'Asset Exposure',
+  'CVE Explorer',
+  'Network Graph',
+  'Attack Profiles',
+  'Provenance',
+  'Threat Intel',
+  'Emerging Radar',
+  'Global Map',
+  'Traffic',
+  'Anomaly',
+  'ATT&CK',
+  'Simulator',
+  'AI Analyst',
+]
+
 export default function Uploads() {
   const theme = useTheme((s) => s.theme)
   const session = useAuth((s) => s.session)
@@ -110,18 +141,27 @@ export default function Uploads() {
 
   const datasets = useUploads((s) => s.datasets)
   const addDataset = useUploads((s) => s.add)
+  const removeDataset = useUploads((s) => s.remove)
+  const activeId = useUploads((s) => s.activeId)
+  const setActive = useUploads((s) => s.setActive)
+  const estate = useEstate()
 
   const [file, setFile] = useState<File | null>(null)
   const [headers, setHeaders] = useState<string[]>([])
   const [rows, setRows] = useState<string[][]>([])
   const [kind, setKind] = useState<Kind>('assets')
   const [mapping, setMapping] = useState<Record<string, string>>({})
+  const [preset, setPreset] = useState<{ matched: number; total: number } | null>(null)
+  const [showAll, setShowAll] = useState(false)
   const [drag, setDrag] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastAccepted, setLastAccepted] = useState<UploadedDataset | null>(null)
 
   const role = session?.role ?? 'ANALYST'
   const canUpload = role === 'ADMIN'
+
+  const allFields = fieldFor(kind)
+  const fields = showAll ? allFields : allFields.filter((f) => f.core)
 
   const load = async (f: File) => {
     setError(null)
@@ -130,6 +170,7 @@ export default function Uploads() {
     setHeaders([])
     setRows([])
     setMapping({})
+    setPreset(null)
     if (f.size > MAX_BYTES) {
       setError('File exceeds the 10 MB demo limit.')
       return
@@ -158,18 +199,11 @@ export default function Uploads() {
       const head = parsed[0].map((h) => h.trim().replace(/^\uFEFF/, ''))
       const body = parsed.slice(1)
       const detected = detectKind(head)
-      const auto: Record<string, string> = {}
-      FIELDS[detected].forEach((field) => {
-        const hit = head.find((h) => {
-          const n = normalize(h)
-          return n === field.key || field.aliases.includes(n)
-        })
-        if (hit) auto[field.key] = hit
-      })
       setHeaders(head)
       setRows(body)
       setKind(detected)
-      setMapping(auto)
+      setMapping(autoMap(head, fieldFor(detected)))
+      setPreset(detectPreset(head, detected))
     } catch (err) {
       setError(
         err instanceof Error && err.message === 'No records found'
@@ -181,17 +215,21 @@ export default function Uploads() {
 
   const validation = useMemo(() => {
     if (!headers.length) return null
-    const fields = FIELDS[kind]
-    const required = fields.filter((f) => f.required)
+    const specs = fieldFor(kind)
+    const required = specs.filter((f) => f.required)
     const missingColumns = required.filter((f) => !mapping[f.key]).map((f) => f.label)
+    const indexes = new Map(headers.map((h, i) => [h, i]))
     let rejected = 0
     let sanitized = 0
     const rejectedRows: { row: number; reason: string }[] = []
     const acceptedRows: string[][] = []
+    const assetKeys = new Set<string>()
     rows.forEach((r, idx) => {
       const get = (key: string) => {
         const col = mapping[key]
-        return col ? (r[headers.indexOf(col)] ?? '').trim() : ''
+        if (!col) return ''
+        const i = indexes.get(col)
+        return i === undefined ? '' : String(r[i] ?? '').trim()
       }
       r.forEach((c) => {
         if (/^[=+\-@]/.test(c.trim())) sanitized += 1
@@ -220,8 +258,11 @@ export default function Uploads() {
         rejectedRows.push({ row: idx + 2, reason })
       } else {
         acceptedRows.push(r)
+        if (kind === 'assets') assetKeys.add(get('asset_id') || get('asset_name'))
       }
     })
+    const uniqueAssets = kind === 'assets' ? assetKeys.size : 0
+    const events = kind === 'logs' ? acceptedRows.length : 0
     return {
       total: rows.length,
       accepted: acceptedRows.length,
@@ -230,10 +271,13 @@ export default function Uploads() {
       missingColumns,
       rejectedRows: rejectedRows.slice(0, 5),
       acceptedRows,
+      uniqueAssets,
+      events,
+      overBudget: uniqueAssets > MAX_ASSETS || events > MAX_EVENTS,
     }
   }, [headers, rows, mapping, kind])
 
-  const history = useMemo(() => [...datasets, ...uploadedDatasets], [datasets])
+  const history = useMemo<HistoryRow[]>(() => [...datasets, ...LEGACY_ROWS], [datasets])
 
   const accept = () => {
     if (!file || !validation || validation.missingColumns.length) return
@@ -244,7 +288,7 @@ export default function Uploads() {
     const used = history.map((h) => Number(String(h.id).replace(/\D/g, '')) || 0)
     const id = `DS-${Math.max(1103, ...used) + 1}`
     const assets = kind === 'assets' ? rowsToAssets(validation.acceptedRows, headers, mapping, id) : []
-    const logs = kind === 'logs' ? rowsToLogSummary(validation.acceptedRows, headers, mapping) : undefined
+    const events = kind === 'logs' ? rowsToEvents(validation.acceptedRows, headers, mapping, id) : null
     const entry: UploadedDataset = {
       id,
       name: file.name,
@@ -257,14 +301,17 @@ export default function Uploads() {
       uploadedAt: new Date().toISOString(),
       source: 'USER UPLOAD',
       assets,
-      logs,
+      ...(events ? { events, logs: summarizeEvents(events) } : {}),
+      ...(preset ? { preset: `${preset.matched}/${preset.total} columns auto-mapped` } : {}),
     }
     addDataset(entry)
+    // A scoped view would otherwise hide the file that was just accepted.
+    if (activeId !== ALL_DATASETS) setActive(entry.id)
     setLastAccepted(entry)
     toast(
       kind === 'assets'
-        ? `${assets.length} assets added to the workspace from ${file.name}`
-        : `${entry.accepted} log rows accepted from ${file.name}`,
+        ? `${assets.length} assets joined the estate from ${file.name}; every page re-derived`
+        : `${events?.length ?? 0} events joined the estate from ${file.name}; behaviour, traffic and map rebuilt`,
     )
   }
 
@@ -314,12 +361,60 @@ export default function Uploads() {
     }
   }, [history, theme])
 
+  const gaps = estate.coverage.uncovered
+  const impacts = [
+    {
+      label: 'Estate assets',
+      value: fmtInt(estate.assets.length),
+      note: estate.scope.includesSeed
+        ? `${estate.seedAssets.length} seeded · ${fmtInt(estate.coverage.uploadedAssets)} uploaded`
+        : `${fmtInt(estate.coverage.uploadedAssets)} uploaded · demo seed excluded`,
+      color: 'var(--text)',
+      icon: Database,
+    },
+    {
+      label: 'CVE records',
+      value: fmtInt(estate.cves.length),
+      note: `offline corpus · ${estate.coverage.corpusProducts} products · live-patched`,
+      color: 'var(--text)',
+      icon: Layers,
+    },
+    {
+      label: 'Exposure paths',
+      value: fmtInt(estate.paths.length),
+      note: `${fmtInt(estate.coverage.matchedPaths)} matched · ${fmtInt(estate.coverage.gatedPaths)} gated`,
+      color: 'var(--text)',
+      icon: Zap,
+    },
+    {
+      label: 'Alert queue',
+      value: fmtInt(estate.alerts.length),
+      note: estate.coverage.queueTruncated ? 'capped per asset for the browser' : 'every exposed asset represented',
+      color: 'var(--text)',
+      icon: ShieldCheck,
+    },
+    {
+      label: 'Log events',
+      value: fmtInt(estate.coverage.events),
+      note: estate.coverage.hasEvents ? 'drives traffic, anomaly, map, ATT&CK' : 'no events accepted yet',
+      color: 'var(--text)',
+      icon: FileSearch,
+    },
+    {
+      label: 'Posture',
+      value: String(estate.posture),
+      note: `recomputed for ${estate.scope.all ? 'the merged estate' : estate.scope.label}`,
+      color: estate.posture >= 70 ? 'var(--low)' : estate.posture >= 45 ? 'var(--medium)' : 'var(--high)',
+      icon: ShieldCheck,
+    },
+  ]
+
   return (
     <div className="page">
       <PageHeader
         eyebrow="COMPONENT 16 · DATA INPUT HUB"
         title="Bring your own truth"
-        description="Uppercase your inventory and logs through a mapped, validated pipeline. Every file is untrusted; every accepted row carries its filename, time, and uploader."
+        description="Uppercase your inventory and logs through a mapped, validated pipeline. Accepted rows join the single estate every other page reads — correlation, scoring, intel, traffic, all of it. Every file is untrusted; every accepted row carries its filename, time, and uploader."
         actions={
           <div className="inline-flex">
             {canUpload ? <span className="badge low">ADMIN · upload enabled</span> : <span className="badge high">Read-only for {role}</span>}
@@ -333,7 +428,7 @@ export default function Uploads() {
           { n: 1, label: 'Upload', done: Boolean(file) },
           { n: 2, label: 'Map columns', done: Boolean(Object.keys(mapping).length) },
           { n: 3, label: 'Validate', done: Boolean(validation && validation.missingColumns.length === 0) },
-          { n: 4, label: 'Accept', done: datasets.length > 0 },
+          { n: 4, label: 'Accept into estate', done: datasets.length > 0 },
         ].map((s) => (
           <div className={`upload-step${s.done ? ' done' : ''}`} key={s.n}>
             <span className="upload-step-num">{s.done ? <Check size={11} /> : String(s.n).padStart(2, '0')}</span>
@@ -347,18 +442,124 @@ export default function Uploads() {
           <Check size={14} />
           {lastAccepted.type === 'Assets' ? (
             <>
-              <span>{lastAccepted.assets.length} assets are now in the workspace inventory.</span>
+              <span>
+                {fmtInt(lastAccepted.assets.length)} assets are in the estate. Asset exposure, risk scoring, the network graph and
+                Ask Aegis all read them now.
+              </span>
               <button className="panel-link" onClick={() => navigate('/app/assets')}>
                 Open asset register <ArrowRight size={11} />
               </button>
             </>
           ) : (
-            <span>{lastAccepted.accepted} log rows accepted and summarised for the Ask Aegis context.</span>
+            <span>
+              {fmtInt(lastAccepted.events?.length ?? 0)} events are in the estate. Traffic, anomaly detection, the global map and
+              ATT&amp;CK all read them now.
+            </span>
           )}
+          <button
+            className="panel-link"
+            onClick={() => {
+              setActive(lastAccepted.id)
+              toast(`${lastAccepted.name} is now the scope of every page`)
+            }}
+          >
+            <Layers size={11} /> Analyse this file alone <ArrowRight size={11} />
+          </button>
+          <button className="panel-link" onClick={() => navigate('/app')}>
+            Open dashboard <ArrowRight size={11} />
+          </button>
         </div>
       )}
 
+      <div className="scope-strip">
+        <span className="scope-strip-label">
+          <Layers size={12} /> Every page analyses
+        </span>
+        <button
+          className={cx('scope-chip', estate.scope.all && 'on')}
+          onClick={() => setActive(ALL_DATASETS)}
+          title="Merge every accepted dataset with the demo seed"
+        >
+          <span>All datasets</span>
+          {fmtInt(estate.assets.length)} assets
+        </button>
+        {datasets.map((d) => (
+          <button
+            key={d.id}
+            className={cx('scope-chip', activeId === d.id && 'on')}
+            onClick={() => setActive(d.id)}
+            title={`Analyse ${d.name} on its own`}
+          >
+            {d.type === 'Logs' ? <FileSearch size={11} /> : <Database size={11} />}
+            <span>{d.name}</span>
+            {d.type === 'Logs'
+              ? fmtInt(d.events?.length ?? d.logs?.total ?? 0) + ' events'
+              : fmtInt(d.assets.length) + ' assets'}
+          </button>
+        ))}
+        {!datasets.length && (
+          <span className="scope-strip-label">no dataset accepted · demo seed only</span>
+        )}
+      </div>
+
       <div className="dash-grid">
+        <Panel
+          className="col-12"
+          title="Workspace impact"
+          sub="What the estate holds right now — this is exactly what every other page renders"
+          action={
+            <span className={cx('badge', estate.scope.all ? (datasets.length ? 'upload' : 'simulated') : 'upload')}>
+              {estate.scope.all ? (datasets.length ? 'ALL DATASETS MERGED' : 'SEEDED ONLY') : `SCOPE · ${estate.scope.label.slice(0, 24)}`}
+            </span>
+          }
+          bodyClass="panel-body"
+        >
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
+            {impacts.map((tile) => {
+              const Icon = tile.icon
+              return (
+                <div key={tile.label} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '11px 13px' }}>
+                  <div className="inline-flex" style={{ gap: 6, color: 'var(--text-mute)' }}>
+                    <Icon size={12} />
+                    <span className="mono" style={{ fontSize: 8.5, letterSpacing: '.08em', textTransform: 'uppercase' }}>
+                      {tile.label}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 21, fontFamily: 'var(--font-mono)', color: tile.color, marginTop: 5 }}>{tile.value}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-mute)', lineHeight: 1.35 }}>{tile.note}</div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="inline-flex mt-12" style={{ flexWrap: 'wrap', gap: 6 }}>
+            <span className="mono" style={{ fontSize: 8.5, color: 'var(--text-mute)', alignSelf: 'center' }}>
+              feeding
+            </span>
+            {AFFECTED_PAGES.map((page) => (
+              <span className="badge real" key={page}>
+                {page}
+              </span>
+            ))}
+          </div>
+
+          {(estate.coverage.unverifiedPaths > 0 || gaps.length > 0) && (
+            <div className="form-alert" style={{ marginTop: 14 }}>
+              <AlertTriangle size={13} />
+              <span>
+                {fmtInt(estate.coverage.unverifiedPaths)} exposure path(s) have an unverified installed version, and{' '}
+                {gaps.length
+                  ? `${gaps
+                      .slice(0, 3)
+                      .map((gap) => `${gap.product} (${fmtInt(gap.assets)} assets)`)
+                      .join(', ')}${gaps.length > 3 ? ` +${gaps.length - 3} more` : ''}`
+                  : 'no product'}{' '}
+                has no CVE configuration in the corpus. Those assets are reported as a coverage gap, never as clean.
+              </span>
+            </div>
+          )}
+        </Panel>
+
         <Panel
           className="col-8"
           title="Source file"
@@ -393,7 +594,7 @@ export default function Uploads() {
             <h3>{file ? file.name : 'Drop an inventory or log file'}</h3>
             <p>
               {file
-                ? `${fmtInt(file.size)} bytes · ${kind === 'assets' ? 'inventory' : 'log'} shape detected`
+                ? `${fmtInt(file.size)} bytes · ${kind === 'assets' ? 'inventory' : 'log'} shape detected · ${fmtInt(headers.length)} columns`
                 : 'or click to browse. Nothing leaves this browser in the demo.'}
             </p>
             <div className="formats">
@@ -421,6 +622,16 @@ export default function Uploads() {
             </div>
           )}
 
+          {preset && (
+            <div className="form-success" style={{ marginTop: 14 }}>
+              <Check size={13} />
+              <span>
+                Wide export detected: {preset.matched} of {preset.total} fields mapped straight from the header row. Override any
+                column below, or accept as-is.
+              </span>
+            </div>
+          )}
+
           <div className="inline-flex mt-16" style={{ flexWrap: 'wrap', gap: 8 }}>
             <button className="btn btn-ghost btn-sm" onClick={() => download('asset_inventory_sample.csv', sampleAssetsCsv)}>
               <Download size={12} /> Inventory sample
@@ -441,6 +652,7 @@ export default function Uploads() {
               ['Size ceiling', '10 MB in this demo; enforced again server-side.'],
               ['Formula injection', 'Cells starting = + - @ are neutralised and counted.'],
               ['Row validation', 'Required fields missing → row rejected with a reason.'],
+              ['Browser budget', `≤ ${fmtInt(MAX_ASSETS)} assets and ≤ ${fmtInt(MAX_EVENTS)} events per dataset.`],
               ['Quarantine', 'Rejected files never overwrite accepted datasets.'],
               ['Role gate', 'Only ADMIN can accept an upload in the demo.'],
             ].map(([title, body]) => (
@@ -480,8 +692,16 @@ export default function Uploads() {
               }
               bodyClass="panel-body"
             >
+              <div className="inline-flex" style={{ justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
+                <span className="mono" style={{ fontSize: 8.5, color: 'var(--text-mute)' }}>
+                  {showAll ? `all ${allFields.length} fields` : 'core fields'} · {fmtInt(headers.length)} columns available
+                </span>
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowAll((v) => !v)}>
+                  <Plus size={11} /> {showAll ? 'Core fields only' : `Show all ${allFields.length} fields`}
+                </button>
+              </div>
               <div className="mapping-grid">
-                {FIELDS[kind].map((field) => (
+                {fields.map((field) => (
                   <label key={field.key} className="mapping-row">
                     <span>
                       {field.label}
@@ -523,6 +743,11 @@ export default function Uploads() {
                 {[
                   ['Rows read', fmtInt(validation.total), 'var(--text)'],
                   ['Accepted', fmtInt(validation.accepted), 'var(--low)'],
+                  [
+                    kind === 'assets' ? 'Unique assets' : 'Events',
+                    fmtInt(kind === 'assets' ? validation.uniqueAssets : validation.events),
+                    'var(--teal)',
+                  ],
                   ['Rejected', fmtInt(validation.rejected), validation.rejected ? 'var(--critical)' : 'var(--text-mute)'],
                   ['Cells sanitised', fmtInt(validation.sanitized), validation.sanitized ? 'var(--amber)' : 'var(--text-mute)'],
                 ].map(([k, v, c]) => (
@@ -531,6 +756,15 @@ export default function Uploads() {
                     <strong style={{ color: c }}>{v}</strong>
                   </div>
                 ))}
+                {validation.overBudget && (
+                  <div className="form-alert" style={{ margin: 0 }}>
+                    <AlertTriangle size={12} />
+                    <span style={{ fontSize: 10.5 }}>
+                      This file is larger than the browser budget; rows past the cap are dropped and the dataset is labelled as
+                      truncated.
+                    </span>
+                  </div>
+                )}
                 {validation.rejectedRows.map((r) => (
                   <div className="form-alert" key={r.row} style={{ margin: 0 }}>
                     <X size={12} />
@@ -550,7 +784,7 @@ export default function Uploads() {
                   onClick={accept}
                   title={!canUpload ? 'Admin role required' : undefined}
                 >
-                  <Check size={13} /> Accept {validation.accepted} rows
+                  <Check size={13} /> Accept {fmtInt(validation.accepted)} rows into the estate
                 </button>
               </div>
             </Panel>
@@ -600,35 +834,74 @@ export default function Uploads() {
                   <th className="right">Accepted</th>
                   <th className="right">Rejected</th>
                   <th>Uploaded</th>
+                  <th>Scope</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                {history.map((h) => (
-                  <tr key={h.id}>
-                    <td>
-                      <div className="cell-title">{h.name}</div>
-                      <div className="cell-sub">
-                        {h.id} · {h.uploadedBy}
-                      </div>
-                    </td>
-                    <td className="cell-sub">{h.type}</td>
-                    <td>
-                      <span className={`badge ${h.status === 'ACCEPTED' ? 'low' : h.status === 'PARTIAL' ? 'medium' : 'critical'}`}>
-                        {h.status}
-                      </span>
-                    </td>
-                    <td className="right mono">{fmtInt(h.rows)}</td>
-                    <td className="right mono">{fmtInt(h.accepted)}</td>
-                    <td className="right mono">{fmtInt(h.rejected)}</td>
-                    <td className="mono">{timeAgo(h.uploadedAt)}</td>
-                  </tr>
-                ))}
+                {history.map((h) => {
+                  const live = datasets.some((d) => d.id === h.id)
+                  return (
+                    <tr key={h.id}>
+                      <td>
+                        <div className="cell-title">{h.name}</div>
+                        <div className="cell-sub">
+                          {h.id} · {h.uploadedBy}
+                          {h.preset ? ` · ${h.preset}` : ''}
+                        </div>
+                        {h.truncated && <div className="cell-sub" style={{ color: 'var(--amber)' }}>{h.truncated}</div>}
+                      </td>
+                      <td className="cell-sub">{h.type}</td>
+                      <td>
+                        <span className={`badge ${h.status === 'ACCEPTED' ? 'low' : h.status === 'PARTIAL' ? 'medium' : 'critical'}`}>
+                          {h.status}
+                        </span>
+                      </td>
+                      <td className="right mono">{fmtInt(h.rows)}</td>
+                      <td className="right mono">{fmtInt(h.accepted)}</td>
+                      <td className="right mono">{fmtInt(h.rejected)}</td>
+                      <td className="mono">{timeAgo(h.uploadedAt)}</td>
+                      <td>
+                        {live &&
+                          (activeId === h.id ? (
+                            <span className="badge upload">in scope</span>
+                          ) : (
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              onClick={() => {
+                                setActive(h.id)
+                                toast(`${h.name} is now the scope of every page`)
+                              }}
+                              title="Re-derive every page from this dataset alone"
+                            >
+                              <Layers size={11} /> Analyse
+                            </button>
+                          ))}
+                      </td>
+                      <td className="right">
+                        {live && (
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => {
+                              removeDataset(h.id)
+                              toast(`${h.name} dropped from the estate; every page re-derived without it`)
+                            }}
+                            title="Remove this dataset and re-derive the estate"
+                          >
+                            <X size={11} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
           <div className="table-note">
             <span className="inline-flex">
-              <FileSearch size={11} /> Accepted assets appear in the asset register, dashboard, and Ask Aegis context.
+              <FileSearch size={11} /> Accepted rows join the estate that asset exposure, scoring, graphs, intel, traffic and Ask
+              Aegis all read.
             </span>
             <span className="mono">quarantine never auto-promotes</span>
           </div>
@@ -649,11 +922,14 @@ export default function Uploads() {
 
         <StatsPanel
           className="col-12"
+          sub="Computed from the live estate plus the seeded demo history · not a production claim"
           stats={[
             { name: 'Datasets held', value: String(history.length), formula: 'accepted + seeded demo records', n: history.length },
             { name: 'Rows accepted', value: fmtInt(history.reduce((a, b) => a + b.accepted, 0)), formula: 'Σ accepted rows', n: history.length },
             { name: 'Rows rejected', value: fmtInt(history.reduce((a, b) => a + b.rejected, 0)), formula: 'Σ rejected rows', n: history.length },
             { name: 'Acceptance rate', value: `${((history.reduce((a, b) => a + b.accepted, 0) / Math.max(1, history.reduce((a, b) => a + b.rows, 0))) * 100).toFixed(1)}%`, formula: 'accepted ÷ rows read', n: history.length },
+            { name: 'Estate assets', value: fmtInt(estate.assets.length), formula: 'seeded + uploaded inventory rows', n: estate.assets.length },
+            { name: 'Estate events', value: fmtInt(estate.coverage.events), formula: 'Σ accepted log rows', n: estate.coverage.events },
             { name: 'Current file', value: file ? file.name.slice(0, 26) : 'none', formula: 'last parsed file · browser only', n: file ? rows.length : 0 },
           ]}
         />
@@ -661,7 +937,8 @@ export default function Uploads() {
 
       <div className="page-foot">
         <span className="inline-flex">
-          <Lock size={11} /> Files are parsed in your browser. Accepted inventory is kept in this browser's local storage and never sent to a server.
+          <Lock size={11} /> Files are parsed in your browser. Accepted rows are kept in this browser's IndexedDB and feed the
+          estate every page reads; nothing is sent to a server.
         </span>
         <span className="mono" style={{ color: TEAL }}>provenance: USER UPLOAD</span>
       </div>

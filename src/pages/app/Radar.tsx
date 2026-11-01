@@ -4,7 +4,7 @@ import { PageHeader, Panel } from '../../components/Panel'
 import { StatsPanel } from '../../components/StatsPanel'
 import { SourceBadge, SeverityBadge } from '../../components/Badges'
 import { ArrowRight, Info, Radar as RadarIcon, TrendingUp } from '../../components/Icons'
-import { cveById, epssHistory, threatDaily } from '../../data/seed'
+import { useEstate } from '../../lib/estate'
 import { useTheme } from '../../lib/store'
 import { fmtPct } from '../../lib/format'
 import { mean, spearman, trendSlope } from '../../lib/stats'
@@ -13,16 +13,21 @@ import type { RiskLevel } from '../../lib/types'
 
 export default function RadarPage() {
   const theme = useTheme((s) => s.theme)
-  const [focus, setFocus] = useState<string[]>(epssHistory.map((e) => e.id))
+  const estate = useEstate()
+  const { epssHistory, threatDaily, cveById } = estate
+  const [focus, setFocus] = useState<string[]>(() => estate.epssHistory.map((e) => e.id))
 
-  const tracked = epssHistory.map((h) => {
-    const cve = cveById[h.id]
+  const tracked = epssHistory.flatMap((h) => {
+    const cve = cveById.get(h.id)
+    if (!cve) return []
     const current = h.points[h.points.length - 1].value
     const weekAgo = h.points[Math.max(0, h.points.length - 8)].value
     const delta = current - weekAgo
     const slope = trendSlope(h.points.map((p) => p.value))
-    return { ...h, cve, current, weekAgo, delta, slope: slope.slope, r2: slope.r2 }
+    return [{ ...h, cve, current, weekAgo, delta, slope: slope.slope, r2: slope.r2 }]
   })
+
+  const epssReal = estate.coverage.epssReal
 
   const maxRise = [...tracked].sort((a, b) => b.delta - a.delta)[0]
 
@@ -57,7 +62,7 @@ export default function RadarPage() {
         data: h.points.map((p) => Number(p.value.toFixed(4))),
       })),
     }
-  }, [theme, focus])
+  }, [theme, focus, epssHistory])
 
   const accelOption = useMemo(() => {
     const ax = axisStyle(theme)
@@ -126,17 +131,20 @@ export default function RadarPage() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, threatDaily])
 
   return (
     <div className="page">
       <PageHeader
         eyebrow="COMPONENT 14 · EMERGING RADAR"
         title="What is moving, not just what is loud"
-        description="EPSS movement, KEV additions, and acceleration across the demo snapshot. Trend is computed from stored series — no forecast is invented."
+        description={`EPSS movement, KEV additions, and acceleration across the ${estate.cves.length.toLocaleString()} CVE records in the estate. Trend is computed from stored series — no forecast is invented.`}
         actions={
-          <span className="chip">
-            <RadarIcon size={12} /> {tracked.length} tracked
+          <span className="inline-flex">
+            <SourceBadge source={epssReal ? 'FIRST EPSS' : 'SIMULATED'} />
+            <span className="chip">
+              <RadarIcon size={12} /> {tracked.length} tracked
+            </span>
           </span>
         }
       />
@@ -145,7 +153,7 @@ export default function RadarPage() {
         <div className="kpi">
           <div className="kpi-label">Tracked CVEs</div>
           <div className="kpi-value">{tracked.length}</div>
-          <div className="kpi-delta">EPSS series in demo</div>
+          <div className="kpi-delta">{epssReal ? 'highest-EPSS alerts in the estate' : 'EPSS series in demo'}</div>
         </div>
         <div className="kpi high-tone">
           <div className="kpi-label">Largest 7-day rise</div>
@@ -160,7 +168,7 @@ export default function RadarPage() {
         <div className="kpi amber-tone">
           <div className="kpi-label">KEV additions · 4 weeks</div>
           <div className="kpi-value">{threatDaily.reduce((a, b) => a + b.kev, 0)}</div>
-          <div className="kpi-delta">demo KEV series</div>
+          <div className="kpi-delta">{estate.coverage.threatDailyReal ? 'from synced KEV dates' : 'demo KEV series'}</div>
         </div>
         <div className="kpi teal-tone">
           <div className="kpi-label">Fastest slope</div>
@@ -201,8 +209,10 @@ export default function RadarPage() {
           <Chart option={lineOption} height={330} />
           <div className="chart-legend">
             <span className="inline-flex">
-              <SourceBadge source="FIRST EPSS" />
-              <span className="mono" style={{ fontSize: 8 }}>daily scored snapshot</span>
+              <SourceBadge source={epssReal ? 'FIRST EPSS' : 'SIMULATED'} />
+              <span className="mono" style={{ fontSize: 8 }}>
+                {epssReal ? 'scored from estate alerts' : 'daily scored snapshot'}
+              </span>
             </span>
             <span className="legend-item dim">Values interpolated only for display; deltas use stored endpoints.</span>
           </div>
@@ -260,7 +270,7 @@ export default function RadarPage() {
           </div>
         </Panel>
 
-        <Panel className="col-5" title="KEV additions by week" sub="Summed from the 30-day demo series" noPad>
+        <Panel className="col-5" title="KEV additions by week" sub={`Summed from the ${threatDaily.length}-day ${estate.coverage.threatDailyReal ? 'KEV' : 'demo'} series`} noPad>
           <Chart option={kevOption} height={250} />
           <div className="chart-legend">
             <span className="legend-item">
@@ -285,7 +295,11 @@ export default function RadarPage() {
             <div className="insight-cell">
               <Info size={15} style={{ color: 'var(--simulated)' }} />
               <strong>Snapshot</strong>
-              <p>EPSS series are seeded demonstration data shaped around the real CVE records in the dataset.</p>
+              <p>
+                {epssReal
+                  ? `These four series follow the highest-EPSS alerts currently in the estate, across ${estate.cves.length.toLocaleString()} CVE records.`
+                  : 'EPSS series are seeded demonstration data shaped around the real CVE records in the dataset.'}
+              </p>
             </div>
           </div>
         </Panel>

@@ -1,22 +1,5 @@
-import {
-  activeAlerts,
-  alerts,
-  anomalyWindows,
-  assets,
-  attackProfiles,
-  counts,
-  cves,
-  DEMO_NOW,
-  geoPoints,
-  intelItems,
-  mitreTactics,
-  posture,
-  sourceHealth,
-  suppressedAlerts,
-  techniques,
-  trafficSeries,
-  uploadedDatasets,
-} from '../data/seed'
+import { attackProfiles, mitreTactics, postureFor } from '../data/seed'
+import { getEstate } from './estate'
 import { componentByPath } from '../app/catalog'
 import { FORMULA_VERSION, WEIGHTS } from './scoring'
 import { mlFor, mlPortfolio, ML_BANDS, MODEL_CARD } from './ml'
@@ -111,6 +94,11 @@ export interface AnalystContext {
   }
   userUploads: {
     datasetCount: number
+    acceptedTotal: number
+    scope: string
+    mergedAll: boolean
+    seedIncluded: boolean
+    eventsTotal: number
     assetsTotal: number
     datasets: {
       name: string
@@ -145,10 +133,10 @@ export interface AnalystContext {
   policy: string
 }
 
-const hours = (iso: string) => Math.max(0, Math.round((DEMO_NOW.getTime() - new Date(iso).getTime()) / 3_600_000))
+const hours = (iso: string) => Math.max(0, Math.round((getEstate().now - new Date(iso).getTime()) / 3_600_000))
 
 function slimAlert(a: Alert) {
-  const ml = mlFor(a.id)
+  const ml = mlFor(a)
   return {
     id: a.id,
     score: a.score,
@@ -201,6 +189,7 @@ function slimAsset(a: Asset) {
 const truncate = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
 function buildPatchPlan() {
+  const { activeAlerts, posture } = getEstate()
   const currentPosture = posture
   const groups = new Map<string, Alert[]>()
   for (const alert of activeAlerts) {
@@ -211,9 +200,7 @@ function buildPatchPlan() {
   return [...groups.entries()]
     .map(([assetId, list]) => {
       const remaining = activeAlerts.filter((a) => a.asset.id !== assetId)
-      const critical = remaining.filter((a) => a.level === 'CRITICAL').length
-      const high = remaining.filter((a) => a.level === 'HIGH').length
-      const projected = Math.max(0, 100 - 15 * critical - 6 * high)
+      const projected = postureFor(remaining)
       const gain = projected - currentPosture
       return {
         asset: list[0].asset.name,
@@ -237,9 +224,25 @@ export function buildAnalystContext(
 ): AnalystContext {
   const role: Role = viewer.role ?? 'ANALYST'
   const component = componentByPath(pathname)
-  const uploadDatasets = useUploads.getState().datasets
-  const uploadedAssets = allUploadedAssets(uploadDatasets)
-  const mergedAssets = [...uploadedAssets, ...assets]
+  const estate = getEstate()
+  const {
+    activeAlerts,
+    alerts,
+    anomalyWindows,
+    counts,
+    cves,
+    geoPoints,
+    intelItems,
+    posture,
+    sourceHealth,
+    suppressedAlerts,
+    techniques,
+    trafficSeries,
+  } = estate
+  const uploadDatasets = estate.datasets
+  const uploadedAssets = estate.uploadedAssets
+  const mergedAssets = estate.assets
+  const portfolio = mlPortfolio(activeAlerts)
   const sorted = [...activeAlerts].sort((a, b) => b.score - a.score)
   const top = sorted.slice(0, 8)
   const patchPlan = buildPatchPlan()
@@ -272,7 +275,7 @@ export function buildAnalystContext(
       brier: MODEL_CARD.test.brier,
       topFeatures: MODEL_CARD.featureImportance.slice(0, 6),
     }
-    pageData.mlTopAlerts = mlPortfolio.top.map((row) => ({
+    pageData.mlTopAlerts = portfolio.top.map((row) => ({
       alert: row.alert.cve.id,
       asset: row.alert.asset.name,
       probability: Math.round(row.prediction.probability * 1000) / 1000,
@@ -370,7 +373,7 @@ export function buildAnalystContext(
         uploadedAt: d.uploadedAt,
         source: 'USER UPLOAD',
       })),
-      ...uploadedDatasets.map((d) => ({
+      ...getEstate().datasets.map((d) => ({
         name: d.name,
         type: d.type,
         status: d.status,
@@ -399,7 +402,7 @@ export function buildAnalystContext(
           : 'Investigation only. Data uploads, the what-if simulator and bulk export are admin-only.',
       restrictedModules: role === 'ADMIN' ? [] : ['Data Uploads', 'What-If Simulator', 'Alert queue export'],
     },
-    asOf: DEMO_NOW.toISOString(),
+    asOf: estate.nowIso,
     organisation: {
       postureScore: posture,
       postureDefinition:
@@ -439,12 +442,12 @@ export function buildAnalystContext(
       brier: MODEL_CARD.test.brier,
       topFeatures: MODEL_CARD.featureImportance.slice(0, 6),
       portfolio: {
-        coverage: mlPortfolio.coverage,
-        meanProbability: Math.round(mlPortfolio.mean * 1000) / 1000,
-        maxProbability: Math.round(mlPortfolio.max * 1000) / 1000,
-        elevated: mlPortfolio.elevated,
-        watch: mlPortfolio.watch,
-        low: mlPortfolio.low,
+        coverage: portfolio.coverage,
+        meanProbability: Math.round(portfolio.mean * 1000) / 1000,
+        maxProbability: Math.round(portfolio.max * 1000) / 1000,
+        elevated: portfolio.elevated,
+        watch: portfolio.watch,
+        low: portfolio.low,
       },
       policy:
         `XGBoost is a second opinion on KEV membership (observed in-the-wild exploitation), not a replacement for the six-factor score. It is fitted on live NVD, EPSS and KEV snapshots, with the KEV label excluded from the features. Suppressed alerts still receive a prior for audit, but the version-relevance gate overrides the model. Bands: ELEVATED ≥${(ML_BANDS.elevated * 100).toFixed(1)}%, WATCH ≥${(ML_BANDS.watch * 100).toFixed(1)}%, LOW below.`,
@@ -495,9 +498,14 @@ export function buildAnalystContext(
         .map((a) => a.name),
     },
     userUploads: {
-      datasetCount: uploadDatasets.length,
+      datasetCount: estate.scope.datasets.length,
+      acceptedTotal: uploadDatasets.length,
+      scope: estate.scope.all ? 'all accepted datasets merged' : estate.scope.label,
+      mergedAll: estate.scope.all,
+      seedIncluded: estate.scope.includesSeed,
+      eventsTotal: estate.coverage.events,
       assetsTotal: uploadedAssets.length,
-      datasets: uploadDatasets.slice(0, 20).map((d) => ({
+      datasets: estate.scope.datasets.slice(0, 20).map((d) => ({
         name: d.name,
         type: d.type,
         status: d.status,
@@ -514,7 +522,7 @@ export function buildAnalystContext(
         internetFacing: a.internetFacing,
         software: a.software.map((s) => `${s.vendor} ${s.product} ${s.version}`),
       })),
-      logs: uploadDatasets
+      logs: estate.scope.datasets
         .filter((d) => d.logs)
         .slice(0, 20)
         .map((d) => ({
@@ -528,9 +536,11 @@ export function buildAnalystContext(
           lastTimestamp: d.logs!.lastTimestamp,
         })),
       note:
-        uploadDatasets.length > 0
-          ? 'These datasets were accepted by an admin in the Data Input Hub and are included in inventory counts. Assets carry source USER UPLOAD. Log uploads are summarised, not replayed event by event.'
-          : 'No customer uploads have been accepted in this browser yet. Inventory is the seeded demo set.',
+        estate.scope.datasets.length > 0
+          ? `Scope is "${estate.scope.all ? 'all accepted datasets merged' : estate.scope.label}"${
+              estate.scope.includesSeed ? ' plus the demo seed inventory' : ''
+            }. Every count, alert and telemetry figure in this context describes that scope, not the whole warehouse. Assets carry source USER UPLOAD. Log uploads are summarised, not replayed event by event.`
+          : 'No customer uploads are in the current scope. Inventory is the seeded demo set.',
     },
     pageData,
     policy:
@@ -689,14 +699,23 @@ export function localBriefing(ctx: AnalystContext): string {
     `3. ${anomaly ? `Have the SOC review the ${anomaly.window} window: ${truncate(anomaly.reason, 80).replace(/\.$/, '')}.` : 'Confirm the simulated log pipeline is still feeding the anomaly baseline.'}`,
   )
   lines.push('')
+  const ml = ctx.machineLearning.portfolio
   lines.push('**Model second opinion**')
   lines.push(
-    `XGBoost **${MODEL_CARD.version}** (${MODEL_CARD.rounds} trees, test AUC **${MODEL_CARD.test.auc.toFixed(3)}**) puts **${mlPortfolio.elevated} of ${mlPortfolio.coverage}** active alerts above ${(ML_BANDS.elevated * 100).toFixed(1)}% KEV-membership likelihood; the highest prior is **${(mlPortfolio.max * 100).toFixed(0)}%**. The deterministic score stays authoritative — the model is a cross-check, not a replacement.`,
+    `XGBoost **${MODEL_CARD.version}** (${MODEL_CARD.rounds} trees, test AUC **${MODEL_CARD.test.auc.toFixed(3)}**) puts **${ml.elevated} of ${ml.coverage}** active alerts above ${(ML_BANDS.elevated * 100).toFixed(1)}% KEV-membership likelihood; the highest prior is **${(ml.maxProbability * 100).toFixed(0)}%**. The deterministic score stays authoritative — the model is a cross-check, not a replacement.`,
   )
   if (ctx.userUploads.datasetCount > 0) {
     lines.push('')
     lines.push(
-      `**Customer data.** ${ctx.userUploads.assetsTotal} uploaded asset${ctx.userUploads.assetsTotal === 1 ? '' : 's'} from ${ctx.userUploads.datasetCount} accepted dataset${ctx.userUploads.datasetCount === 1 ? '' : 's'} are included in inventory counts and correlation context.`,
+      `**Customer data.** Scope is "${ctx.userUploads.scope}"${
+        ctx.userUploads.seedIncluded ? ' · demo seed inventory included as join context' : ' · demo seed excluded'
+      }. ${ctx.userUploads.assetsTotal} uploaded asset${
+        ctx.userUploads.assetsTotal === 1 ? '' : 's'
+      } and ${ctx.userUploads.eventsTotal.toLocaleString('en-US')} log event(s) inside that scope drive the inventory counts, correlation and telemetry above${
+        ctx.userUploads.acceptedTotal > ctx.userUploads.datasetCount
+          ? `; ${ctx.userUploads.acceptedTotal - ctx.userUploads.datasetCount} further accepted dataset(s) are held out of scope`
+          : ''
+      }.`,
     )
   }
   lines.push('')

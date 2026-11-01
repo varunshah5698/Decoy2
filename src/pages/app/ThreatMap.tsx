@@ -7,7 +7,7 @@ import { PageHeader, Panel } from '../../components/Panel'
 import { StatsPanel } from '../../components/StatsPanel'
 import { SourceBadge } from '../../components/Badges'
 import { Globe2, Info, MapPin } from '../../components/Icons'
-import { geoPoints } from '../../data/seed'
+import { useEstate } from '../../lib/estate'
 import { useTheme } from '../../lib/store'
 import { fmtInt } from '../../lib/format'
 import { entropy, sum } from '../../lib/stats'
@@ -15,17 +15,22 @@ import { LEVEL_COLORS, TEAL, hexA } from '../../lib/colors'
 
 const W = 920
 const H = 460
-const CATEGORIES = ['ALL', 'Scanning', 'Brute force', 'Phishing', 'Malware C2'] as const
+const CATEGORIES = ['ALL', 'Scanning', 'Brute force', 'Exploit', 'DDoS', 'Phishing', 'Malware C2'] as const
 
 const CAT_COLORS: Record<string, string> = {
   Scanning: TEAL,
   'Brute force': '#e08a2f',
+  Exploit: '#e5545a',
+  DDoS: '#d95f8e',
   Phishing: '#9b7bd4',
-  'Malware C2': '#e5545a',
+  'Malware C2': '#c2453f',
 }
 
 export default function ThreatMap() {
   const theme = useTheme((s) => s.theme)
+  const estate = useEstate()
+  const geoPoints = estate.geoPoints
+  const fromUploads = estate.coverage.hasEvents
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>('ALL')
   const [hover, setHover] = useState<{ id: string; x: number; y: number } | null>(null)
 
@@ -54,7 +59,7 @@ export default function ThreatMap() {
   const hovered = hover ? geoPoints.find((g) => g.id === hover.id) : null
   const total = sum(geoPoints.map((g) => g.count))
   const top5 = [...geoPoints].sort((a, b) => b.count - a.count).slice(0, 5)
-  const top5Share = sum(top5.map((g) => g.count)) / total
+  const top5Share = total ? sum(top5.map((g) => g.count)) / total : 0
 
   const barsOption = useMemo(() => {
     const ax = axisStyle(theme)
@@ -69,7 +74,7 @@ export default function ThreatMap() {
         splitLine: { show: false },
         axisLabel: { ...ax.axisLabel, fontSize: 8.5 },
       },
-      tooltip: { formatter: (p: any) => `${p.name}<br/>${fmtInt(p.value)} simulated events` },
+      tooltip: { formatter: (p: any) => `${p.name}<br/>${fmtInt(p.value)} ${fromUploads ? 'logged' : 'simulated'} events` },
       series: [
         {
           type: 'bar',
@@ -82,7 +87,7 @@ export default function ThreatMap() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, geoPoints])
 
   const catOption = useMemo(() => {
     const cats = CATEGORIES.filter((c) => c !== 'ALL') as readonly string[]
@@ -103,7 +108,7 @@ export default function ThreatMap() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, geoPoints])
 
   const catCounts = CATEGORIES.filter((c) => c !== 'ALL').map((c) => ({
     name: c,
@@ -115,20 +120,24 @@ export default function ThreatMap() {
       <PageHeader
         eyebrow="COMPONENT 12 · GLOBAL THREAT MAP"
         title="Where the noise originates"
-        description="Country-level patterns from demonstration data. These points are illustrative only — they are not observed activity in this organisation."
+        description={
+          fromUploads
+            ? `Country-level patterns counted from ${fmtInt(estate.coverage.events)} accepted log rows. Coordinates are approximate country anchors, not observed physical locations.`
+            : 'Country-level patterns from demonstration data. These points are illustrative only — they are not observed activity in this organisation.'
+        }
         actions={
           <div className="inline-flex">
-            <SourceBadge source="SIMULATED" />
-            <span className="badge simulated">illustrative</span>
+            <SourceBadge source={fromUploads ? 'USER UPLOAD' : 'SIMULATED'} />
+            <span className="badge simulated">{fromUploads ? 'country anchors' : 'illustrative'}</span>
           </div>
         }
       />
 
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(5, minmax(0,1fr))' }}>
         <div className="kpi">
-          <div className="kpi-label">Simulated events</div>
+          <div className="kpi-label">{fromUploads ? 'Logged events' : 'Simulated events'}</div>
           <div className="kpi-value">{fmtInt(total)}</div>
-          <div className="kpi-delta">geo seed data</div>
+          <div className="kpi-delta">{fromUploads ? 'counted from accepted logs' : 'geo seed data'}</div>
         </div>
         <div className="kpi teal-tone">
           <div className="kpi-label">Countries</div>
@@ -253,8 +262,9 @@ export default function ThreatMap() {
             <div className="form-alert" style={{ margin: 0 }}>
               <Info size={13} />
               <span>
-                Geolocation is demonstrative. It is not derived from your logs, and no real source IP is
-                attributed to a country in this demo.
+                {fromUploads
+                  ? 'Counts come from the country column of your accepted logs. Each country is drawn at a fixed anchor point, so the marker shows origin, not a physical location or an attribution of any real IP.'
+                  : 'Geolocation is demonstrative. It is not derived from your logs, and no real source IP is attributed to a country in this demo.'}
               </span>
             </div>
             <div className="provenance-list mt-12">
@@ -266,18 +276,18 @@ export default function ThreatMap() {
               <div className="provenance-row">
                 <span className="check">✓</span>
                 <span>Event points</span>
-                <span className="time">SIMULATED seed</span>
+                <span className="time">{fromUploads ? 'USER UPLOAD counts' : 'SIMULATED seed'}</span>
               </div>
               <div className="provenance-row">
-                <span className="miss">×</span>
+                <span className={fromUploads ? 'check' : 'miss'}>{fromUploads ? '✓' : '×'}</span>
                 <span>Real telemetry</span>
-                <span className="time">not present</span>
+                <span className="time">{fromUploads ? `${fmtInt(estate.coverage.events)} rows` : 'not present'}</span>
               </div>
             </div>
           </Panel>
         </div>
 
-        <Panel className="col-5" title="Top origins" sub="10 countries · simulated event volume" noPad>
+        <Panel className="col-5" title="Top origins" sub={`10 countries · ${fromUploads ? 'logged' : 'simulated'} event volume`} noPad>
           <Chart option={barsOption} height={330} />
         </Panel>
 

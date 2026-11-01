@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { PageHeader, Panel } from '../../components/Panel'
 import { Drawer, DrawerHead } from '../../components/Drawer'
 import { StatsPanel } from '../../components/StatsPanel'
-import { SeverityBadge, SimulatedBadge } from '../../components/Badges'
+import { SeverityBadge, SimulatedBadge, UploadBadge } from '../../components/Badges'
 import { EmptyState } from '../../components/EmptyState'
 import {
   ArrowRight,
@@ -15,12 +15,12 @@ import {
   ShieldCheck,
   X,
 } from '../../components/Icons'
-import { activeAlerts, alerts, DEMO_NOW } from '../../data/seed'
+import { useEstate } from '../../lib/estate'
 import { useFilters } from '../../lib/store'
 import { cx, fmtDate, fmtDateTime, fmtPct, fmtScore, timeAgo } from '../../lib/format'
 import { median, quantile } from '../../lib/stats'
 import { LEVEL_COLORS } from '../../lib/colors'
-import { latestLiveFetch, useLiveCves, useLiveFeeds } from '../../lib/liveFeeds'
+import { latestLiveFetch, useLiveFeeds } from '../../lib/liveFeeds'
 import { CveOrbit, CveSpectrum, cvssBin } from './cve/CveVisuals'
 import type { Alert, Cve } from '../../lib/types'
 import './cves.css'
@@ -51,12 +51,13 @@ const BAND_LABEL: Record<Band, string> = {
   LOW: 'Low',
 }
 
-const ALERTS_BY_CVE = alerts.reduce<Map<string, Alert[]>>((map, alert) => {
-  const list = map.get(alert.cve.id)
-  if (list) list.push(alert)
-  else map.set(alert.cve.id, [alert])
-  return map
-}, new Map())
+const alertsByCve = (rows: Alert[]) =>
+  rows.reduce<Map<string, Alert[]>>((map, alert) => {
+    const list = map.get(alert.cve.id)
+    if (list) list.push(alert)
+    else map.set(alert.cve.id, [alert])
+    return map
+  }, new Map())
 
 type Exposure = {
   key: 'matched' | 'unverified' | 'reviewed' | 'none'
@@ -65,8 +66,8 @@ type Exposure = {
   detail: string
 }
 
-function exposureFor(cve: Cve): Exposure {
-  const related = ALERTS_BY_CVE.get(cve.id) ?? []
+function exposureFor(cve: Cve, byCve: Map<string, Alert[]>): Exposure {
+  const related = byCve.get(cve.id) ?? []
   const live = related.filter((alert) => !alert.suppressed)
   const matched = live.filter((alert) => alert.relevance === 'MATCHED')
   if (matched.length > 0) {
@@ -134,7 +135,10 @@ export default function Cves() {
   const [bin, setBin] = useState<number | null>(null)
   const [sort, setSort] = useState<SortKey>('cvss')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const liveCves = useLiveCves()
+  const estate = useEstate()
+  const liveCves = estate.cves
+  const alertRows = estate.alerts
+  const byCve = useMemo(() => alertsByCve(alertRows), [alertRows])
   const syncing = useLiveFeeds((s) => s.syncing)
   const phase = useLiveFeeds((s) => s.phase)
   const liveMeta = useLiveFeeds((s) => s.meta)
@@ -158,7 +162,7 @@ export default function Cves() {
         q ? `${c.id} ${c.title} ${c.vendor} ${c.product} ${c.cwe.join(' ')}`.toLowerCase().includes(q) : true,
       )
       .map((c) => {
-        const exposure = exposureFor(c)
+        const exposure = exposureFor(c, byCve)
         return { cve: c, exposure, risk: primaryRisk(c, exposure) }
       })
       .sort((a, b) => {
@@ -170,7 +174,7 @@ export default function Cves() {
         }
         return (b.cve.cvss ?? 0) - (a.cve.cvss ?? 0) || (b.cve.epss ?? 0) - (a.cve.epss ?? 0)
       })
-  }, [chartEntries, bin, query, sort])
+  }, [chartEntries, bin, query, sort, byCve])
 
   const kevCount = liveCves.filter((c) => c.kev).length
   const medianEpss = median(liveCves.map((c) => c.epss ?? 0))
@@ -214,7 +218,7 @@ export default function Cves() {
                 ? `syncing ${phase ?? ''}`
                 : lastFetch
                   ? `live · pulled ${timeAgo(lastFetch)}`
-                  : `snapshot ${DEMO_NOW.toISOString().slice(0, 10)}`}
+                  : `snapshot ${estate.nowIso.slice(0, 10)}`}
             </span>
             <button
               className="btn btn-ghost btn-sm"
@@ -530,11 +534,11 @@ export default function Cves() {
           )}
           <div className="ops-table-foot">
             <span className="inline-flex">
-              <ShieldCheck size={11} /> {alerts.length} correlation candidates reference these records;{' '}
-              {activeAlerts.length} survive relevance.
+              <ShieldCheck size={11} /> {estate.alerts.length} correlation candidates reference these records;{' '}
+              {estate.activeAlerts.length} survive relevance.
             </span>
             <span className="mono">
-              {lastFetch ? `live pull ${fmtDateTime(lastFetch)} · cached in browser` : `snapshot ${DEMO_NOW.toISOString().slice(0, 10)}`}
+              {lastFetch ? `live pull ${fmtDateTime(lastFetch)} · cached in browser` : `snapshot ${estate.nowIso.slice(0, 10)}`}
             </span>
           </div>
         </Panel>
@@ -569,7 +573,7 @@ export default function Cves() {
             {
               name: 'CVEs with CPE ranges',
               value: String(liveCves.filter((c) => rangeLabel(c) !== 'not published').length),
-              formula: 'range present in demo CPE data',
+              formula: 'range present in the bundled CPE corpus',
               n: liveCves.length,
             },
           ]}
@@ -584,9 +588,10 @@ export default function Cves() {
 }
 
 function CveDetail({ cve, onClose }: { cve: Cve; onClose: () => void }) {
-  const related = alerts.filter((a) => a.cve.id === cve.id)
+  const estate = useEstate()
+  const related = estate.alerts.filter((a) => a.cve.id === cve.id)
   const patch = useLiveFeeds((s) => s.patches[cve.id])
-  const exposure = exposureFor(cve)
+  const exposure = exposureFor(cve, useMemo(() => alertsByCve(estate.alerts), [estate.alerts]))
   const risk = primaryRisk(cve, exposure)
   const liveRows = [
     {
@@ -655,8 +660,8 @@ function CveDetail({ cve, onClose }: { cve: Cve; onClose: () => void }) {
               </span>
             </div>
             <p style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 8, lineHeight: 1.6 }}>
-              {risk.detail}. Exposure is derived from the demo inventory through the relevance gate, not from a live
-              scan.
+              {risk.detail}. Exposure is derived from the {estate.coverage.hasUploads ? 'uploaded estate' : 'demo'}{' '}
+              inventory through the relevance gate, not from a live scan.
             </p>
           </div>
         </div>
@@ -669,7 +674,7 @@ function CveDetail({ cve, onClose }: { cve: Cve; onClose: () => void }) {
             </div>
             <p style={{ fontSize: 11.5, color: 'var(--text-dim)', marginTop: 6 }}>
               Installed versions inside this range are MATCHED. Versions outside are suppressed with the reason
-              kept on the alert. Fix version in this demo: <span className="mono">{cve.fixVersion}</span>.
+              kept on the alert. Fix version on this record: <span className="mono">{cve.fixVersion}</span>.
             </p>
           </div>
         </div>
@@ -689,7 +694,7 @@ function CveDetail({ cve, onClose }: { cve: Cve; onClose: () => void }) {
         <div className="drawer-section">
           <h3>Correlated alerts</h3>
           {related.length === 0 ? (
-            <EmptyState title="No alert from this CVE" hint="None of the demo assets meet the relevance gate." />
+            <EmptyState title="No alert from this CVE" hint="No asset in the current estate meets the relevance gate." />
           ) : (
             <div style={{ display: 'grid', gap: 8 }}>
               {related.map((a) => (
@@ -745,7 +750,7 @@ function CveDetail({ cve, onClose }: { cve: Cve; onClose: () => void }) {
           </div>
           {!liveRows.some((row) => row.at) && (
             <p className="dim" style={{ fontSize: 11, marginTop: 8 }}>
-              No live pull for this record yet; values come from the demo seed. Use “Sync live feeds”.
+              No live pull for this record yet; values come from the bundled NVD/KEV/EPSS corpus. Use “Sync live feeds”.
             </p>
           )}
         </div>
@@ -766,13 +771,20 @@ function CveDetail({ cve, onClose }: { cve: Cve; onClose: () => void }) {
             <div className="provenance-row">
               <Check size={12} className="check" />
               <span>EPSS snapshot</span>
-              <span className="time">{patch?.epssAt ? fmtDate(patch.epssAt) : fmtDate(DEMO_NOW.toISOString())}</span>
+              <span className="time">{patch?.epssAt ? fmtDate(patch.epssAt) : fmtDate(estate.nowIso)}</span>
             </div>
           </div>
         </div>
 
         <div className="drawer-section">
-          <SimulatedBadge /> <span className="dim" style={{ fontSize: 11 }}>Asset correlation is demo context; the CVE record is real.</span>
+          {related.some((a) => a.asset.source === 'USER UPLOAD') ? (
+            <UploadBadge />
+          ) : (
+            <SimulatedBadge />
+          )}{''}
+          <span className="dim" style={{ fontSize: 11 }}>
+            Asset correlation uses {estate.coverage.hasUploads ? 'your uploaded inventory plus' : 'the'} demo context; the CVE record is real.
+          </span>
         </div>
       </div>
     </>

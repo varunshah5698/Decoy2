@@ -23,14 +23,14 @@ import {
   ShieldCheck,
   Swords,
 } from '../../components/Icons'
-import { DEMO_NOW, intelItems, sourceHealth } from '../../data/seed'
+import { useEstate } from '../../lib/estate'
 import { useTheme } from '../../lib/store'
 import { cx, fmtDate, fmtDateTime, fmtInt, timeAgo } from '../../lib/format'
-import { AMBER, SIMULATED, SUPPRESSED, TEAL, hexA } from '../../lib/colors'
+import { AMBER, SIMULATED, SUPPRESSED, TEAL, UPLOAD, hexA } from '../../lib/colors'
 import { latestLiveFetch, useLiveFeeds, type LiveSource } from '../../lib/liveFeeds'
 import type { IntelItem } from '../../lib/types'
 
-const SOURCE_KEYS = ['NVD', 'CISA KEV', 'FIRST EPSS', 'MITRE ATT&CK', 'CERT-In'] as const
+const SOURCE_KEYS = ['NVD', 'CISA KEV', 'FIRST EPSS', 'MITRE ATT&CK', 'CERT-In', 'USER UPLOAD'] as const
 type SourceKey = (typeof SOURCE_KEYS)[number]
 type SourceFilter = 'ALL' | SourceKey
 
@@ -42,6 +42,7 @@ const SOURCE_META: Record<SourceKey, { icon: LucideIcon; color: string; tone: st
   'FIRST EPSS': { icon: GaugeIcon, color: '#8fd8cd', tone: 'teal', impact: 'Probability score' },
   'MITRE ATT&CK': { icon: Swords, color: SIMULATED, tone: 'simulated', impact: 'Technique map' },
   'CERT-In': { icon: FileSearch, color: SUPPRESSED, tone: 'muted', impact: 'Adapter sample' },
+  'USER UPLOAD': { icon: Rss, color: UPLOAD, tone: 'teal', impact: 'Estate evidence' },
 }
 
 const sourceMeta = (source: string) =>
@@ -49,59 +50,13 @@ const sourceMeta = (source: string) =>
     ? SOURCE_META[source as SourceKey]
     : { icon: Rss, color: TEAL, tone: 'teal', impact: 'Context update' }
 
-const TOTAL_ITEMS = intelItems.length
-
-const SOURCE_ROWS = SOURCE_KEYS.map((source) => {
-  const meta = SOURCE_META[source]
-  const count = intelItems.filter((item) => item.source === source).length
-  return { source, count, ...meta }
-}).sort((a, b) => b.count - a.count)
-
-const countFor = (source: SourceFilter) =>
-  source === 'ALL' ? TOTAL_ITEMS : (SOURCE_ROWS.find((row) => row.source === source)?.count ?? 0)
-
-const TIMELINE = Array.from({ length: 12 }, (_, i) => {
-  const start = DEMO_NOW.getTime() - (11 - i) * 8 * 3600 * 1000
-  const end = start + 8 * 3600 * 1000
-  const items = intelItems.filter((item) => {
-    const t = new Date(item.published).getTime()
-    return t >= start && t < end
-  })
-  const d = new Date(start + 4 * 3600 * 1000)
-  return {
-    label: d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', hour12: false }),
-    real: items.filter((item) => !item.simulated).length,
-    simulated: items.filter((item) => item.simulated).length,
-  }
-})
-
-const BUCKET_TOTALS = TIMELINE.map((bucket) => bucket.real + bucket.simulated)
-const AVG_PER_BUCKET = BUCKET_TOTALS.reduce((a, b) => a + b, 0) / TIMELINE.length
+const ageWidth = (age: number) => Math.min(100, (age / 72) * 100)
 
 const LIVE_SOURCE_KEYS: Record<string, LiveSource | undefined> = {
   NVD: 'NVD',
   'CISA KEV': 'CISA KEV',
   'FIRST EPSS': 'FIRST EPSS',
 }
-
-const REAL_SOURCES = sourceHealth.filter((source) => source.kind === 'real').length
-const REAL_ITEMS = intelItems.filter((item) => !item.simulated).length
-const SIMULATED_ITEMS = TOTAL_ITEMS - REAL_ITEMS
-const MAX_RECORDS = Math.max(...sourceHealth.map((source) => source.records))
-
-const CATEGORY_ROWS = Object.entries(
-  intelItems.reduce<Record<string, number>>((acc, item) => {
-    acc[item.category] = (acc[item.category] ?? 0) + 1
-    return acc
-  }, {}),
-)
-  .map(([name, count]) => ({ name, count }))
-  .sort((a, b) => b.count - a.count)
-
-const recordWidth = (records: number) =>
-  Math.max(5, (Math.log10(records) / Math.log10(MAX_RECORDS)) * 100)
-
-const ageWidth = (age: number) => Math.min(100, (age / 72) * 100)
 
 function ageTone(age: number) {
   if (age > 48) return 'bad'
@@ -111,6 +66,7 @@ function ageTone(age: number) {
 
 export default function Intel() {
   const theme = useTheme((state) => state.theme)
+  const estate = useEstate()
   const [source, setSource] = useState<SourceFilter>('ALL')
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<'new' | 'old'>('new')
@@ -122,22 +78,73 @@ export default function Intel() {
   const syncAll = useLiveFeeds((s) => s.syncAll)
   const lastLive = latestLiveFetch(liveMeta)
 
+  const derived = useMemo(() => {
+    const items = estate.intelItems
+    const total = items.length
+    const sourceRows = SOURCE_KEYS.map((key) => ({
+      source: key,
+      count: items.filter((item) => item.source === key).length,
+      ...SOURCE_META[key],
+    })).sort((a, b) => b.count - a.count)
+    const timeline = Array.from({ length: 12 }, (_, i) => {
+      const start = estate.now - (11 - i) * 8 * 3600 * 1000
+      const end = start + 8 * 3600 * 1000
+      const bucket = items.filter((item) => {
+        const t = new Date(item.published).getTime()
+        return t >= start && t < end
+      })
+      const d = new Date(start + 4 * 3600 * 1000)
+      return {
+        label: d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', hour12: false }),
+        real: bucket.filter((item) => !item.simulated).length,
+        simulated: bucket.filter((item) => item.simulated).length,
+      }
+    })
+    const bucketTotals = timeline.map((b) => b.real + b.simulated)
+    const categoryRows = Object.entries(
+      items.reduce<Record<string, number>>((acc, item) => {
+        acc[item.category] = (acc[item.category] ?? 0) + 1
+        return acc
+      }, {}),
+    )
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+    return {
+      sourceRows,
+      total,
+      timeline,
+      bucketTotals,
+      avgPerBucket: bucketTotals.reduce((a, b) => a + b, 0) / timeline.length,
+      categoryRows,
+      realItems: items.filter((item) => !item.simulated).length,
+      maxRecords: Math.max(1, ...estate.sourceHealth.map((s) => s.records)),
+    }
+  }, [estate])
+
+  const { sourceRows, total, timeline, bucketTotals, avgPerBucket, categoryRows, realItems, maxRecords } = derived
+  const simulatedItems = total - realItems
+  const realSources = estate.sourceHealth.filter((s) => s.kind === 'real').length
+  const countFor = (key: SourceFilter) =>
+    key === 'ALL' ? total : (sourceRows.find((row) => row.source === key)?.count ?? 0)
+  const recordWidth = (records: number) =>
+    Math.max(5, (Math.log10(Math.max(1, records)) / Math.log10(maxRecords)) * 100)
+
   const freshness = useMemo(
     () =>
-      sourceHealth.map((source) => {
-        const key = LIVE_SOURCE_KEYS[source.source]
+      estate.sourceHealth.map((sourceItem) => {
+        const key = LIVE_SOURCE_KEYS[sourceItem.source]
         const live = key ? liveMeta[key] : undefined
         return {
-          ...source,
-          status: live ? (live.status === 'ok' ? 'OK' : 'DEGRADED') : source.status,
-          lastSuccess: live?.fetchedAt ?? source.lastSuccess,
+          ...sourceItem,
+          status: live ? (live.status === 'ok' ? 'OK' : 'DEGRADED') : sourceItem.status,
+          lastSuccess: live?.fetchedAt ?? sourceItem.lastSuccess,
           live: Boolean(live),
-          age: live
-            ? (Date.now() - new Date(live.fetchedAt).getTime()) / 3600000
-            : (DEMO_NOW.getTime() - new Date(source.lastSuccess).getTime()) / 3600000,
+          /* A bundled timestamp can sit ahead of this clock, and "-12.9h since last pull" is
+             nonsense; a feed that was just built reads as fresh, not as time-travelling. */
+          age: Math.max(0, ((live ? Date.now() : estate.now) - new Date(live?.fetchedAt ?? sourceItem.lastSuccess).getTime()) / 3600000),
         }
       }),
-    [liveMeta],
+    [estate, liveMeta],
   )
   const freshSources = freshness.filter((source) => source.age <= 24).length
   const freshShare = Math.round((freshSources / freshness.length) * 100)
@@ -149,7 +156,7 @@ export default function Intel() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return intelItems
+    return estate.intelItems
       .filter((item) => source === 'ALL' || item.source === source)
       .filter((item) =>
         q ? `${item.title} ${item.summary} ${item.category} ${item.source}`.toLowerCase().includes(q) : true,
@@ -159,13 +166,13 @@ export default function Intel() {
         const diff = new Date(b.published).getTime() - new Date(a.published).getTime()
         return sort === 'new' ? diff : -diff
       })
-  }, [source, search, sort])
+  }, [estate, source, search, sort])
 
   const mixOption = useMemo(() => {
     const t = chartTokens(theme)
     return {
       title: {
-        text: String(TOTAL_ITEMS),
+        text: String(total),
         subtext: 'cached items',
         left: 'center',
         top: '37%',
@@ -206,7 +213,7 @@ export default function Intel() {
             scaleSize: 7,
             itemStyle: { shadowBlur: 26, shadowColor: hexA(TEAL, 0.4) },
           },
-          data: SOURCE_ROWS.map((row) => ({
+          data: sourceRows.map((row) => ({
             name: row.source,
             value: row.count,
             itemStyle: { color: row.color },
@@ -217,17 +224,17 @@ export default function Intel() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, derived])
 
   const categoryOption = useMemo(() => {
     const t = chartTokens(theme)
     const ax = axisStyle(theme)
     return {
       grid: { left: 128, right: 30, top: 8, bottom: 4 },
-      xAxis: { type: 'value', show: false, max: Math.max(...CATEGORY_ROWS.map((row) => row.count)) + 1 },
+      xAxis: { type: 'value', show: false, max: Math.max(...categoryRows.map((row) => row.count)) + 1 },
       yAxis: {
         type: 'category',
-        data: CATEGORY_ROWS.map((row) => row.name),
+        data: categoryRows.map((row) => row.name),
         inverse: true,
         ...ax,
         axisLabel: { ...ax.axisLabel, fontSize: 8, width: 106, overflow: 'break', lineHeight: 10.5 },
@@ -245,7 +252,7 @@ export default function Intel() {
           type: 'bar',
           barWidth: 9,
           animationDelay: (idx: number) => 90 + idx * 55,
-          data: CATEGORY_ROWS.map((row, index) => ({
+          data: categoryRows.map((row, index) => ({
             value: row.count,
             itemStyle: {
               borderRadius: [0, 4, 4, 0],
@@ -277,7 +284,7 @@ export default function Intel() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, derived])
 
   const timelineOption = useMemo(() => {
     const ax = axisStyle(theme)
@@ -297,7 +304,7 @@ export default function Intel() {
       grid: { left: 32, right: 16, top: 28, bottom: 38 },
       xAxis: {
         type: 'category',
-        data: TIMELINE.map((bucket) => bucket.label),
+        data: timeline.map((bucket) => bucket.label),
         ...ax,
         axisLabel: { ...ax.axisLabel, fontSize: 7.5, rotate: 30, margin: 10 },
       },
@@ -316,7 +323,7 @@ export default function Intel() {
           name: 'Real public source',
           type: 'bar',
           stack: 'items',
-          data: TIMELINE.map((bucket) => bucket.real),
+          data: timeline.map((bucket) => bucket.real),
           barWidth: '52%',
           animationDelay: (idx: number) => 80 + idx * 42,
           itemStyle: { color: barGradient(TEAL), borderRadius: [0, 0, 0, 0] },
@@ -330,7 +337,7 @@ export default function Intel() {
           name: 'Simulated / sample',
           type: 'bar',
           stack: 'items',
-          data: TIMELINE.map((bucket) => bucket.simulated),
+          data: timeline.map((bucket) => bucket.simulated),
           animationDelay: (idx: number) => 80 + idx * 42,
           itemStyle: { color: barGradient(SIMULATED), borderRadius: [3, 3, 0, 0] },
           emphasis: {
@@ -343,18 +350,18 @@ export default function Intel() {
             symbol: 'none',
             lineStyle: { color: hexA(AMBER, 0.5), type: 'dashed', width: 1 },
             label: {
-              formatter: `avg ${AVG_PER_BUCKET.toFixed(1)}`,
+              formatter: `avg ${avgPerBucket.toFixed(1)}`,
               color: t.muted,
               fontSize: 8,
               fontFamily: chartFont,
               position: 'insideEndTop',
             },
-            data: [{ yAxis: AVG_PER_BUCKET }],
+            data: [{ yAxis: avgPerBucket }],
           },
         },
       ],
     }
-  }, [theme])
+  }, [theme, derived])
 
   const sourceMapOption = useMemo(() => {
     const ax = axisStyle(theme)
@@ -396,7 +403,7 @@ export default function Intel() {
           data: freshness.map((item) => {
             const meta = sourceMeta(item.source)
             const color = item.kind === 'simulated' ? SIMULATED : meta.color
-            const items = SOURCE_ROWS.find((row) => row.source === item.source)?.count ?? 0
+            const items = sourceRows.find((row) => row.source === item.source)?.count ?? 0
             return {
               value: [item.age, item.records, items, item.source],
               itemStyle: {
@@ -447,7 +454,7 @@ export default function Intel() {
         },
       ],
     }
-  }, [theme, freshness])
+  }, [theme, freshness, derived])
 
   const openSource = (next: string) => {
     setSource(next as SourceFilter)
@@ -473,7 +480,7 @@ export default function Intel() {
             </span>
             <button
               className="btn btn-ghost btn-sm"
-              onClick={() => void syncAll({ force: true })}
+              onClick={() => void syncAll({ force: true, ids: estate.syncIds, nvdIds: estate.nvdIds })}
               disabled={syncing}
               aria-busy={syncing}
             >
@@ -488,24 +495,29 @@ export default function Intel() {
         <div className="kpi teal-tone">
           <div className="kpi-label">Real public sources</div>
           <div className="kpi-value">
-            {REAL_SOURCES}
-            <small>of {sourceHealth.length}</small>
+            {realSources}
+            <small>of {estate.sourceHealth.length}</small>
           </div>
           <div className="kpi-dots" aria-hidden="true">
-            {sourceHealth.map((item) => (
+            {estate.sourceHealth.map((item) => (
               <i key={item.source} className={item.kind === 'simulated' ? 'sim' : 'on'} />
             ))}
           </div>
-          <div className="kpi-delta">NVD · CISA KEV · FIRST EPSS</div>
+          <div className="kpi-delta">
+            {estate.sourceHealth
+              .filter((item) => item.kind === 'real')
+              .map((item) => item.source)
+              .join(' · ')}
+          </div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Items in window</div>
-          <div className="kpi-value">{TOTAL_ITEMS}</div>
+          <div className="kpi-value">{total}</div>
           <div className="kpi-delta">
-            {REAL_ITEMS} real · {SIMULATED_ITEMS} simulated
+            {realItems} real · {simulatedItems} simulated
           </div>
           <span className="kpi-spark">
-            <Sparkline values={BUCKET_TOTALS} width={68} height={24} color={TEAL} />
+            <Sparkline values={bucketTotals} width={68} height={24} color={TEAL} />
           </span>
         </div>
         <div className="kpi amber-tone">
@@ -541,23 +553,26 @@ export default function Intel() {
         <Panel className="col-4" title="Source mix" sub="Items in the cached window" noPad spotlight>
           <Chart option={mixOption} height={200} />
           <div className="legend-list">
-            {SOURCE_ROWS.map((row) => (
+            {sourceRows.map((row) => (
               <div className="legend-line" key={row.source}>
                 <i style={{ background: row.color }} />
                 <span>{row.source}</span>
                 <b>{row.count}</b>
-                <em>{Math.round((row.count / TOTAL_ITEMS) * 100)}%</em>
+                <em>{Math.round((row.count / total) * 100)}%</em>
               </div>
             ))}
           </div>
-          <div className="chart-note">5 adapters · 2 carry clearly labelled simulated items.</div>
+          <div className="chart-note">
+            {sourceRows.filter((row) => row.count > 0).length} of {SOURCE_KEYS.length} sources carry items ·{' '}
+            {simulatedItems} clearly labelled simulated.
+          </div>
         </Panel>
 
         <Panel className="col-4" title="What changed" sub="Items by change type" noPad spotlight>
           <Chart option={categoryOption} height={238} />
           <div className="chart-note">
-            Vulnerability enrichment accounts for {CATEGORY_ROWS[0]?.count ?? 0} of {TOTAL_ITEMS} items. Simulated
-            categories stay visible instead of being folded into the real-feed count.
+            {categoryRows[0]?.name ?? 'No category'} accounts for {categoryRows[0]?.count ?? 0} of {total} items.
+            Simulated categories stay visible instead of being folded into the real-feed count.
           </div>
         </Panel>
 
@@ -753,7 +768,7 @@ export default function Intel() {
               <ShieldCheck size={11} /> Health is a computed age check, not a live network probe.
             </span>
             <span className="mono">
-              {lastLive ? `live pull ${fmtDateTime(lastLive)}` : `demo clock ${DEMO_NOW.toISOString().slice(11, 16)}Z`}
+              {lastLive ? `live pull ${fmtDateTime(lastLive)}` : `demo clock ${estate.nowIso.slice(11, 16)}Z`}
             </span>
           </div>
         </Panel>
@@ -762,7 +777,7 @@ export default function Intel() {
           <Panel
             className="col-12"
             title="Intelligence stream"
-            sub={`${filtered.length} of ${TOTAL_ITEMS} items · ${source === 'ALL' ? 'all sources' : source}`}
+            sub={`${filtered.length} of ${total} items · ${source === 'ALL' ? 'all sources' : source}`}
             action={<span className="badge real">Live feeds · cached offline</span>}
             noPad
           >
@@ -803,7 +818,7 @@ export default function Intel() {
               </button>
               <div className="ops-toolbar-spacer" />
               <span className="ops-result">
-                {filtered.length} of {TOTAL_ITEMS}
+                {filtered.length} of {total}
               </span>
               <LiveDot label={lastLive ? 'browser cache' : 'offline cache'} />
             </div>
@@ -851,7 +866,7 @@ export default function Intel() {
                           </td>
                           <td>
                             <div className="ops-ident-copy">
-                              <span className="ops-metric-value strong">{timeAgo(item.published, DEMO_NOW)}</span>
+                              <span className="ops-metric-value strong">{timeAgo(item.published, estate.now)}</span>
                               <span className="ops-sub mono">{fmtDate(item.published)}</span>
                             </div>
                           </td>
@@ -888,21 +903,21 @@ export default function Intel() {
           stats={[
             {
               name: 'Items per source',
-              value: (TOTAL_ITEMS / SOURCE_KEYS.length).toFixed(1),
+              value: (total / SOURCE_KEYS.length).toFixed(1),
               formula: 'items ÷ 5 sources',
-              n: TOTAL_ITEMS,
+              n: total,
             },
             {
               name: 'Real-data share',
-              value: `${((REAL_ITEMS / TOTAL_ITEMS) * 100).toFixed(1)}%`,
+              value: `${((realItems / total) * 100).toFixed(1)}%`,
               formula: 'real ÷ all items',
-              n: TOTAL_ITEMS,
+              n: total,
             },
             {
               name: 'Simulated share',
-              value: `${((SIMULATED_ITEMS / TOTAL_ITEMS) * 100).toFixed(1)}%`,
+              value: `${((simulatedItems / total) * 100).toFixed(1)}%`,
               formula: 'simulated ÷ all items',
-              n: TOTAL_ITEMS,
+              n: total,
             },
             {
               name: 'Fresh sources',
@@ -912,9 +927,9 @@ export default function Intel() {
             },
             {
               name: 'Records held',
-              value: fmtInt(sourceHealth.reduce((total, item) => total + item.records, 0)),
+              value: fmtInt(estate.sourceHealth.reduce((total, item) => total + item.records, 0)),
               formula: 'sum of per-source record counts',
-              n: sourceHealth.length,
+              n: estate.sourceHealth.length,
             },
           ]}
         />

@@ -5,9 +5,9 @@ import { Drawer, DrawerHead } from '../../components/Drawer'
 import { StatsPanel } from '../../components/StatsPanel'
 import { SourceBadge } from '../../components/Badges'
 import { Activity, AlertTriangle, Info, ShieldCheck } from '../../components/Icons'
-import { anomalyWindows } from '../../data/seed'
+import { useEstate } from '../../lib/estate'
 import { useTheme } from '../../lib/store'
-import { fmtScore } from '../../lib/format'
+import { fmtInt, fmtScore } from '../../lib/format'
 import { mean, median, quantile, stdev } from '../../lib/stats'
 import { AMBER, LEVEL_COLORS, TEAL, hexA } from '../../lib/colors'
 import type { LogWindow } from '../../lib/types'
@@ -16,12 +16,16 @@ const THRESHOLD = 0.2
 
 export default function Anomalies() {
   const theme = useTheme((s) => s.theme)
+  const estate = useEstate()
+  const anomalyWindows = estate.anomalyWindows
+  const fromUploads = estate.coverage.hasEvents
   const [selected, setSelected] = useState<LogWindow | null>(null)
   const [onlyAnomalies, setOnlyAnomalies] = useState(false)
 
   const rows = anomalyWindows.filter((w) => (onlyAnomalies ? w.anomaly : true))
   const anomalies = anomalyWindows.filter((w) => w.anomaly)
   const scores = anomalyWindows.map((w) => w.anomalyScore)
+  const peakWindow = [...anomalies].sort((a, b) => b.anomalyScore - a.anomalyScore)[0]
 
   const scatterOption = useMemo(() => {
     const ax = axisStyle(theme)
@@ -74,7 +78,7 @@ export default function Anomalies() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, anomalyWindows])
 
   const barOption = useMemo(() => {
     const ax = axisStyle(theme)
@@ -105,7 +109,7 @@ export default function Anomalies() {
         },
       ],
     }
-  }, [theme])
+  }, [theme, anomalyWindows])
 
   return (
     <div className="page">
@@ -115,8 +119,8 @@ export default function Anomalies() {
         description="Auth logs are reduced to windows, features are compared with the baseline, and only deviations above the threshold are surfaced with their evidence."
         actions={
           <div className="inline-flex">
-            <SourceBadge source="USER UPLOAD" />
-            <span className="mono" style={{ fontSize: 9 }}>demo windows</span>
+            <SourceBadge source={fromUploads ? 'USER UPLOAD' : 'SIMULATED'} />
+            <span className="mono" style={{ fontSize: 9 }}>{fromUploads ? `${fmtInt(estate.coverage.events)} accepted rows` : 'seeded demo windows'}</span>
           </div>
         }
       />
@@ -125,7 +129,7 @@ export default function Anomalies() {
         <div className="kpi">
           <div className="kpi-label">Windows analysed</div>
           <div className="kpi-value">{anomalyWindows.length}</div>
-          <div className="kpi-delta">6-hour buckets · demo week</div>
+          <div className="kpi-delta">6-hour buckets · {fromUploads ? 'accepted logs' : 'demo week'}</div>
         </div>
         <div className="kpi critical-tone">
           <div className="kpi-label">Anomalies flagged</div>
@@ -135,7 +139,7 @@ export default function Anomalies() {
         <div className="kpi amber-tone">
           <div className="kpi-label">Peak score</div>
           <div className="kpi-value">{fmtScore(Math.max(...scores))}</div>
-          <div className="kpi-delta">{anomalies.sort((a, b) => b.anomalyScore - a.anomalyScore)[0]?.label}</div>
+          <div className="kpi-delta">{peakWindow?.label ?? 'no window crosses the threshold'}</div>
         </div>
         <div className="kpi teal-tone">
           <div className="kpi-label">Baseline failure rate</div>
@@ -172,7 +176,9 @@ export default function Anomalies() {
             {[
               ['Reduce logs', 'Group events into six-hour windows per destination asset.'],
               ['Build features', 'Failed logins, distinct source IPs, request rate, and country novelty.'],
-              ['Score isolation', 'The demo ships precomputed scores aligned with an IsolationForest run; no live model call is made.'],
+              ['Score isolation', fromUploads
+                ? 'Features are z-scored against the accepted window set — the same shape an IsolationForest consumes, computed in-browser with no live model call.'
+                : 'The demo ships precomputed scores aligned with an IsolationForest run; no live model call is made.'],
               ['Apply threshold', 'A fixed 0.2 cut keeps the demo deterministic and auditable.'],
             ].map(([title, body], i) => (
               <li key={title} style={{ display: 'flex', gap: 12 }}>
@@ -202,8 +208,9 @@ export default function Anomalies() {
           <div className="form-alert" style={{ margin: '16px 0 0' }}>
             <Info size={13} />
             <span>
-              These window-level scores are demonstration data, not a claim that a model detected these events
-              in a live environment.
+              {fromUploads
+                ? `Scores are derived from ${fmtInt(estate.coverage.events)} accepted log rows using the published feature weights. They are a transparent heuristic, not a trained-model claim.`
+                : 'These window-level scores are demonstration data, not a claim that a model detected these events in a live environment. Accept a log dataset to compute them from your own rows.'}
             </span>
           </div>
         </Panel>
@@ -295,8 +302,8 @@ export default function Anomalies() {
               onClose={() => setSelected(null)}
               meta={
                 <span className="inline-flex" style={{ gap: 8 }}>
-                  <SourceBadge source="USER UPLOAD" />
-                  <span className="badge simulated">demo windows</span>
+                  <SourceBadge source={fromUploads ? 'USER UPLOAD' : 'SIMULATED'} />
+                  <span className={`badge ${fromUploads ? 'real' : 'simulated'}`}>{fromUploads ? 'derived window' : 'demo window'}</span>
                 </span>
               }
             />

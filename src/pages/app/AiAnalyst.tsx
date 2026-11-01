@@ -15,11 +15,10 @@ import {
   Sparkles,
 } from '../../components/Icons'
 import { componentByPath } from '../../app/catalog'
-import { assets, counts, posture, sourceHealth } from '../../data/seed'
+import { useEstate } from '../../lib/estate'
 import { mlPortfolio, MODEL_CARD } from '../../lib/ml'
 import { useAiPanel } from '../../lib/aiStore'
 import { useAuth } from '../../lib/store'
-import { allUploadedAssets, useUploads } from '../../lib/uploads'
 import { cx } from '../../lib/format'
 
 const SUGGESTIONS = [
@@ -106,9 +105,12 @@ export default function AiAnalyst() {
   const stop = useAiPanel((s) => s.stop)
   const resetChat = useAiPanel((s) => s.resetChat)
   const retryChat = useAiPanel((s) => s.retryChat)
-  const uploadDatasets = useUploads((s) => s.datasets)
-
-  const uploadedAssets = allUploadedAssets(uploadDatasets)
+  const estate = useEstate()
+  const { assets, counts, posture, sourceHealth } = estate
+  const uploadDatasets = estate.datasets
+  const uploadedAssets = estate.uploadedAssets
+  const portfolio = mlPortfolio(estate.activeAlerts)
+  const degradedCount = sourceHealth.filter((s) => s.status === 'DEGRADED').length
 
   const component = componentByPath('/app/ai')
   const [input, setInput] = useState('')
@@ -449,18 +451,18 @@ export default function AiAnalyst() {
               <div className="ai-page-fact">
                 <span>Inventory</span>
                 <strong>
-                  {assets.length + uploadedAssets.length} assets
+                  {assets.length} assets
                   {uploadedAssets.length > 0 && <span className="dim"> · {uploadedAssets.length} uploaded</span>}
                 </strong>
               </div>
               <div className="ai-page-fact">
                 <span>Sources</span>
-                <strong>{sourceHealth.length} · 1 degraded</strong>
+                <strong>{sourceHealth.length} · {degradedCount} degraded</strong>
               </div>
               {uploadDatasets.length > 0 && (
                 <div className="ai-page-fact">
-                  <span>Uploads</span>
-                  <strong>{uploadDatasets.length} accepted</strong>
+                  <span>Scope</span>
+                  <strong>{estate.scope.all ? `${uploadDatasets.length} accepted` : estate.scope.label.slice(0, 22)}</strong>
                 </div>
               )}
               <div className="ai-page-fact">
@@ -475,8 +477,8 @@ export default function AiAnalyst() {
               </div>
             </div>
             <p className="ai-page-note">
-              Answers about the workspace use these live demo numbers. {mlPortfolio.elevated} of{' '}
-              {mlPortfolio.coverage} active alerts carry an elevated XGBoost prior; the deterministic score stays
+              Answers about the workspace use these live demo numbers. {portfolio.elevated} of{' '}
+              {portfolio.coverage} active alerts carry an elevated XGBoost prior; the deterministic score stays
               authoritative.
             </p>
           </div>

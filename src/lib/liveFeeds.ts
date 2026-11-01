@@ -35,6 +35,12 @@ export interface LiveSourceMeta {
   error?: string
 }
 
+interface SyncOptions {
+  force?: boolean
+  ids?: string[]
+  nvdIds?: string[]
+}
+
 interface LiveFeedsState {
   patches: Record<string, LiveCvePatch>
   meta: Partial<Record<LiveSource, LiveSourceMeta>>
@@ -42,7 +48,7 @@ interface LiveFeedsState {
   phase: string | null
   progress: { done: number; total: number } | null
   lastError: string | null
-  syncAll: (options?: { force?: boolean }) => Promise<void>
+  syncAll: (options?: SyncOptions) => Promise<void>
 }
 
 const KEV_TTL = 6 * 3600 * 1000
@@ -85,24 +91,30 @@ async function fetchKev(ids: string[]) {
 }
 
 async function fetchEpss(ids: string[]) {
-  const url = `https://api.first.org/data/v1/epss?cve=${encodeURIComponent(ids.join(','))}`
-  const response = await fetch(url, { headers: { accept: 'application/json' } })
-  if (!response.ok) throw new Error(`EPSS API returned ${response.status}`)
-  const data = await response.json()
-  const rows: any[] = Array.isArray(data?.data) ? data.data : []
   const at = new Date().toISOString()
   const patch: Record<string, LiveCvePatch> = {}
-  for (const row of rows) {
-    const epss = Number(row.epss)
-    if (!Number.isFinite(epss)) continue
-    const percentile = Number(row.percentile)
-    patch[String(row.cve)] = {
-      epss,
-      epssPercentile: Number.isFinite(percentile) ? percentile : undefined,
-      epssAt: at,
+  let records = 0
+  // The EPSS endpoint takes a comma list, but the query string has to stay URL-safe.
+  for (let i = 0; i < ids.length; i += 120) {
+    const chunk = ids.slice(i, i + 120)
+    const url = `https://api.first.org/data/v1/epss?cve=${encodeURIComponent(chunk.join(','))}`
+    const response = await fetch(url, { headers: { accept: 'application/json' } })
+    if (!response.ok) throw new Error(`EPSS API returned ${response.status}`)
+    const data = await response.json()
+    const rows: any[] = Array.isArray(data?.data) ? data.data : []
+    for (const row of rows) {
+      const epss = Number(row.epss)
+      if (!Number.isFinite(epss)) continue
+      const percentile = Number(row.percentile)
+      patch[String(row.cve)] = {
+        epss,
+        epssPercentile: Number.isFinite(percentile) ? percentile : undefined,
+        epssAt: at,
+      }
     }
+    records += rows.length
   }
-  return { patch, records: rows.length }
+  return { patch, records }
 }
 
 const SEVERITIES = new Set(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'])
@@ -181,9 +193,13 @@ let run: Promise<void> | null = null
 async function runSync(
   set: (partial: Partial<LiveFeedsState> | ((state: LiveFeedsState) => Partial<LiveFeedsState>)) => void,
   get: () => LiveFeedsState,
-  force: boolean,
+  options: SyncOptions,
 ) {
-  const ids = seedCves.map((cve) => cve.id)
+  const force = Boolean(options.force)
+  // The whole KEV catalog and the EPSS batch are single pulls, so they can cover the corpus
+  // as well as the curated records. NVD is per-id and rate limited, so it only sees nvdIds.
+  const ids = options.ids?.length ? options.ids : seedCves.map((cve) => cve.id)
+  const nvdTargets = options.nvdIds?.length ? options.nvdIds : ids
   const errors: string[] = []
   set({ syncing: true, phase: 'starting', progress: null, lastError: null })
 
@@ -238,8 +254,8 @@ async function runSync(
 
   if (force || !isFresh(snapshot.NVD, NVD_TTL)) {
     const pending = force
-      ? ids
-      : ids.filter((id) => {
+      ? nvdTargets
+      : nvdTargets.filter((id) => {
           const at = get().patches[id]?.nvdAt
           return !at || Date.now() - new Date(at).getTime() > NVD_TTL
         })
@@ -301,7 +317,7 @@ export const useLiveFeeds = create<LiveFeedsState>()(
       lastError: null,
       syncAll: (options) => {
         if (run) return run
-        run = runSync(set, get, Boolean(options?.force)).finally(() => {
+        run = runSync(set, get, options ?? {}).finally(() => {
           run = null
         })
         return run

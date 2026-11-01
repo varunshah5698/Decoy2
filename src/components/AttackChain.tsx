@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Globe2, KeyRound, Lock, Network, Radar, Swords, Zap } from './Icons'
-import { techniques } from '../data/seed'
+import { useEstate } from '../lib/estate'
 import { cx } from '../lib/format'
 import { LEVEL_COLORS, hexA } from '../lib/colors'
 import type { RiskLevel } from '../lib/types'
@@ -19,17 +19,18 @@ const toneFor = (observed: number): RiskLevel =>
   observed >= 12 ? 'CRITICAL' : observed >= 8 ? 'HIGH' : observed >= 4 ? 'MEDIUM' : 'LOW'
 
 export function AttackChain() {
+  const estate = useEstate()
   const [active, setActive] = useState(0)
 
   const stages = useMemo(
     () =>
       STAGES.map((s) => {
-        const items = techniques.filter((t) => t.tactic === s.tactic).sort((a, b) => b.observed - a.observed)
+        const items = estate.techniques.filter((t) => t.tactic === s.tactic).sort((a, b) => b.observed - a.observed)
         const observed = items.reduce((sum, t) => sum + t.observed, 0)
         const level = toneFor(observed)
         return { ...s, items, observed, level, tone: LEVEL_COLORS[level] }
       }),
-    [],
+    [estate.techniques],
   )
 
   const stage = stages[active]

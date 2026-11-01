@@ -25,8 +25,9 @@ export const fmtDateTime = (iso: string) =>
     minute: '2-digit',
   })
 
-export const timeAgo = (iso: string, now = new Date()) => {
-  const diff = Math.max(0, now.getTime() - new Date(iso).getTime())
+export const timeAgo = (iso: string, now: Date | number = Date.now()) => {
+  const at = typeof now === 'number' ? now : now.getTime()
+  const diff = Math.max(0, at - new Date(iso).getTime())
   const mins = Math.round(diff / 60000)
   if (mins < 60) return `${mins}m ago`
   const hours = Math.round(mins / 60)
