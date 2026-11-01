@@ -175,6 +175,8 @@ const TYPE_LABEL: Record<Asset['type'], string> = {
   endpoint: 'workstation',
 }
 
+const withArticle = (label: string) => `${/^[aeiou]/i.test(label) ? 'an' : 'a'} ${label}`
+
 /* The asset tag gives the base surface, but the package itself can widen it: an
    injection flaw in a product installed on a plain server still puts injection in play. */
 const CWE_TO_CLASS: Record<string, string> = {
@@ -904,7 +906,7 @@ export const simulate = (input: SimInput, data: Dataset = DEFAULT_SET): SimModel
       ruledOut.push({
         key: profile.key,
         name: profile.name,
-        reason: `not modelled against a ${TYPE_LABEL[asset.type]} running ${target.product}`,
+        reason: `not modelled against ${withArticle(TYPE_LABEL[asset.type])} running ${target.product}`,
       })
       continue
     }

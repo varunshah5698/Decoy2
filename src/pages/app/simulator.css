@@ -361,9 +361,21 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+/* a long path picker must scroll inside the head, never widen the card */
+.sim-card-head .sim-seg {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sim-card-head .sim-seg::-webkit-scrollbar {
+  display: none;
 }
 
 /* ---------- segmented control ---------- */
